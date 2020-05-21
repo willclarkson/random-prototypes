@@ -155,7 +155,7 @@ class LinearInvar(object):
         """Evaluates the '1-sigma' uncertainty in x(t) given input
         times. Returns std not variance."""
 
-        xVar = self.alphaVar**2 + (tIn - self.tBar)**2 * self.betaVar
+        xVar = self.alphaVar + (tIn - self.tBar)**2 * self.betaVar
 
         return np.sqrt(xVar)
         
