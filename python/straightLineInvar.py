@@ -230,109 +230,19 @@ def testStraightLine(nOne=5, nTwo=6, yrOne=2000.0, yrTwo=2007.0, \
     LIx = LinearInvar(tSimX, ySimX, uSimX, runOnInit=True)
     LIy = LinearInvar(tSimY, ySimY, uSimY, runOnInit=True)
 
-
-    # now set up the plot. We'll want a fine-grained array to overplot
-    # the predictions and 1-sigma uncertainties
-    tFine = np.linspace(np.min(tSimX)-plotTimeBuf, \
-                            np.max(tSimX)+plotTimeBuf, nFine)
-
-    # evaluate the best-fit straight line and its 1-sigma curve
-    predFineX = LIx.evalFunc(tFine)
-    oneSigFineX = LIx.evalOneSig(tFine)
-
-    # ditto for Y
-    predFineY = LIy.evalFunc(tFine)
-    oneSigFineY = LIy.evalOneSig(tFine)
-
-    # generate the +/- one-sigma polygons to fill here
-    tPolX, fPolX = retPolyFill(tFine, predFineX + oneSigFineX, \
-                                   predFineX - oneSigFineX)
-
-    tPolY, fPolY = retPolyFill(tFine, predFineY + oneSigFineY, \
-                                   predFineY - oneSigFineY)
-
-
-    # a few arguments for all the plots
-    cData = 'darkred'
-    cErro = '0.4'
-    szData = 4
-    markerData = 'o'
-    cBestfit = 'k'
-    cBounds = '0.3'
-    cFill = '0.7'
-    # cFill = 'b'
-    alphaFill = 0.3
-
+    # set up the figure
     fig = plt.figure(1)
     fig.clf()
     ax1 = fig.add_subplot(211)
     ax2 = fig.add_subplot(212)
-    
-    # Now do the plotting incantations for each co-ordinate
-    dumErrX = ax1.errorbar(tSimX, ySimX, yerr=uSimX, ls='none', c=cData, \
-                               zorder=5, \
-                               marker='o', ms=szData, \
-                               capsize=4, \
-                               ecolor=cErro)
 
-    dumBestX = ax1.plot(tFine, predFineX, ls='-', color=cBestfit, zorder=6)
-    dumUpper = ax1.plot(tFine, predFineX + oneSigFineX, ls='-', \
-                            color=cBounds, \
-                            lw=0.5)
-    dumLower = ax1.plot(tFine, predFineX - oneSigFineX, ls='-', \
-                            color=cBounds, \
-                            lw=0.5)
+    # now add the panels for x and y
+    showBestFit(LIx, ax1, nFine, plotTimeBuf, masPerPix)
+    showBestFit(LIy, ax2, nFine, plotTimeBuf, masPerPix)
 
-    dumPolX = ax1.fill(tPolX, fPolX, zorder=2, color=cFill, alpha=alphaFill)
-
-    dumErrX = ax1.errorbar(tSimX, ySimX, yerr=uSimX, ls='none', c=cData, \
-                               zorder=5, \
-                               marker='o', ms=szData, \
-                               capsize=6, \
-                               ecolor=cErro)
-
-    #... and now for the Y-positions
-    dumErrY = ax2.errorbar(tSimY, ySimY, yerr=uSimX, ls='none', c=cData, \
-                               zorder=5, \
-                               marker='o', ms=szData, \
-                               capsize=4, \
-                               ecolor=cErro)
-
-    dumBestY = ax2.plot(tFine, predFineY, ls='-', color=cBestfit, zorder=6)
-    dumUpper = ax2.plot(tFine, predFineY + oneSigFineY, ls='-', \
-                            color=cBounds, \
-                            lw=0.5)
-    dumLower = ax2.plot(tFine, predFineY - oneSigFineY, ls='-', \
-                            color=cBounds, \
-                            lw=0.5)
-
-    dumPolY = ax2.fill(tPolY, fPolY, zorder=2, color=cFill, alpha=alphaFill)
-
-
-    # Annotate the plots with the proper motions and object IDs
-
-    # String for the annotations themselves...
-    sPMx = r'$\mu(X) = %.2f \pm %.2f$ mas yr$^{-1}$' % \
-        (LIx.beta*masPerPix, np.sqrt(LIx.betaVar)*masPerPix)
-    sPMy = r'$\mu(Y) = %.2f \pm %.2f$ mas yr$^{-1}$' % \
-        (LIy.beta*masPerPix, np.sqrt(LIy.betaVar)*masPerPix)
-
-    ax1.annotate(sPMx, (0.50,0.02), xycoords='axes fraction', \
-                     ha='center', va='bottom', fontsize=12)
-    ax2.annotate(sPMy, (0.50,0.02), xycoords='axes fraction', \
-                     ha='center', va='bottom', fontsize=12)
-
+    # Annotate the top panel with the object ID
     ax1.annotate(objID, (0.50, 0.97), xycoords='axes fraction', \
                      ha='center', va='top', fontsize=14)
-
-    # annotate with the chisq/dof
-    sChisX = r'$\chi^2_\nu = %.2f / %i$' % (LIx.sumChisq, LIx.nDof)
-    sChisY = r'$\chi^2_\nu = %.2f / %i$' % (LIy.sumChisq, LIy.nDof)
-
-    ax1.annotate(sChisX, (0.98,0.97), xycoords='axes fraction', \
-                     ha='right', va='top', fontsize=10)
-    ax2.annotate(sChisY, (0.98,0.97), xycoords='axes fraction', \
-                     ha='right', va='top', fontsize=10)
 
     # Do we want to enforce the same vertical axis scale?
     if enforceSameAxes:
@@ -353,7 +263,6 @@ def testStraightLine(nOne=5, nTwo=6, yrOne=2000.0, yrTwo=2007.0, \
             newLimsX = diffY * np.array([-0.5, 0.5]) + midX
             ax1.set_ylim(newLimsX)
 
-
     # Now for a few pieces of decoration...
 
     # bring the panes together and move the vertical axis of the top
@@ -370,6 +279,79 @@ def testStraightLine(nOne=5, nTwo=6, yrOne=2000.0, yrTwo=2007.0, \
 
     # finally, save the figure to disk
     fig.savefig(figFilename)
+
+    
+def showBestFit(LI=None, ax=None, nFine=100, plotTimeBuf=0.5, \
+                    masPerPix = 50.):
+
+    """Adds the panel with the best-fit to the input axis."""
+    
+    # Arguments for the plots
+    cData = 'darkred'
+    cErro = '0.4'
+    szData = 4
+    markerData = 'o'
+    cBestfit = 'k'
+    cBounds = '0.3'
+    cFill = '0.7'
+    # cFill = 'b'
+    alphaFill = 0.3
+    
+    # We'll want a fine-grained array to overplot the predictions and
+    # 1-sigma uncertainties
+    tFine = np.linspace(np.min(LI.times)-plotTimeBuf, \
+                            np.max(LI.times)+plotTimeBuf, nFine)
+
+    # evaluate the best-fit straight line and its 1-sigma curve
+    predFineX = LI.evalFunc(tFine)
+    oneSigFineX = LI.evalOneSig(tFine)
+
+    # generate the +/- one-sigma polygons to fill here
+    tPolX, fPolX = retPolyFill(tFine, predFineX + oneSigFineX, \
+                                   predFineX - oneSigFineX)
+
+    # a few arguments for all the plots
+    cData = 'darkred'
+    cErro = '0.4'
+    szData = 4
+    markerData = 'o'
+    cBestfit = 'k'
+    cBounds = '0.3'
+    cFill = '0.7'
+    # cFill = 'b'
+    alphaFill = 0.3
+
+    # Now do the plotting incantations for each co-ordinate
+    dumErrX = ax.errorbar(LI.times, LI.vals, yerr=LI.unctys, \
+                              ls='none', c=cData, \
+                              zorder=5, \
+                              marker='o', ms=szData, \
+                              capsize=4, \
+                              ecolor=cErro)
+
+    dumBestX = ax.plot(tFine, predFineX, ls='-', color=cBestfit, zorder=6)
+    dumUpper = ax.plot(tFine, predFineX + oneSigFineX, ls='-', \
+                           color=cBounds, \
+                           lw=0.5)
+    dumLower = ax.plot(tFine, predFineX - oneSigFineX, ls='-', \
+                           color=cBounds, \
+                            lw=0.5)
+
+    dumPolX = ax.fill(tPolX, fPolX, zorder=2, color=cFill, alpha=alphaFill)
+    
+    # Annotate the pane with the proper motion
+
+    sPMx = r'$\mu(X) = %.2f \pm %.2f$ mas yr$^{-1}$' % \
+        (LI.beta*masPerPix, np.sqrt(LI.betaVar)*masPerPix)
+
+    ax.annotate(sPMx, (0.50,0.02), xycoords='axes fraction', \
+                    ha='center', va='bottom', fontsize=12)
+
+    # annotate with the chisq/dof
+    sChisX = r'$\chi^2_\nu = %.2f / %i$' % (LI.sumChisq, LI.nDof)
+
+    ax.annotate(sChisX, (0.98,0.97), xycoords='axes fraction', \
+                    ha='right', va='top', fontsize=10)
 
 def retPolyFill(tFine, yLo, yHi):
 
