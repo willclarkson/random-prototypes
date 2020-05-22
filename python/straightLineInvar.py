@@ -18,7 +18,6 @@
 # method testStraightLine() generates fake data, fits it, and plots
 # it.
 
-
 import numpy as np
 import matplotlib.pylab as plt
 from matplotlib import ticker
@@ -264,11 +263,11 @@ def testLoadFitPlot(objID='Star 7847', \
 
     # load the data for this star for X, Y
     TSx = TimeSeries(filTimesX, filValsX, filUncsX, runOnInit=True)
-    TSy = TimeSeries(filTimesY, filValsY, filUncsY, runOnInit=True, \
-                         Verbose=True)
+    TSy = TimeSeries(filTimesY, filValsY, filUncsY, runOnInit=True)
 
-    if not TSx.readOK:
-        print("testLoadFitPlot WARN - TSy.readOK = False.")
+    # Warn and exit if there was a problem reading the second dataset
+    if not TSx.readOK or not TSy.readOK:
+        print("testLoadFitPlot WARN - problem reading data")
         return
 
     # Do the linear fit
