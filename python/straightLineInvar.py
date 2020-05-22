@@ -465,7 +465,7 @@ def showBestFit(LI=None, ax=None, nFine=100, plotTimeBuf=0.5, \
         #    item.set_visible(False)
 
     # Annotate the pane with the proper motion
-    sPMx = r'$\mu(X) = %.2f \pm %.2f$ mas yr$^{-1}$' % \
+    sPMx = r'$\mu(X) = %.2f \pm %.3f$ mas yr$^{-1}$' % \
         (LI.beta*masPerPix, np.sqrt(LI.betaVar)*masPerPix)
 
     ax.annotate(sPMx, (0.50,0.02), xycoords='axes fraction', \
