@@ -395,15 +395,17 @@ def showBestFit(LI=None, ax=None, nFine=100, plotTimeBuf=0.5, \
     
     # Arguments for the plots
     cData = 'darkred'
-    cErro = '0.4'
-    szData = 4
+    cErro = '0.3'
+    szData = 3
+    errCapsz = 3
     markerData = 'o'
     cBestfit = 'k'
-    cBounds = '0.3'
-    cFill = '0.7'
+    cBounds = '0.6'
+    cFill = '0.5'
     # cFill = 'b'
     alphaFill = 0.3
-    
+    alphaErrorbar = 0.6  # we want to get an idea of point-concentration
+
     # We'll want a fine-grained array to overplot the predictions and
     # 1-sigma uncertainties
     tFine = np.linspace(np.min(LI.times)-plotTimeBuf, \
@@ -417,17 +419,6 @@ def showBestFit(LI=None, ax=None, nFine=100, plotTimeBuf=0.5, \
     tPolX, fPolX = retPolyFill(tFine, predFineX + oneSigFineX, \
                                    predFineX - oneSigFineX)
 
-    # a few arguments for all the plots
-    cData = 'darkred'
-    cErro = '0.4'
-    szData = 4
-    markerData = 'o'
-    cBestfit = 'k'
-    cBounds = '0.3'
-    cFill = '0.7'
-    # cFill = 'b'
-    alphaFill = 0.3
-
     # When annotating with chi-squared the annotation sometimes
     # overlays the data. To avoid this, we use the chisq as the label
     # and use matplotlib's positioning of the label to put it
@@ -439,10 +430,11 @@ def showBestFit(LI=None, ax=None, nFine=100, plotTimeBuf=0.5, \
     # Now do the plotting incantations for each co-ordinate
     dumErrX = ax.errorbar(LI.times, LI.vals, yerr=LI.unctys, \
                               ls='none', c=cData, \
-                              zorder=5, \
+                              zorder=10, \
                               marker='o', ms=szData, \
-                              capsize=4, \
-                              ecolor=cErro)
+                              capsize=errCapsz, \
+                              ecolor=cErro, \
+                              alpha=alphaErrorbar)
 
     # The best-fit line is labeled with the chisq/dof
     dumBestX = ax.plot(tFine, predFineX, ls='-', color=cBestfit, zorder=6, \
