@@ -259,7 +259,20 @@ def testLoadFitPlot(objID='Star 7847', \
                         masPerPix=50., \
                         figFilename='testFromFiles.png'):
 
-    """Tests loading, fitting and plotting"""
+    """Tests loading, fitting and plotting. Arguments:
+
+    objID -- string with the object ID
+
+    filTimesX, filTimesY -- files with times for X, Y measurements
+
+    filValsX, filValsY -- files with X, Y measurements
+    
+    filUncsX, filUncsY -- files with Y, Y uncertainties
+
+    masPerPix -- milliarcsec per pixel for data (to convert the
+    gradient in pix/yr to mas/yr)
+
+    figFilename -- filename for the output figure"""
 
     # load the data for this star for X, Y
     TSx = TimeSeries(filTimesX, filValsX, filUncsX, runOnInit=True)
