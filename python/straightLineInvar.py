@@ -344,12 +344,21 @@ def plotFits(LIx=None, LIy=None, objID='123', \
     ax2 = fig.add_subplot(212)
 
     # now add the panels for x and y
-    showBestFit(LIx, ax1, nFine, plotTimeBuf, masPerPix)
-    showBestFit(LIy, ax2, nFine, plotTimeBuf, masPerPix)
+    showBestFit(LIx, ax1, nFine, plotTimeBuf)
+    showBestFit(LIy, ax2, nFine, plotTimeBuf)
 
     # Annotate the top panel with the object ID
     ax1.annotate(objID, (0.50, 0.93), xycoords='axes fraction', \
                      ha='center', va='top', fontsize=14)
+
+    # Annotate both panels with the proper motion and uncertainty
+    for sCoo, fitObj, ax in zip(['X', 'Y'], [LIx, LIy], [ax1, ax2]):
+        sAnno = r'$\mu(%s) = %.2f \pm %.3f$ mas yr$^{-1}$' \
+            % (sCoo, fitObj.beta*masPerPix, \
+                   np.sqrt(fitObj.betaVar)*masPerPix)
+        
+        ax.annotate(sAnno, (0.50,0.02), xycoords='axes fraction', \
+                        ha='center', va='bottom', fontsize=12)
 
     # Do we want to enforce the same vertical axis scale?
     if enforceSameAxes:
@@ -389,7 +398,7 @@ def plotFits(LIx=None, LIy=None, objID='123', \
 
     
 def showBestFit(LI=None, ax=None, nFine=100, plotTimeBuf=0.5, \
-                    masPerPix = 50., showChisq=True):
+                    showChisq=True):
 
     """Adds the panel with the best-fit to the input axis."""
     
@@ -455,19 +464,6 @@ def showBestFit(LI=None, ax=None, nFine=100, plotTimeBuf=0.5, \
         # uncomment the following to hide the marker with the legend
         #for item in leg.legendHandles:
         #    item.set_visible(False)
-
-    # Annotate the pane with the proper motion
-    sPMx = r'$\mu(X) = %.2f \pm %.3f$ mas yr$^{-1}$' % \
-        (LI.beta*masPerPix, np.sqrt(LI.betaVar)*masPerPix)
-
-    ax.annotate(sPMx, (0.50,0.02), xycoords='axes fraction', \
-                    ha='center', va='bottom', fontsize=12)
-
-    # annotate with the chisq/dof. 
-    #sChisX = r'$\chi^2_\nu = %.2f / %i$' % (LI.sumChisq, LI.nDof)
-
-    #ax.annotate(sChisX, (0.98,0.97), xycoords='axes fraction', \
-    #                ha='right', va='top', fontsize=10)
 
     # switch off the axis offset
     y_formatter = ticker.ScalarFormatter(useOffset=False)
