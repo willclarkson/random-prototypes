@@ -55,12 +55,20 @@ class LinearInvar(object):
         self.alphaVar = 0. # formal variance of the CM value
         self.betaVar = 0. # formal variance of the gradient
         
+        # some statistics
+        self.sumChisq = 0.
+        self.nDof = np.size(self.times) - 2
+
         # Convenience views
         self.wgts = np.array([])    # weights
         self.tDiffs = np.array([])   # t-tbar
         
         # Internal quantities
         self.sumWgts = 1.
+
+        # array of chisq per object
+        self.valsPred = np.array([]) 
+        self.chisqs = np.array([])
 
         # if runOnInit is set and the dimensions of the data allow it,
         # do everything.
@@ -73,6 +81,9 @@ class LinearInvar(object):
             self.calcOptBeta()
             self.calcOptAlphaVar()
             self.calcOptBetaVar()
+            self.calcValsPred()
+            self.calcChisq()
+            self.calcSumChisq()
 
     def dimensAgree(self):
 
@@ -159,6 +170,26 @@ class LinearInvar(object):
 
         return np.sqrt(xVar)
         
+    def calcValsPred(self):
+
+        """Calculates predicted locations using the best-fit model"""
+
+        self.valsPred = self.evalFunc(self.times)
+
+    def calcChisq(self):
+
+        """Calculates chisq"""
+        
+        # weights are assumed to be 1/sigma^2
+
+        self.chisqs = (self.vals - self.valsPred)**2 * self.wgts
+
+    def calcSumChisq(self):
+
+        """Calculates the sum of the chisq"""
+
+        self.sumChisq = np.sum(self.chisqs)
+        self.nDof = np.size(self.chisqs) - 2
 
 def testStraightLine(nOne=5, nTwo=6, yrOne=2000.0, yrTwo=2007.0, \
                          medOneX=1393.0, betaX=0.0, \
@@ -198,6 +229,7 @@ def testStraightLine(nOne=5, nTwo=6, yrOne=2000.0, yrTwo=2007.0, \
     # compute optimal average
     LIx = LinearInvar(tSimX, ySimX, uSimX, runOnInit=True)
     LIy = LinearInvar(tSimY, ySimY, uSimY, runOnInit=True)
+
 
     # now set up the plot. We'll want a fine-grained array to overplot
     # the predictions and 1-sigma uncertainties
