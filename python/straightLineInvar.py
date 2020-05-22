@@ -325,6 +325,15 @@ def testStraightLine(nOne=5, nTwo=6, yrOne=2000.0, yrTwo=2007.0, \
     ax1.annotate(objID, (0.50, 0.97), xycoords='axes fraction', \
                      ha='center', va='top', fontsize=14)
 
+    # annotate with the chisq/dof
+    sChisX = r'$\chi^2_\nu = %.2f / %i$' % (LIx.sumChisq, LIx.nDof)
+    sChisY = r'$\chi^2_\nu = %.2f / %i$' % (LIy.sumChisq, LIy.nDof)
+
+    ax1.annotate(sChisX, (0.98,0.97), xycoords='axes fraction', \
+                     ha='right', va='top', fontsize=10)
+    ax2.annotate(sChisY, (0.98,0.97), xycoords='axes fraction', \
+                     ha='right', va='top', fontsize=10)
+
     # Do we want to enforce the same vertical axis scale?
     if enforceSameAxes:
         vertLimsX = np.copy(ax1.get_ylim())
