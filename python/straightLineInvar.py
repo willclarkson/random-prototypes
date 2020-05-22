@@ -21,6 +21,8 @@
 
 import numpy as np
 import matplotlib.pylab as plt
+from matplotlib import ticker
+import os
 
 # use stylesheets?
 try:
@@ -191,6 +193,91 @@ class LinearInvar(object):
         self.sumChisq = np.sum(self.chisqs)
         self.nDof = np.size(self.chisqs) - 2
 
+class TimeSeries(object):
+
+    """Time-series (t,x,uncty). Methods to read the data can go in
+    here. One file each for time, position, uncty assumed."""
+
+    def __init__(self, fTimes='egTimesX.txt', \
+                     fVals='egPosX.txt', \
+                     fUncts='egUnctyX.txt', \
+                     runOnInit=True, \
+                     Verbose=False):
+
+        # filenames 
+        self.filTimes = fTimes[:]
+        self.filPosns = fVals[:]
+        self.filUnctys = fUncts[:]
+
+        # arrays for times, values, uncertainties
+        self.aTimes = np.array([])
+        self.aVals = np.array([])
+        self.aUnctys = np.array([])
+
+        # status flag for read OK
+        self.readOK = False
+
+        # cotrol variable
+        self.Verbose = Verbose
+        
+        if runOnInit:
+            self.loadData()
+
+    def loadData(self):
+
+        """Loads the input data"""
+
+        # if any of the paths are missing, do nothing
+        if not self.allPathsOK():
+            return
+
+        self.aTimes = np.genfromtxt(self.filTimes)
+        self.aVals  = np.genfromtxt(self.filPosns)
+        self.aUnctys = np.genfromtxt(self.filUnctys)
+
+        self.readOK = True
+
+    def allPathsOK(self):
+
+        """Checks to see if all paths are OK"""
+
+        for thisPath in [self.filTimes, self.filPosns, self.filUnctys]:
+            if not os.access(thisPath, os.R_OK):
+                if self.Verbose:
+                    print("TimeSeries.allPathsOK WARN - cannot read path %s" \
+                              % (thisPath))
+                return False
+
+        return True
+
+def testLoadFitPlot(objID='Star 7847', \
+                        filTimesX='egTimesX.txt', \
+                        filValsX='egPosX.txt', \
+                        filUncsX='egUnctyX.txt', \
+                        filTimesY='egTimesY.txt', \
+                        filValsY='egPosY.txt', \
+                        filUncsY='egUnctyY.txt', \
+                        masPerPix=50., \
+                        figFilename='testFromFiles.png'):
+
+    """Tests loading, fitting and plotting"""
+
+    # load the data for this star for X, Y
+    TSx = TimeSeries(filTimesX, filValsX, filUncsX, runOnInit=True)
+    TSy = TimeSeries(filTimesY, filValsY, filUncsY, runOnInit=True, \
+                         Verbose=True)
+
+    if not TSx.readOK:
+        print("testLoadFitPlot WARN - TSy.readOK = False.")
+        return
+
+    # Do the linear fit
+    FITx = LinearInvar(TSx.aTimes, TSx.aVals, TSx.aUnctys, runOnInit=True)
+    FITy = LinearInvar(TSy.aTimes, TSy.aVals, TSy.aUnctys, runOnInit=True)
+
+    # plot the results
+    plotFits(FITx, FITy, objID, masPerPix, figFilename=figFilename)
+
 def testStraightLine(nOne=5, nTwo=6, yrOne=2000.0, yrTwo=2007.0, \
                          medOneX=1393.0, betaX=0.0, \
                          medOneY=755.3, betaY=-5., \
@@ -225,10 +312,18 @@ def testStraightLine(nOne=5, nTwo=6, yrOne=2000.0, yrTwo=2007.0, \
     tSimX, ySimX, uSimX = genFake1D(nOne, nTwo, yrOne, yrTwo, medOneX, betaInX)
     tSimY, ySimY, uSimY = genFake1D(nOne, nTwo, yrOne, yrTwo, medOneY, betaInY)
 
-
-    # compute optimal average
+    # compute inverse variance-weighted average in X, Y
     LIx = LinearInvar(tSimX, ySimX, uSimX, runOnInit=True)
     LIy = LinearInvar(tSimY, ySimY, uSimY, runOnInit=True)
+
+    plotFits(LIx, LIy, objID, masPerPix, nFine, plotTimeBuf, \
+                 enforceSameAxes, figFilename)
+
+def plotFits(LIx=None, LIy=None, objID='123', \
+                 masPerPix=50, nFine=100, plotTimeBuf=2., \
+                 enforceSameAxes=True, figFilename='Test.jpg'):
+
+    """Does the two-panel plot of the straight line fits"""
 
     # set up the figure
     fig = plt.figure(1)
@@ -241,7 +336,7 @@ def testStraightLine(nOne=5, nTwo=6, yrOne=2000.0, yrTwo=2007.0, \
     showBestFit(LIy, ax2, nFine, plotTimeBuf, masPerPix)
 
     # Annotate the top panel with the object ID
-    ax1.annotate(objID, (0.50, 0.97), xycoords='axes fraction', \
+    ax1.annotate(objID, (0.50, 0.93), xycoords='axes fraction', \
                      ha='center', va='top', fontsize=14)
 
     # Do we want to enforce the same vertical axis scale?
@@ -282,7 +377,7 @@ def testStraightLine(nOne=5, nTwo=6, yrOne=2000.0, yrTwo=2007.0, \
 
     
 def showBestFit(LI=None, ax=None, nFine=100, plotTimeBuf=0.5, \
-                    masPerPix = 50.):
+                    masPerPix = 50., showChisq=True):
 
     """Adds the panel with the best-fit to the input axis."""
     
@@ -321,6 +416,14 @@ def showBestFit(LI=None, ax=None, nFine=100, plotTimeBuf=0.5, \
     # cFill = 'b'
     alphaFill = 0.3
 
+    # When annotating with chi-squared the annotation sometimes
+    # overlays the data. To avoid this, we use the chisq as the label
+    # and use matplotlib's positioning of the label to put it
+    # somewhere that does not overlay the data. That means moving the
+    # chisq determination up to here.
+    sChisX = r'$\chi^2_\nu = %.2f / %i$' % (LI.sumChisq, LI.nDof)
+
+
     # Now do the plotting incantations for each co-ordinate
     dumErrX = ax.errorbar(LI.times, LI.vals, yerr=LI.unctys, \
                               ls='none', c=cData, \
@@ -329,7 +432,9 @@ def showBestFit(LI=None, ax=None, nFine=100, plotTimeBuf=0.5, \
                               capsize=4, \
                               ecolor=cErro)
 
-    dumBestX = ax.plot(tFine, predFineX, ls='-', color=cBestfit, zorder=6)
+    # The best-fit line is labeled with the chisq/dof
+    dumBestX = ax.plot(tFine, predFineX, ls='-', color=cBestfit, zorder=6, \
+                           label=sChisX)
     dumUpper = ax.plot(tFine, predFineX + oneSigFineX, ls='-', \
                            color=cBounds, \
                            lw=0.5)
@@ -339,19 +444,30 @@ def showBestFit(LI=None, ax=None, nFine=100, plotTimeBuf=0.5, \
 
     dumPolX = ax.fill(tPolX, fPolX, zorder=2, color=cFill, alpha=alphaFill)
     
-    # Annotate the pane with the proper motion
+    # now we use the legend to draw the chisq so it doesn't collide
+    if showChisq:
+        leg=ax.legend(loc=0, frameon=False)
+        
+        # uncomment the following to hide the marker with the legend
+        #for item in leg.legendHandles:
+        #    item.set_visible(False)
 
+    # Annotate the pane with the proper motion
     sPMx = r'$\mu(X) = %.2f \pm %.2f$ mas yr$^{-1}$' % \
         (LI.beta*masPerPix, np.sqrt(LI.betaVar)*masPerPix)
 
     ax.annotate(sPMx, (0.50,0.02), xycoords='axes fraction', \
                     ha='center', va='bottom', fontsize=12)
 
-    # annotate with the chisq/dof
-    sChisX = r'$\chi^2_\nu = %.2f / %i$' % (LI.sumChisq, LI.nDof)
+    # annotate with the chisq/dof. 
+    #sChisX = r'$\chi^2_\nu = %.2f / %i$' % (LI.sumChisq, LI.nDof)
 
-    ax.annotate(sChisX, (0.98,0.97), xycoords='axes fraction', \
-                    ha='right', va='top', fontsize=10)
+    #ax.annotate(sChisX, (0.98,0.97), xycoords='axes fraction', \
+    #                ha='right', va='top', fontsize=10)
+
+    # switch off the axis offset
+    y_formatter = ticker.ScalarFormatter(useOffset=False)
+    ax.yaxis.set_major_formatter(y_formatter)
 
 def retPolyFill(tFine, yLo, yHi):
 
