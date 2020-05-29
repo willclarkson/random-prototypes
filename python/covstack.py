@@ -7,12 +7,22 @@
 # convenience methods to deal with N x M x M covariance matrices,
 # where N is the number of datapoints and we generally want to do
 # operations on all the planes (each M x M) at once.
+
+# 
+# The application I have in mind here is to assign weights to Gaia
+# entries using the maximum eigenvalue of the covariance matrix for
+# each object. 
 #
 
+
 # Note: for the special case N x 2 x 2 I have written out the terms
-# line by line, for M != 2 we use for loops to populate the stack.
+# line by line, for M != 2 we use for loops to populate the
+# stack. Tests with timeit (see testPopulateStack below) suggest this
+# buys a factor 2 in speed for small (N ~ 1000) arrays, but once N >
+# 5000 or so, the difference is fairly negligible.
 
 import numpy as np
+import timeit
 
 class CovStack(object):
 
@@ -66,6 +76,12 @@ class CovStack(object):
         self.n = 0
         self.m = 0
 
+        # A few internal variables we'll find helpful
+        self.eigvals = np.array([])
+
+        # maximum eigenvalue
+        self.maxEigvals = np.array([])
+
         # Some control variables
         self.crossTermsAreCorrel = crossTermsAreCorrel
         self.Verbose = Verbose
@@ -73,6 +89,8 @@ class CovStack(object):
         # populate the covar stack form the inputs
         if runOnInit:
             self.populateStackFromEntries()
+            self.getEigenvalues()
+            self.findMaxEigenvalues()
 
     def populateStackFromEntries(self):
         
@@ -128,7 +146,7 @@ class CovStack(object):
             if self.crossTermsAreCorrel:
                 diagMult = self.s11 * self.s22
 
-            self.covars[:,0,1] = ( self.r12**2 * diagMult )**2
+            self.covars[:,0,1] = ( self.r12 * diagMult )**2
             self.covars[:,1,0] = self.covars[:,0,1]
 
     def covarsFromEntries(self):
@@ -174,9 +192,34 @@ class CovStack(object):
                 self.covars[:,k,j] = self.covars[:,j,k]
 
 
+    def getEigenvalues(self):
+
+        """Finds the eigenvalues of each plane in the stack"""
+        
+        self.eigvals = np.linalg.eigvals(self.covars)
+
+    def findMaxEigenvalues(self):
+
+        """Utility - finds the maximum eigenvalue for each plane"""
+
+        self.maxEigvals = np.max(self.eigvals, axis=1)
+
 ###############
 
-def testPopulateStack(nRows = 1000):
+def testEigens(nRows=1000):
+
+    """Tests getting the eigenvalues"""
+
+    vOnes = np.ones(nRows)*5.
+    vRand = np.random.uniform(size=nRows)
+    CS2 = CovStack(vOnes, vOnes*0.4, r12=vRand)
+    
+    print(np.shape(CS2.eigvals))
+    print(CS2.covars[0])
+    print(CS2.eigvals[0])
+    print(CS2.maxEigvals[0])
+
+def testPopulateStack(nRows = 1000, nTest=1000):
 
     """Test routine to see if our methods for populating the (n, m, m)
     stack are working..."""
@@ -184,12 +227,19 @@ def testPopulateStack(nRows = 1000):
     vOnes = np.ones(nRows)
     vRand = np.random.uniform(size=nRows)
 
-    CSN = CovStack(vOnes, vOnes, r12=vRand)
-    CS2 = CovStack(vOnes, vOnes, r12=vRand)
+    CSN = CovStack(vOnes, vOnes, r12=vRand, runOnInit=False)
+    CS2 = CovStack(vOnes, vOnes, r12=vRand, runOnInit=False)
+
+    # try timing...
+    tLoopN = timeit.Timer(CSN.covarsFromEntries)
+    tLoop2 = timeit.Timer(CS2.covarsFromEntries2x2)
+
+    print("Loop: %.2e sec per iteration" % (tLoopN.timeit(nTest)/nTest))
+    print("2x2: %.2e sec per iteration" % (tLoop2.timeit(nTest)/nTest))
 
     CSN.covarsFromEntries()
     CS2.covarsFromEntries2x2()
 
-    print(CSN.covars[0:3])
+    print(CSN.covars[0:2])
     print("=====")
-    print(CS2.covars[0:3])
+    print(CS2.covars[0:2])
