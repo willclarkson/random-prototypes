@@ -79,8 +79,9 @@ class CovStack(object):
         # A few internal variables we'll find helpful
         self.eigvals = np.array([])
 
-        # maximum eigenvalue
+        # maximum eigenvalue, average eigenvalue (useful as weights)
         self.maxEigvals = np.array([])
+        self.meanEigvals = np.array([])
 
         # Some control variables
         self.crossTermsAreCorrel = crossTermsAreCorrel
@@ -91,6 +92,7 @@ class CovStack(object):
             self.populateStackFromEntries()
             self.getEigenvalues()
             self.findMaxEigenvalues()
+            self.findMeanEigenvalues()
 
     def populateStackFromEntries(self):
         
@@ -204,20 +206,28 @@ class CovStack(object):
 
         self.maxEigvals = np.max(self.eigvals, axis=1)
 
+    def findMeanEigenvalues(self):
+
+        """Utility - finds the mean eigenvalue for each plane"""
+
+        self.meanEigvals = np.mean(self.eigvals, axis=1)
+
 ###############
 
 def testEigens(nRows=1000):
 
     """Tests getting the eigenvalues"""
 
-    vOnes = np.ones(nRows)*5.
+    vOnes = np.ones(nRows)*3.
     vRand = np.random.uniform(size=nRows)
-    CS2 = CovStack(vOnes, vOnes*0.4, r12=vRand)
+    CS2 = CovStack(vOnes, vOnes*0.7, r12=vRand)
     
     print(np.shape(CS2.eigvals))
     print(CS2.covars[0])
     print(CS2.eigvals[0])
-    print(CS2.maxEigvals[0])
+    print(CS2.maxEigvals[0:4])
+    print(CS2.meanEigvals[0:4])
+    print(CS2.eigvals[0:4])
 
 def testPopulateStack(nRows = 1000, nTest=1000):
 
