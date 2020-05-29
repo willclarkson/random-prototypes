@@ -202,6 +202,12 @@ class CooBoots(object):
 
     """Bootstrap-resampling object"""
 
+    # Implementation note: I'm trying to ensure that most of the
+    # details of what is done per cycle is handled by the object read
+    # in to this class, that way this should be reasonably easy to
+    # adapt to other things (like finding the linear transformation
+    # between coordinate sets on the plane).
+
     def __init__(self, CooPair=None, nBoots=100, \
                      cenRA=0., cenDE=0., \
                      fResample=1., \
@@ -360,7 +366,7 @@ def shiftAngleByXYZ(ra=0., de=0., dxyz = np.zeros(3) ):
 
 #### Some routines that use this follow
 
-def testSet(nPts = 100, fBad=0.6, useWeights=True, \
+def testSet(nPts = 100, fBad=0.6, useWeights=True, unctyFac=10., \
                 nBoots=100, fResample=1., showFig=True):
 
     """Try using these objects. We assume the two star catalogs are
@@ -371,6 +377,9 @@ def testSet(nPts = 100, fBad=0.6, useWeights=True, \
     
     -- fBad = fraction of points with high-scatter measurements. (To
        make the fit squeak, set fBad to 0.8 or so.)
+
+    -- unctyFac = factor by which the "bad" points have larger scatter
+       than the "good" points.
 
     -- useWeights = use weights when fitting the deltas? (In the
        simulation, weights are inverse variance weights.)
@@ -402,7 +411,7 @@ def testSet(nPts = 100, fBad=0.6, useWeights=True, \
     # create an array of uncertainties. We add a few with very large
     # uncertainties to see what this does
     sigm2Lo = 0.1/3600.
-    sigm2Hi = 1.0/3600.
+    sigm2Hi = sigm2Lo * unctyFac
     sig2 = np.repeat(sigm2Lo, nPts)
     nBad = int(fBad * nPts)
     sig2[0:nBad] = sigm2Hi
