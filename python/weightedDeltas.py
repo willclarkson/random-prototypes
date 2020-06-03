@@ -331,7 +331,147 @@ class CooBoots(object):
         corrFac = np.sqrt(np.float(self.nSample - 1)/nOrig)
         #print("INFO - correction factor:", corrFac, nOrig, self.nSample)
         self.summStddev *= corrFac
-                          
+      
+class CooTP(object):
+
+    """Class to hold tangent-plane coordinates and related methods."""
+
+    # Separate from CooSet above since in this case the linear least
+    # squares methods may be valid.
+
+    def __init__(self, ra=np.array([]), de=np.array([]), \
+                     xi=np.array([]), eta=np.array([]), \
+                     ra0 = None, de0 = None, \
+                     Verbose=False):
+                    
+        # Vectors of coordinates
+        self.ra = np.copy(ra)
+        self.de = np.copy(de)
+        self.xi = np.copy(xi)
+        self.eta = np.copy(eta)
+
+        # tangent point
+        self.ra0 = np.copy(ra0)
+        self.de0 = np.copy(de0)
+
+        # Control variables
+        self.Verbose = Verbose
+
+        # if nonero input, ensure the components are populated
+        if np.size(self.ra) > 0:
+            if np.size(self.xi) != np.size(self.ra):
+                self.sphere2tp()
+        else:
+            if np.size(self.xi) > 0:
+                self.tp2sphere()
+
+    def sphere2tp(self):
+
+        """Populates the tangent plane co-ordinates given the
+        co-ordinates on the sphere and the tangent point"""
+
+        if not self.canTransform(s2TP=True):
+            return
+
+        dra = self.ra - self.ra0
+        dde = self.de - self.de0
+
+        # trig terms
+        cosd = np.cos(np.radians(self.de))
+
+        cosd0 = np.cos(np.radians(self.de0))
+        sind0 = np.sin(np.radians(self.de0))
+
+        cosdra = np.cos(np.radians(dra))
+        sindra = np.sin(np.radians(dra))
+        
+        cosdde = np.cos(np.radians(dde))
+        sindde = np.cos(np.radians(dde))
+
+        # denominator, same for both output coords
+        denom = cosdde - cosd0 * cosd*(1.0-cosdra)
+        
+        self.xi = cosd * sindra / denom
+        self.eta = (sindde + sind0*cosd*(1.0-cosdra)) / denom
+
+    def tp2sphere(self):
+
+        """Populates the spherical coords given the tangent plane
+        coordinates"""
+
+        if not self.canTransform(s2TP=False):
+            return
+
+        # trig terms needed
+        cosd0 = np.cos(np.radians(self.de0))
+        sind0 = np.cos(np.radians(self.de0))
+
+        xiRad  = np.radians(self.xi)
+        etaRad = np.radians(self.eta)
+
+        brack = cosd0 - xiRad * sind0
+
+        # alpha - alpha_0, converting to the range 0 < da < 360
+        # deg.
+        da = np.degrees(np.arctan2(brack, xiRad))
+        da[da < 0] += 360.
+
+        self.ra = da + self.ra0
+
+        # We want the declination to stay in the range (-90, +90) so
+        # we use arctan, not arctan2:
+        numer = np.sqrt(xiRad**2 + brack**2)
+        denom = sind0 + xiRad*cosd0
+
+        self.de = np.arctan(numer / denom)
+        
+
+    def canTransform(self, s2TP=True):
+
+        """Utility: checks whether we can transform. The error
+        messages are deferred to this method."""
+
+        if not np.isscalar(self.ra0):
+            if self.Verbose:
+                print("CooTP.canTransform WARN - tangent point ra0 not specified.")
+            return False
+
+        if not np.isscalar(self.de0):
+            if self.Verbose:
+                print("CooTP.canTransform WARN - tangent point de0 not specified.")
+            return False
+
+        # Which coordinate sets are we transforming?
+        if s2TP:
+            sOne = 'ra'
+            sTwo = 'de'
+        else:
+            sOne = 'xi'
+            sTwo = 'eta'
+
+        src1 = getattr(self,sOne)
+        src2 = getattr(self,sTwo)
+
+        if np.size(src1) < 1:
+            if self.Verbose:
+                print("CooTP.canTransform WARN - source coord %s not populated" \
+                          % (sOne))
+            return False
+        
+        if np.size(src2) < 1:
+            if self.Verbose:
+                print("CooTP.canTransform WARN - source coord %s not populated" \
+                          % (sTwo))
+            return False
+
+        if np.size(src1) != np.size(src2):
+            if self.Verbose:
+                print("CooTP.canTransform WARN - source coords %s, %s have different lengths: (%i, %i)" % (sOne, sTwo, np.size(src1), np.size(src2)))
+
+        return True
+
+
+
 # useful generally-found methods
 def copyAsVec(x):
 
@@ -510,3 +650,9 @@ def testSet(nPts = 100, fBad=0.6, useWeights=True, unctyFac=10., \
               % (nBoots, tElapsed, nPts))
 
 
+def testTP():
+
+    """Routine to test the tangent plane - spherical class"""
+
+    # 2020-06-03 -- TO BE IMPLEMENTED!!
+    dumdum = 42.
