@@ -480,8 +480,9 @@ class CooTP(object):
         -- deZero = tangent point DEC
 
         -- sphere2tp -- keep spherical coords fixed and update the
-           tangent plane coords. (If False, then the tangent plane
-           coords are held fixed and the spherical coords are updated.)
+           tangent plane coords using the new tangent point. (If
+           False, then the tangent plane coords are held fixed and the
+           spherical coords are updated.)
 
         """
 
@@ -503,6 +504,306 @@ class CooTP(object):
             self.sphere2tp()
         else:
             self.tp2sphere()
+
+class CooXY(object):
+
+    """Object holding focal plane coordinates"""
+
+    # 2020-06-04: currently written to be consistent with the other
+    # objects so that the PairPlanes() object has reasonably uniform
+    # syntax. I'm on the fence about whether I want to put the
+    # transformation to the TP into this object or if that way madness
+    # lies...
+
+    def __init__(self, x=np.array([]), y=np.array([]) ):
+
+        self.x = np.copy(x)
+        self.y = np.copy(y)
+        
+class PairPlanes(object):
+
+    """Class to hold and fit transformations between two coord sets,
+    with a linear transformation assumed and multivariate weights are
+    allowed for (the weights cannot depend on the transformation
+    parameters)."""
+
+    def __init__(cooSrc=None, cooTarg=None, wgts=np.array([]), \
+                     colSrcX='x', colSrcY='y', colTargX='xi', colTargY='eta',\
+                     nRowsMin=6, \
+                     Verbose=True):
+
+        """Arguments: 
+
+        -- cooSrc = coordinate object for the source coords
+        
+        -- cooTarg = coordinate object for the target coords
+
+        -- wgts = 1- or 2D weights array
+
+        -- colSrcX = column name for the 'x' column in the source object
+
+        -- colSrcY = column name for the 'y' column in the source object
+
+        -- colTargX = column name for the 'x' column in the target object
+
+        -- colTargY = column name for the "y" column in the target object
+
+        -- nRowsMin = minimum number of rows
+
+        -- Verbose = print lots of screen output for diagnostic purposes
+
+        """
+
+        # objects
+        self.cooSrc = cooSrc
+        self.cooTarg = cooTarg
+        self.wgts = np.copy(wgts)
+
+        # columns for source, target
+        self.colSrcX = colSrcX[:]
+        self.colSrcY = colSrcY[:]
+        self.colTargX = colTargX[:]
+        self.colTargY = colTargY[:]
+
+        # Control variables
+        self.nRowsMin = np.max([0, nRowsMin])   # minimum number of sources
+        self.Verbose = Verbose
+
+        # some internal variables. For consistency with my notes on
+        # this I will call the target vectors "xi" and the input
+        # vectors "x", generalizing to "u".
+        self.xi = np.array([])
+        self.u = np.array([])
+        self.W = np.array([]) # multivariate weights
+        self.uuT = np.array([]) # the matrix u.u^T
+
+        # the pieces of the solution
+        self.beta = np.array([])
+        self.C = np.array([])
+        self.alpha = np.array([]) # the vectorized solution...
+        self.A = np.array([]) # ... and its matrix form
+
+        # breaking into reference + linear transformation comes here??
+
+
+        # populate the source and target vectors
+        self.populateSrcTarg()
+        self.parseWeights()
+        self.buildUUT()
+        self.buildCmatrix()
+        self.buildBeta()
+
+        # now solve for the alpha vector
+        self.solveForAlpha()
+
+    def rowsAreOK(self):
+
+        """Checks that both coordinate objects have the right
+        quantities and that their sizes are the same."""
+
+        # This takes a somewhat verbose view: if self.Verbose is set,
+        # *all* error messages are printed to screen.
+
+        canProceed = True
+
+        for attr in [self.colSrcX, self.colSrcY]:
+            if not hasattr(self.cooSrc, attr):
+                canProceed = False
+                if self.Verbose:
+                    print("PairPlanes.rowsAreOK WARN - src has no attr %s" \
+                              % (attr))
+
+        for attr in [self.colTargX, self.colTargY]:
+            if not hasattr(self.cooTarg, attr):
+                canProceed = False
+                if self.Verbose:
+                    print("PairPlanes.rowsAreOK WARN - targ has no attr %s" \
+                              % (self.colTargX))
+        
+        nSrc = np.size(getattr(self.cooSrcX, self.colSrcX))
+        nTar = np.size(getattr(self.cooTargX, self.colTargX))
+
+        if nSrc < self.nRowsMin:
+            canProceed = False
+            if self.Verbose:
+                print("PairPlanes.rowsAreOK WARN - src object has < %i rows" \
+                          % (self.nRowsMin))
+        
+        if nSrc != nTar:
+            canProceed = False
+            if self.Verbose:
+                print("PairPlanes.rowsAreOK WARN - src, targ different n(rows).")
+
+        return canProceed
+
+    def populateSrcTarg(self):
+
+        """Populates the source and target rows from the coord
+        objects. We keep the vectors xi_i, u_i because we want to be
+        able to easily evaluate the fom for each row. So:"""
+
+        if not rowsAreOK():
+            return
+
+        xTarg = getattr(self.cooTarg, self.colTargY)
+        yTarg = getattr(self.cooTarg, self.colTargY)
+
+        xSrc = getattr(self.cooSrc, self.colSrcX)
+        ySrc = getattr(self.cooSrc, self.colSrcY)
+
+        oSrc = np.ones(np.size(xSrc), dtype='double')
+
+        # Construct the [Nx2] target array and src array...
+        self.xi = np.vstack(( xTarg, yTarg ))
+        self.u = np.vstack(( oSrc, xSrc, ySrc )).T
+
+    def parseWeights(self):
+
+        """Checks that the weights are consistent with the coordinates"""
+
+        shData = np.shape(self.xi)
+        nRows = shData[0]
+        if nRows < self.nRowsMin or np.size(shData) > 2:
+            if self.Verbose:
+                print("PairPlanes.parseWeights WARN - input data unusual shape:", shData)
+                return
+        nCols = shData[1] # for the moment this should always be 2.
+        
+        # initialize the Nx2x2 weights array to the identity stack.
+        eyePlane = np.eye(nCols, dtype='double')
+        eyeStack = np.repeat(eyePlane[np.newaxis,:,:], nRows, axis=0)
+        self.W = np.copy(eyeStack)
+
+        # if no weights were input, use the identity as weights.
+        if np.size(self.wgts) < 1:
+            if self.Verbose:
+                print("PairPlanes.parseWeights INFO - no weights supplied. Using unity.")
+            return
+
+        # In the simplest case, we have been supplied weights with
+        # identical shape to the target data. In that instance, just
+        # copy and we're done.
+        shWgts = np.shape(self.wgts)
+        if shWgts == shData:
+            self.W = np.copy(self.wgts)
+            return
+
+        # If the shapes do not agree, one possibility is that the
+        # weights have the wrong length. Check that here:
+        nWgts = shWgts[0]        
+        if nWgts != nRows:
+            if self.Verbose:
+                print("PairPlanes.parseWeights WARN - data and wgts array different lengths: data %i, weights %i" % (nRows, nWgts))
+            return
+
+        # If we got to here, then we have the correct number N of
+        # weights, but they are not the same dimensions as the N x 2 x
+        # 2 we expect. Handle the cases:
+        dimenWgts = np.size(shWgts)
+
+        # For scalar weights, every plane is the identity x the scalar
+        # weight:
+        if dimenWgts < 2:
+            self.W = eyeStack * self.wgts[:, np.newaxis, np.newaxis]
+            return
+
+        # In the two dimensional weight cases, we have been given
+        # diagonal weights (e.g. in xi[0], xi[1] separately but with
+        # no covariances).
+        if dimenWgts == 2:
+            colsWgts = shWgts[-1]
+
+            # Catch the annoying condition when the weights are passed
+            # as N x 1 array:
+            if colsWgts == 1:
+                self.W = eyeStack * self.wgts[:, np.newaxis, np.newaxis]
+                return
+                
+            # Now deal with the case where we actually do have N x M
+            # weight-arrays
+            self.W = np.copy(eyeStack)
+            for kDim in shWgts[-1]:
+                self.W[:,kDim, kDim] *= self.wgts[:,kDim]
+            return
+
+        # If we got to here, then the weights have the right number of
+        # rows, but are not each scalars, vectors or MxM matrices.
+        if self.Verbose:
+            print("PairPlanes.parseWeights WARN - weights size mismatch: Data, weights:", shData, shWgts)
+
+    def buildUUt(self):
+
+        """Builds the u.uT matrix"""
+
+        # ... which I assume has a standard name in this context, I
+        # just don't know what it is (calling it the "covariance" is
+        # confusing.)
+        self.uuT = np.einsum('ij,ik->ijk', self.u, self.u)
+        
+    def buildCmatrix(self):
+
+        """Builds the C-matrix for the fitting."""
+
+        # The following trick does the plane-by-plane Kronecker
+        # product that we want, using np.einsum:
+        i,j,k = np.shape(self.W)
+        i,l,m = np.shape(self.uuT)
+
+        # This is a two-step solution...
+        #Cstack = np.einsum("ijk,ilm->ijlkm",self.W,self.uuT).reshape(i,j*l,k*m)
+        #self.C = np.sum(Cstack, axis=0)
+
+        # ... here it is in one step
+        self.C = np.einsum("ijk,ilm->jlkm",self.W,self.uuT).reshape(j*l,k*m)
+
+    def buildBeta(self):
+
+        """Builds the array of outer((wgts x target),u^T"""
+
+        # I'm not confident enough with np's einsum to do this all in
+        # one go, so I break it into pieces. First the dot(W_i,
+        # xi_i)...
+        Wxi = np.einsum("ijk,ij->ik",self.W, self.xi)
+        
+        # ... now the outer products of  (Wxi)_i and u_T...
+        WxiuT = np.einsum('ij,ik->ijk', Wxi, self.u)
+
+        # ... now sum along the N datapoints...
+        self.beta = np.ravel(np.sum(Wxiut, axis=0))
+
+    def solveForAlpha(self):
+
+        """Solves the expression beta = C.alpha for alpha"""
+
+        if not self.canSolve():
+            return
+
+        self.alpha = np.linalg.solve(self.C, self.beta)
+
+        # Let's try to be clever and get the dimensions of the matrix
+        # from the quantities we are fitting:
+        dimenTarg  = np.shape(self.xi)[-1]
+        dimenModel = np.shape(self.u)[-1]
+
+        self.A = self.alpha.reshape(dimenTarg, dimenModel)
+
+    def canSolve(self):
+
+        """Checks if we've populated the pieces we need yet to solve
+        the linlstq"""
+
+        okSolve = True
+        if np.size(self.beta) < 1:
+            if self.Verbose:
+                print("PlanePair.canSolve WARN - beta not populated")
+            okSolve = False
+
+        if np.size(self.C) < 1:
+            if self.Verbose:
+                print("PlanePair.canSolve WARN - C not populated")
+            okSolve = False
+        
+        return okSolve
 
 # useful generally-found methods
 def copyAsVec(x):
