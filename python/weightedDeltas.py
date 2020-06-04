@@ -470,7 +470,39 @@ class CooTP(object):
 
         return True
 
+    def updatePointing(self, raZero=None, deZero=None, sphere2tp=True):
 
+        """Updates the tangent point with user supplied values, then
+        updates the coordinates to ensure consistency. Arguments:
+
+        -- raZero = tangent point RA
+
+        -- deZero = tangent point DEC
+
+        -- sphere2tp -- keep spherical coords fixed and update the
+           tangent plane coords. (If False, then the tangent plane
+           coords are held fixed and the spherical coords are updated.)
+
+        """
+
+        if not np.isscalar(raZero):
+            if self.Verbose:
+                print("CooTP.updateSphere WARN - no new ra tangent point given")
+            return
+
+        if not np.isscalar(deZero):
+            if self.Verbose:
+                print("CooTP.updateSphere WARN - no new dec tangent point given")
+            return
+
+        # now update the tangent point
+        self.ra0 = np.copy(raZero)
+        self.de0 = np.copy(deZero)
+
+        if sphere2tp:
+            self.sphere2tp()
+        else:
+            self.tp2sphere()
 
 # useful generally-found methods
 def copyAsVec(x):
