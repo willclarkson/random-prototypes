@@ -509,27 +509,27 @@ class CooXY(object):
 
     """Object holding focal plane coordinates"""
 
-    # 2020-06-04: currently written to be consistent with the other
-    # objects so that the PairPlanes() object has reasonably uniform
-    # syntax. I'm on the fence about whether I want to put the
-    # transformation to the TP into this object or if that way madness
-    # lies...
+    # I keep the coordinates as 1D arrays for consistency with the
+    # other coord objects (rather than having a single M-dimensional
+    # vector per coordinate set).
 
     def __init__(self, x=np.array([]), y=np.array([]), \
                      self.xRef = 0., self.yRef = 0.):
 
         self.x = np.copy(x)
         self.y = np.copy(y)
-        
+
+        # Reference point. Located to 0,0 rather than None, None
+        # because we could always update after fitting with 0,0
+        # reference.
         self.xRef = np.copy(xRef)
         self.yRef = np.copy(yRef)
 
         self.dx = np.array([])
         self.dy = np.array([])
+        self.calcDx()
 
-        self.updateDx()
-
-    def updateDx(self):
+    def calcDx(self):
 
         """Updates x-xref"""
 
@@ -538,6 +538,19 @@ class CooXY(object):
 
         self.dx = self.x - self.xRef
         self.dy = self.y - self.yRef
+        
+    def updateXref(self, xR=None, yR=None):
+
+        """Utility: updates the reference position and recalculates
+        the offsets for consistency"""
+
+        # Do nothing if no new xRef actually given
+        if not np.isscalar(xR) or not np.isscalar(yR):
+            return
+
+        self.xRef = np.copy(xR)
+        self.yRef = np.copy(yR)
+        self.calcDx()
         
 
 class PairPlanes(object):
@@ -603,7 +616,16 @@ class PairPlanes(object):
         self.alpha = np.array([]) # the vectorized solution...
         self.A = np.array([]) # ... and its matrix form
 
-        # breaking into reference + linear transformation comes here??
+        # 2020-06-04 breaking into reference + linear transformation
+        # comes here??
+        #
+        # (No, we create a separate class to deal with the parameter
+        # matrix. Thoughts about that object: (i). refactor the "A"
+        # into "1x2xM" so that the same object can be used when
+        # constructing or interpreting artificial data; (ii) enforce a
+        # convention such that a,d are ALWAYS the reference point and
+        # b,c,e,f are ALWAYS the general linear transformation.) To be
+        # implemented.
 
 
         # populate the source and target vectors
