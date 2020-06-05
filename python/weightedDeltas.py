@@ -515,11 +515,31 @@ class CooXY(object):
     # transformation to the TP into this object or if that way madness
     # lies...
 
-    def __init__(self, x=np.array([]), y=np.array([]) ):
+    def __init__(self, x=np.array([]), y=np.array([]), \
+                     self.xRef = 0., self.yRef = 0.):
 
         self.x = np.copy(x)
         self.y = np.copy(y)
         
+        self.xRef = np.copy(xRef)
+        self.yRef = np.copy(yRef)
+
+        self.dx = np.array([])
+        self.dy = np.array([])
+
+        self.updateDx()
+
+    def updateDx(self):
+
+        """Updates x-xref"""
+
+        if np.size(self.x) < 1:
+            return
+
+        self.dx = self.x - self.xRef
+        self.dy = self.y - self.yRef
+        
+
 class PairPlanes(object):
 
     """Class to hold and fit transformations between two coord sets,
@@ -528,7 +548,7 @@ class PairPlanes(object):
     parameters)."""
 
     def __init__(cooSrc=None, cooTarg=None, wgts=np.array([]), \
-                     colSrcX='x', colSrcY='y', colTargX='xi', colTargY='eta',\
+                     colSrcX='dx', colSrcY='dy', colTargX='xi', colTargY='eta',\
                      nRowsMin=6, \
                      Verbose=True):
 
