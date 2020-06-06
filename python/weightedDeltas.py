@@ -514,7 +514,7 @@ class CooXY(object):
     # vector per coordinate set).
 
     def __init__(self, x=np.array([]), y=np.array([]), \
-                     self.xRef = 0., self.yRef = 0.):
+                     xRef = 0., yRef = 0.):
 
         self.x = np.copy(x)
         self.y = np.copy(y)
@@ -878,6 +878,244 @@ def shiftAngleByXYZ(ra=0., de=0., dxyz = np.zeros(3) ):
         deCorrected = coo.de[0]
 
     return raCorrected, deCorrected
+
+class LinearMapping(object):
+
+    """Class of linear transformations, implemented as a stack of N x
+    K x M arrays where N is the number of planes, M the number of
+    terms in each dimension and K the dimension of the data space. If
+    passed a K x M matrix, the array is converted into a 1 x K x M
+    array for consistency"""
+
+    # ... and so that I don't have to write basically the same routines twice.
+
+    def __init__(self, Ain = np.array([]), \
+                     Verbose=False):
+
+        # Control variable
+        self.Verbose = Verbose
+
+        # the GIVEN matrix or stack, which we convert to an N x K x M
+        # array
+        self.Ain = np.copy(Ain)
+        self.A = np.array([])
+        self.parseInputStack()
+
+        # Some special partitions for interpretation in our use-case,
+        # where we will want to know linear transformations for 2D
+        # parameters.
+        self.consts = np.array([])  # will be N x 2
+        self.squares = np.array([]) # will be N x 2 x 2
+
+        # partition the stack of transformations in to reference
+        # coords and planes
+        self.partitionRefsAndPlanes()
+
+    def parseInputStack(self):
+
+        """Ensures the stack is three dimensional or empty"""
+
+        self.A = np.array([])
+
+        # if the input stack is empty, there's nothing to do.
+        if np.size(self.Ain) < 1:
+            return
+
+        nDim = np.size(np.shape(self.Ain))
+        if nDim == 3:
+            self.A = np.copy(self.Ain)
+            return
+
+        # If a two-dimensional matrix was sent in, convert it to 3D. I
+        # think the most pythonic way to do it is to use the
+        # np.newaxis. WHICH way we do this depends on what the user is
+        # sending in. If they have found an array of N x 2 pairs
+        # (i.e. if each transformation is just the offsets) then we
+        # want to end up with N x 2 x 1. However if they've sent in a
+        # single plane (e.g. 2 x 3) then we want to end up with 1 x 2
+        # x 3. For the moment we use an ansatz:
+        if nDim == 2:
+            l1, l2 = self.Ain.shape
+            if l2 > l1 or l2 == 1:
+                self.A = np.copy(self.Ain[np.newaxis,:,:]) # given K x M
+            else:
+                self.A = np.copy(self.Ain[:,:,np.newaxis]) # given N x K
+            return
+
+        # If we got here then the dimension is 1. That's not one of
+        # the use cases for which I wrote this, so we trigger a
+        # warning if verbose is set.
+        if nDim == 1:
+            nRows = np.size(self.Ain)
+            eyeStack = np.repeat(eyePlane[np.newaxis,:,:], nRows, axis=0)
+            self.A = eyeStack * self.Ain[:,np.newaxis, np.newaxis]
+
+            # This could fail if the user has passed a float as the
+            # input array. In that case the routine SHOULD faill.
+            if self.Verbose:
+                print("LinearMapping.parseInputStack WARN - supplied array has unusual dimension %i. Replicated into scaled identities" % (nDim))
+
+        # if we got here then we have nonzero size array but the
+        # dimension is not 1,2 or 3. Throw a warning message and
+        # return without populating the master array
+        if self.Verbose:
+            print("LinearMapping.parseInputStack WARN - unusual shape array:" \
+                      % (np.shape(self.Ain)))
+            
+    def partitionRefsAndPlanes(self):
+
+        """Separates out the components in the transformation
+        corresponding to the xi_ref and the 4-term linear
+        transformation for 2D coordinates"""
+
+        if np.size(self.A) < 2:
+            return
+
+        n,k,m = self.A.shape
+
+        # A few cases to think about here. If there is not room for a
+        # constants array then we start the squares from column 0,
+        # otherwise we start at column 1.
+        if m != 2:
+            self.consts = self.A[:,:,0]
+            colSq = 1
+        else:
+            self.consts = np.array([])
+            colSq = 0
+
+        # If there is room for a separate squares array, populate it
+        # here. Examples: (1x2x3) or (1x2x2) or (1x2x5).
+        if m > 1 + iBuf:
+            self.squares = self.A[:,:,colSq:colSq+2]
+        else:
+            self.squares = np.array([])
+        
+class Stack2x2(object):
+
+    """Stack of N x 2 x 2 transformation matrices"""
+
+    def __init__(self, Asup=np.array([]), \
+                     sx=np.array([]), sy=np.array([]), \
+                     rotDeg=np.array([]), skewDeg=np.array([]), \
+                     sxSgn = -1., Verbose=False):
+
+        """sxSgn = -1 means the negative of the x scale factor is
+        used."""
+
+        # control keywords
+        self.Verbose = Verbose
+
+        self.Asup = np.copy(Asup)
+        self.A = np.array([])
+        self.parseInputStack()
+
+        # Now the parameters in human-readable form...
+        self.sx = np.copy(sx)
+        self.sy = np.copy(sy)
+        self.rotDeg = np.copy(rotDeg)
+        self.skewDeg = np.copy(skewDeg)
+
+        # sign of the scale factors
+        self.sxSgn = np.sign(sxSgn)
+
+        # ... and the inverse matrix
+        self.AINV = np.array([])
+
+        # Convert the matrix stack to human readable params or from
+        # human readable params, depending on what was sent in
+        if np.size(self.A) > 0:
+            self.parsFromStack()
+        else:
+            self.stackFromPars()
+
+        self.invertA()
+
+    def parseInputStack(self):
+
+        """Restricted parsing of the input stack. Must be N x 2 x 2 or
+        can be made N x 2 x 2."""
+
+        # if no input stack was given then silently return (e.g. if we
+        # supplied human-readable parameters to convert to a matrix
+        # stack)
+        if np.size(self.Asup) < 1:
+            return
+
+        nDim = np.size(np.shape(self.Asup))
+        if nDim < 2 or nDim > 3:
+            if self.Verbose:
+                print("Stack2x2.parseInputStack WARN: input not 2D or 3D", \
+                          np.shape(self.Asup))
+            return
+        
+        # This object is specialized to N x 2 x 2 arrays.
+        if self.Asup.shape[-1] != 2 or self.Asup.shape[-2] != 2:
+            if self.Verbose:
+                print("Stack2x2.parseInputStack WARN: input not [ * x 2 x 2]", \
+                          np.shape(self.Asup))
+            return
+
+        # if we got here then we must have either an N x 2 x 2 or a 2
+        # x 2 array. Work accordingly.
+        if nDim == 3:
+            self.A = np.copy(self.Asup)
+            return
+        
+        # I think the only way we reach this line is if we have a 2 x
+        # 2 matrix. So, convert it.
+        self.A = self.Asup[np.newaxis, :, :]
+        
+    def parsFromStack(self):
+
+        """Interprets the N x 2 x 2 stack into transformation
+        parameters"""
+
+        if np.size(self.A) < 1:
+            return
+
+        # views to try to mitigate typos. Each plane of "A" is {b,c,e,f}
+        b = self.A[:,0,0]
+        c = self.A[:,0,1]
+        e = self.A[:,1,0]
+        f = self.A[:,1,1]
+
+        self.sx = np.sqrt(b**2 + e**2) * self.sxSgn
+        self.sy = np.sqrt(c**2 + f**2)
+        
+        self.rotDeg = np.degrees(0.5 * np.arctan2(b*c - e*f, b*f + e*c))
+        self.skewDeg = np.degrees(     np.arctan2(b*c + e*f, b*f - e*c))
+
+    def invertA(self):
+
+        """Find the matrix inverse of the stack"""
+
+        self.AINV = np.linalg.inv(self.A)
+
+    def stackFromPars(self):
+
+        """Produces the stack of transformations from the input
+        params"""
+
+        nRows = np.size(self.sx)
+        if nRows < 1:
+            return
+
+        # convenience views again
+        radX = np.radians(self.rotDeg - 0.5*self.skewDeg)
+        radY = np.radians(self.rotDeg + 0.5*self.skewDeg)
+        ssx = self.sx * self.sxSgn
+        ssy = self.sy
+
+        self.A = np.zeros((nRows,2,2))
+        self.A[:,0,0] = ssx * np.cos(radX)
+        self.A[:,0,1] = ssy * np.sin(radY)
+        self.A[:,1,0] = 0.-ssx * np.sin(radX)
+        self.A[:,1,1] = ssy * np.cos(radY)
+        
+
+
+
+        # TO BE ADDED - MATRICES FROM PARAMS
 
 #### Some routines that use this follow
 
