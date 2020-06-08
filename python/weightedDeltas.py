@@ -1010,10 +1010,10 @@ class Stack2x2(object):
         self.parseInputStack()
 
         # Now the parameters in human-readable form...
-        self.sx = np.copy(sx)
-        self.sy = np.copy(sy)
-        self.rotDeg = np.copy(rotDeg)
-        self.skewDeg = np.copy(skewDeg)
+        self.sx = copyAsVec(sx)
+        self.sy = copyAsVec(sy)
+        self.rotDeg = copyAsVec(rotDeg)
+        self.skewDeg = copyAsVec(skewDeg)
 
         # sign of the scale factors
         self.sxSgn = np.sign(sxSgn)
@@ -1064,7 +1064,21 @@ class Stack2x2(object):
         # I think the only way we reach this line is if we have a 2 x
         # 2 matrix. So, convert it.
         self.A = self.Asup[np.newaxis, :, :]
-        
+
+
+    def allParsArePresent(self):
+
+        """Utility - returns True/False if all the separate
+        human-params are set. Only returns true if they are ALL
+        set."""
+
+        parsSet = True
+        if np.size(self.sx) < 1 or np.size(self.sy) < 1 or \
+                np.size(self.rotDeg) < 1 or np.size(self.skewDeg) < 1:
+            parsSet = False
+            
+        return parsSet
+
     def parsFromStack(self):
 
         """Interprets the N x 2 x 2 stack into transformation
@@ -1079,11 +1093,41 @@ class Stack2x2(object):
         e = self.A[:,1,0]
         f = self.A[:,1,1]
 
-        self.sx = np.sqrt(b**2 + e**2) * self.sxSgn
+        self.sx = np.sqrt(b**2 + e**2)
         self.sy = np.sqrt(c**2 + f**2)
         
-        self.rotDeg = np.degrees(0.5 * np.arctan2(b*c - e*f, b*f + e*c))
-        self.skewDeg = np.degrees(     np.arctan2(b*c + e*f, b*f - e*c))
+        # the arctan addition formula has limited validity. Do this
+        # the quadrant-correct way...
+        arctanCF = np.arctan2(c,f)
+        arctanEB = np.arctan2(e,b)
+        self.rotDeg = 0.5*np.degrees(arctanCF - arctanEB)
+        self.skewDeg =    np.degrees(arctanCF + arctanEB)
+
+        # In testing the enforcement of the parameter convention seems
+        # to work well. Call it here.
+        self.enforceParsConvention()
+
+    def enforceParsConvention(self):
+
+        """The intuitive parameters sx, sy, theta, skew are
+        ambiguous. This method enforces a convention (prefer sx < 0 to
+        |skew| > 45 degrees"""
+
+        # Nothing to do if there are no parameters
+        if np.size(self.sx) < 1:
+            return
+
+        # Skew angle high extreme
+        bHiSkew = self.skewDeg > 90.
+        self.skewDeg[bHiSkew] -= 180.
+        self.rotDeg[bHiSkew] += 90.
+        self.sx[bHiSkew] *= -1.
+
+        # skew angle low extreme
+        bLoSkew = self.skewDeg < -90.
+        self.skewDeg[bLoSkew] += 180.
+        self.rotDeg[bLoSkew] -= 90.
+        self.sx[bLoSkew] *= -1.
 
     def invertA(self):
 
@@ -1103,7 +1147,7 @@ class Stack2x2(object):
         # convenience views again
         radX = np.radians(self.rotDeg - 0.5*self.skewDeg)
         radY = np.radians(self.rotDeg + 0.5*self.skewDeg)
-        ssx = self.sx * self.sxSgn
+        ssx = self.sx 
         ssy = self.sy
 
         self.A = np.zeros((nRows,2,2))
@@ -1113,9 +1157,6 @@ class Stack2x2(object):
         self.A[:,1,1] = ssy * np.cos(radY)
         
 
-
-
-        # TO BE ADDED - MATRICES FROM PARAMS
 
 #### Some routines that use this follow
 
@@ -1263,9 +1304,47 @@ def testSet(nPts = 100, fBad=0.6, useWeights=True, unctyFac=10., \
               % (nBoots, tElapsed, nPts))
 
 
-def testTP():
+def testTP(sxIn=1.1, syIn=0.7, thetaDeg = 45., skewDeg=0., nPlanes=3, \
+               asScalar=False):
 
     """Routine to test the tangent plane - spherical class"""
 
-    # 2020-06-03 -- TO BE IMPLEMENTED!!
-    dumdum = 42.
+    sx = np.repeat(sxIn, nPlanes)
+    sy = np.repeat(syIn, nPlanes)
+    th = np.repeat(thetaDeg, nPlanes)
+    sk = np.repeat(skewDeg, nPlanes)
+
+    # testing what happens when the stack is fed single numbers?
+    if asScalar:
+        sx = sxIn
+        sy = syIn
+        th = thetaDeg
+        sk = skewDeg
+
+    ST = Stack2x2(None, sx, sy, th, sk)
+
+    # now try converting from the stack to the params, see if it
+    # worked...
+
+    print ST.A[0]
+
+    b = ST.A[0,0,0]
+    c = ST.A[0,0,1]
+    e = ST.A[0,1,0]
+    f = ST.A[0,1,1]
+
+    ST.parsFromStack()
+
+    # we need to make the supplied values vectors for printing if
+    # asScalar. We deliberately do NOT use copyVec() here.
+    if asScalar:
+        sx = np.array([sx])
+        sy = np.array([sy])
+        th = np.array([th])
+        sk = np.array([sk])
+        
+
+    for i in range(np.size(sx)):
+        print("SX: %.3f, %.3f -- SY: %.3f, %.3f -- TH: %.3f, %.3f -- SK: %.3f, %.3f"  \
+                  % (sx[i], ST.sx[i], sy[i], ST.sy[i], th[i], ST.rotDeg[i], sk[i], ST.skewDeg[i]))
+
