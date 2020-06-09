@@ -1061,23 +1061,30 @@ class Stack2x2(object):
             self.A = np.copy(self.Asup)
             return
         
-        # I think the only way we reach this line is if we have a 2 x
-        # 2 matrix. So, convert it.
+        # The only way we reach this line is if we have a 2 x 2
+        # matrix. So, convert it.
         self.A = self.Asup[np.newaxis, :, :]
 
 
     def allParsArePresent(self):
 
-        """Utility - returns True/False if all the separate
-        human-params are set. Only returns true if they are ALL
-        set."""
+        """Utility - returns True if ALL of sx, sy, theta, skew have
+        >0 rows and are all the same size. Otherwise returns False.
 
-        parsSet = True
-        if np.size(self.sx) < 1 or np.size(self.sy) < 1 or \
-                np.size(self.rotDeg) < 1 or np.size(self.skewDeg) < 1:
-            parsSet = False
-            
-        return parsSet
+        """
+
+        # There must be nonzero rows.
+        nRows = np.size(self.sx)
+        if nRows < 1:
+            return False
+
+        # The number of rows of all of the quantities must match.
+        if np.size(self.sy) != nRows or \
+                np.size(self.rotDeg) != nRows or \
+                np.size(self.skewDeg) != nRows:
+            return False
+
+        return True
 
     def parsFromStack(self):
 
@@ -1140,8 +1147,9 @@ class Stack2x2(object):
         """Produces the stack of transformations from the input
         params"""
 
-        nRows = np.size(self.sx)
-        if nRows < 1:
+        # Exit gracefully if the parameters are not set or have
+        # different row lengths
+        if not self.allParsArePresent():
             return
 
         # convenience views again
@@ -1150,7 +1158,7 @@ class Stack2x2(object):
         ssx = self.sx 
         ssy = self.sy
 
-        self.A = np.zeros((nRows,2,2))
+        self.A = np.zeros((np.size(self.sx),2,2))
         self.A[:,0,0] = ssx * np.cos(radX)
         self.A[:,0,1] = ssy * np.sin(radY)
         self.A[:,1,0] = 0.-ssx * np.sin(radX)
