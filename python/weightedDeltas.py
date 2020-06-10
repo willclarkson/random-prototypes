@@ -1021,6 +1021,9 @@ class LinearMapping(object):
             return np.array([]), np.array([])
 
         # MAKE THIS FLEXIBLE!
+        #
+        # 2020-06-10 -- this should maybe go into Stack2x2 (so that we
+        # can make a similar method to do the A^T V A)
         bob = 3
 
 class Stack2x2(object):
