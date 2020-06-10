@@ -560,8 +560,10 @@ class PairPlanes(object):
     allowed for (the weights cannot depend on the transformation
     parameters)."""
 
-    def __init__(cooSrc=None, cooTarg=None, wgts=np.array([]), \
-                     colSrcX='dx', colSrcY='dy', colTargX='xi', colTargY='eta',\
+    def __init__(cooSrc=None, cooTarg=None, \
+                     wgts=np.array([]), \
+                     colSrcX='dx', colSrcY='dy', \
+                     colTargX='xi', colTargY='eta',\
                      nRowsMin=6, \
                      Verbose=True):
 
@@ -573,13 +575,13 @@ class PairPlanes(object):
 
         -- wgts = 1- or 2D weights array
 
-        -- colSrcX = column name for the 'x' column in the source object
+        -- colSrcX = attribute name for the 'x' column in the source object
 
-        -- colSrcY = column name for the 'y' column in the source object
+        -- colSrcY = attribute name for the 'y' column in the source object
 
-        -- colTargX = column name for the 'x' column in the target object
+        -- colTargX = attribute name for the 'x' column in the target object
 
-        -- colTargY = column name for the "y" column in the target object
+        -- colTargY = attribute name for the "y" column in the target object
 
         -- nRowsMin = minimum number of rows
 
@@ -847,7 +849,8 @@ class PairPlanes(object):
         
         return okSolve
 
-# useful generally-found methods
+#####  useful generally-found methods
+
 def copyAsVec(x):
 
     """Returns a copy of the input as a vector, even if scalar"""
@@ -887,7 +890,11 @@ class LinearMapping(object):
     passed a K x M matrix, the array is converted into a 1 x K x M
     array for consistency"""
 
-    # ... and so that I don't have to write basically the same routines twice.
+    # ... and so that I don't have to write basically the same
+    # routines twice. This is written out this way so that I can use
+    # the same framework to handle higher-order terms including
+    # distortion, although that's likely to still require a bit of
+    # tweaking.
 
     def __init__(self, Ain = np.array([]), \
                      Verbose=False):
@@ -907,9 +914,16 @@ class LinearMapping(object):
         self.consts = np.array([])  # will be N x 2
         self.squares = np.array([]) # will be N x 2 x 2
 
+        # Object with the squares and converted parameters
+        self.stackSquares = None
+
         # partition the stack of transformations in to reference
         # coords and planes
         self.partitionRefsAndPlanes()
+
+        # Parse the array into the N x 2 x 2 stack with interpreted
+        # parameters
+        self.populateStack()
 
     def parseInputStack(self):
 
@@ -985,11 +999,30 @@ class LinearMapping(object):
 
         # If there is room for a separate squares array, populate it
         # here. Examples: (1x2x3) or (1x2x2) or (1x2x5).
-        if m > 1 + iBuf:
+        if m > 1 + colSq:
             self.squares = self.A[:,:,colSq:colSq+2]
         else:
             self.squares = np.array([])
         
+    def populateStack(self):
+
+        """Populates the N x 2 x 2 stack of linear transformation
+        matrices, using the object's methods to convert the
+        transformations into geometric parameters (sx, sy, rotation,
+        skew)"""
+
+        self.stackSquares = Stack2x2(self.squares)
+
+    def applyLinear(self, x=np.array([]), y=np.array([]) ):
+
+        """Applies the linear transformation to input coordinates"""
+
+        if np.size(x) < 1 or np.size(y) < 1 or np.size(x) != np.size(y):
+            return np.array([]), np.array([])
+
+        # MAKE THIS FLEXIBLE!
+        bob = 3
+
 class Stack2x2(object):
 
     """Stack of N x 2 x 2 transformation matrices"""
@@ -997,10 +1030,7 @@ class Stack2x2(object):
     def __init__(self, Asup=np.array([]), \
                      sx=np.array([]), sy=np.array([]), \
                      rotDeg=np.array([]), skewDeg=np.array([]), \
-                     sxSgn = -1., Verbose=False):
-
-        """sxSgn = -1 means the negative of the x scale factor is
-        used."""
+                     Verbose=False):
 
         # control keywords
         self.Verbose = Verbose
@@ -1014,9 +1044,6 @@ class Stack2x2(object):
         self.sy = copyAsVec(sy)
         self.rotDeg = copyAsVec(rotDeg)
         self.skewDeg = copyAsVec(skewDeg)
-
-        # sign of the scale factors
-        self.sxSgn = np.sign(sxSgn)
 
         # ... and the inverse matrix
         self.AINV = np.array([])
@@ -1334,7 +1361,7 @@ def testTP(sxIn=1.1, syIn=0.7, thetaDeg = 45., skewDeg=0., nPlanes=3, \
     # now try converting from the stack to the params, see if it
     # worked...
 
-    print ST.A[0]
+    print(ST.A[0])
 
     b = ST.A[0,0,0]
     c = ST.A[0,0,1]
@@ -1356,3 +1383,55 @@ def testTP(sxIn=1.1, syIn=0.7, thetaDeg = 45., skewDeg=0., nPlanes=3, \
         print("SX: %.3f, %.3f -- SY: %.3f, %.3f -- TH: %.3f, %.3f -- SK: %.3f, %.3f"  \
                   % (sx[i], ST.sx[i], sy[i], ST.sy[i], th[i], ST.rotDeg[i], sk[i], ST.skewDeg[i]))
 
+
+def testPlane(nPlanes=5, dxIn=0., dyIn=0., sxIn=1.1, syIn=0.7, \
+                  thetaDeg = 45., skewDeg=0., asScalar=False):
+
+    """Constructs source and transformed catalogs to test the various
+    pieces for plane-to-plane transformations"""
+
+    # Written initially to support sending in one transformation at a
+    # time.
+
+    # We'll start simple... generate a set of transformations and make
+    # sure our LinearMapping object handles it correctly. This borrows
+    # methods from testTP().
+    
+    sx = np.repeat(sxIn, nPlanes)
+    sy = np.repeat(syIn, nPlanes)
+    th = np.repeat(thetaDeg, nPlanes)
+    sk = np.repeat(skewDeg, nPlanes)
+
+    dx = np.repeat(dxIn, nPlanes)
+    dy = np.repeat(dyIn, nPlanes)
+
+    if asScalar:
+        sx = sxIn
+        sy = syIn
+        th = thetaDeg
+        sk = skewDeg
+        dx = dxIn
+        dy = dyIn
+
+    # create the 2x2 stack...
+    ST = Stack2x2(None, sx, sy, th, sk)
+
+    # ... and the dx array...
+    aNx2x2 = ST.A
+    vXx2 = np.vstack(( dx, dy)).T
+
+    aNx2x3 = np.dstack(( vXx2, aNx2x2 ))
+    
+    print(aNx2x3)
+    print(np.shape(aNx2x3))
+
+    # OK now send this as an input into our LinearMapping object
+    LM = LinearMapping(aNx2x3)
+
+    print(LM.squares)
+    print(LM.consts)
+    print(LM.stackSquares.rotDeg)
+    print(LM.stackSquares.skewDeg)
+
+    # return the Nx2x3 stack so that other test routines can use them
+    return LM.stackSquares
