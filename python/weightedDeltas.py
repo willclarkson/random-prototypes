@@ -1013,18 +1013,49 @@ class LinearMapping(object):
 
         self.stackSquares = Stack2x2(self.squares)
 
+    # 2020-06-10 I think it's better to have two methods rather than
+    # one method with a conditional inside it. Trust the calling
+    # method to know which it needs.
+
+    # applyLinearPlane() is somewhat bare-bones, and I want it to fail
+    # if given improper input. applyLinear() is a bit more
+    # feature-rich and I want it to apply some level of defensiveness.
+
+    def applyLinearPlane(self, x=np.array([]), y=np.array([])):
+
+        """Applies the 0'th plane matrix transformation to every
+        element in the given x, y arrays. Returns transformed x,
+        transformed y."""
+
+        Bx = np.matmul(self.squares[0], np.vstack((x,y)) )
+
+        # This generates a (2, N) array that can be unpacked
+        return Bx + self.consts.T
+
     def applyLinear(self, x=np.array([]), y=np.array([]) ):
 
-        """Applies the linear transformation to input coordinates"""
+        """Applies every planar transformation to the input points
+        list, one plane per input point. Returns transformed x,
+        transformed y."""
 
         if np.size(x) < 1 or np.size(y) < 1 or np.size(x) != np.size(y):
             return np.array([]), np.array([])
 
-        # MAKE THIS FLEXIBLE!
-        #
-        # 2020-06-10 -- this should maybe go into Stack2x2 (so that we
-        # can make a similar method to do the A^T V A)
-        bob = 3
+        if np.size(x) != self.squares.shape[0]:
+            return np.array([]), np.array([])
+
+        # now we want the matrices to be applied plane-by-plane
+        aXY = np.vstack(( x, y )).T[:,:,np.newaxis]
+
+        BxPlanes = np.matmul(self.squares, aXY)
+        
+        aTransf = BxPlanes[:,:,0] + self.consts
+        
+        #print("HERE:", np.shape(aXY), np.shape(self.squares), \
+        #    np.shape(BxPlanes), np.shape(self.consts))
+
+        # This generates a (2, N) array that can be unpacked.
+        return aTransf.T
 
 class Stack2x2(object):
 
@@ -1388,7 +1419,8 @@ def testTP(sxIn=1.1, syIn=0.7, thetaDeg = 45., skewDeg=0., nPlanes=3, \
 
 
 def testPlane(nPlanes=5, dxIn=0., dyIn=0., sxIn=1.1, syIn=0.7, \
-                  thetaDeg = 45., skewDeg=0., asScalar=False):
+                  thetaDeg = 45., skewDeg=0., asScalar=False, nPoints=5, \
+                  scrambleRotations=False, scrambleOffsets=False):
 
     """Constructs source and transformed catalogs to test the various
     pieces for plane-to-plane transformations"""
@@ -1408,13 +1440,22 @@ def testPlane(nPlanes=5, dxIn=0., dyIn=0., sxIn=1.1, syIn=0.7, \
     dx = np.repeat(dxIn, nPlanes)
     dy = np.repeat(dyIn, nPlanes)
 
+    if scrambleRotations:
+        th = np.random.uniform(size=nPlanes)*360.-180.
+
+    if scrambleOffsets:
+        dx = np.random.uniform(size=nPlanes)*10.-5.
+        dy = np.random.uniform(size=nPlanes)*2.-1.
+
     if asScalar:
+        nPlanes = 1
         sx = sxIn
         sy = syIn
         th = thetaDeg
         sk = skewDeg
         dx = dxIn
         dy = dyIn
+        nPoints = 1
 
     # create the 2x2 stack...
     ST = Stack2x2(None, sx, sy, th, sk)
@@ -1432,9 +1473,55 @@ def testPlane(nPlanes=5, dxIn=0., dyIn=0., sxIn=1.1, syIn=0.7, \
     LM = LinearMapping(aNx2x3)
 
     print(LM.squares)
-    print(LM.consts)
+    print(LM.consts, np.shape(LM.consts))
     print(LM.stackSquares.rotDeg)
     print(LM.stackSquares.skewDeg)
 
+    # Now generate a set of positions and apply the linear
+    # transformation to them
+    vX = np.random.uniform(size=nPoints)
+    vY = np.random.uniform(size=nPoints)
+
+    if asScalar:
+        vX = vX[0]
+        vY = vY[0]
+
     # return the Nx2x3 stack so that other test routines can use them
-    return LM.stackSquares
+    #return LM.stackSquares
+    vXi, vEta = LM.applyLinearPlane(vX, vY)
+
+    # slight fudge - if we chose asScalar, we put vX, vY back into an
+    # array form so that the test will work
+    if asScalar:
+        vX = np.array([vX])
+        vY = np.array([vY])
+
+    # Now we check whether the broadcasting did what we think it did
+    Aplane = LM.squares[0]
+    vOff = LM.consts
+    for i in range(np.min([5,nPoints])):
+        xiDir = Aplane[0,0]*vX[i] + Aplane[0,1]*vY[i] + vOff[0,0]
+        etDir = Aplane[1,0]*vX[i] + Aplane[1,1]*vY[i] + vOff[0,1]
+        print("PLANE test: %.3f, %.3f --> %.3f, %.3f and %.3f, %.3f" % \
+                  (vX[i], vY[i], vXi[i], vEta[i], xiDir, etDir))
+
+    # Now we try a different test: we apply the transformation
+    # plane-by-plane and view the results of sending the input data
+    # thru each plane at a time. 
+    planeXi, planeEta = LM.applyLinear(vX, vY)
+    
+    # Multiplying plane-by-plane only makes sense if there are the
+    # same number of datapoints as there are planes. So check that
+    # here.
+    if nPlanes == nPoints:
+        print("===============")
+        for i in range(nPlanes):
+            Athis = LM.squares[i]
+            vThis = LM.consts[i]
+
+            xiThis = Athis[0,0]*vX[i] + Athis[0,1]*vY[i] + vThis[0]
+            etThis = Athis[1,0]*vX[i] + Athis[1,1]*vY[i] + vThis[1]
+
+            print("STACK test: %.3f, %.3f --> %.3f, %.3f and %.3f, %.3f" % \
+                      (vX[i], vY[i], planeXi[i], planeEta[i], xiThis, etThis))
+
