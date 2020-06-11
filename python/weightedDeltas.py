@@ -1056,10 +1056,65 @@ class LinearMapping(object):
 
         # This generates a (2, N) array that can be unpacked.
         return aTransf.T
+    
+# Now for the operation A.V.A^T , which will come in handy when
+# generating covariance matrices with axes that are not aligned
+# with the co-ordinate system. This is useful enough that I have
+# promoted it ouf the LinearModels object
+def AVAt(A=np.array([]), V=np.array([])):
+
+    """Applies the matrix expression A. V. A^T to input matrix (or
+    stack of matrices) V. Returns an [N x K x K] matrix stack, where N
+    is the depth of the largest out of A and V."""
+
+    AA = ensureStack(A)
+    VV = ensureStack(V)
+
+    # Do some simple checking on the 3D stacks. Must be nonzero
+    # size...
+    if np.size(AA) < 1 or np.size(VV) < 1:
+        return np.array([])
+
+    # If both have >1 plane, then the number of planes must be equal.
+    if AA.shape[0] > 1 and VV.shape[0] > 1:
+        if AA.shape[0] <> VV.shape[0]:
+            return np.array([])
+
+    # Once we get here, the operation is straightforward:
+
+    # Plane-by-plane transpose
+    AT = np.transpose(AA,(0,2,1))
+
+    return np.matmul(AA, np.matmul(VV,AT))
+
+def ensureStack(A=np.array([])):
+    
+    """Utility: returns input 2D or 3D array as 3D stack"""
+
+    if np.size(A) < 1:
+        return np.array([])
+
+    dimA = np.size(np.shape(A))
+    if dimA < 2 or dimA > 3:
+        return np.array([])
+    
+    if dimA == 2:
+        return A[np.newaxis,:]
+    return A
+    
 
 class Stack2x2(object):
 
-    """Stack of N x 2 x 2 transformation matrices"""
+    """Stack of N x 2 x 2 transformation matrices. Intended use:
+    conversion between a stack of 2x2 matrices and vectors of the
+    geometric parameters (sx, sy, rotation, skew) corresponding to the
+    transformation.
+
+    If the matrix stack is supplied, the geometric parameters are
+    generated on initialization. 
+
+    If the parameters are supplied, the matrix stack is generated on
+    initialization."""
 
     def __init__(self, Asup=np.array([]), \
                      sx=np.array([]), sy=np.array([]), \
