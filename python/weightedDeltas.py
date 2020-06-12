@@ -1279,7 +1279,235 @@ class Stack2x2(object):
         self.A[:,0,1] = ssy * np.sin(radY)
         self.A[:,1,0] = 0.-ssx * np.sin(radX)
         self.A[:,1,1] = ssy * np.cos(radY)
+      
+
+### Utility class to generate XY points with different covariance
+### matrices
+class CovarsNx2x2(object):
+
+    def __init__(self, nPts=100, rotDeg=30., \
+                     aLo=1.0, aHi=1.0, \
+                     ratLo=0.1, ratHi=0.3):
+
+        # Quantities we'll need when generating synthetic data
+        self.nPts = nPts
+        self.rotDeg = rotDeg
+        self.aLo = aLo
+        self.aHi = aHi
+        self.ratLo = ratLo
+        self.ratHi = ratHi
+
+        # Internal variables
+        self.majors = np.array([])
+        self.minors = np.array([])
+        self.rotDegs = np.array([])
+
+        self.VV = np.array([]) # the diagonal covar matrix
+        self.RR = np.array([]) # the rotation (+ skew?) matrix
+        self.TT = np.array([]) # the transformation matrix 
+
+        # Covariance matrices for each point
+        self.covars = np.array([])
+
+        # The deltas (about 0,0)
+        self.deltaTransf = np.array([])
+
+    def genEigens(self):
+
+        """Generates the eigenvectors of the diagonal covariance matrix"""
+
+        ratios = np.random.uniform(self.ratLo, self.ratHi, self.nPts)
+
+        self.majors = np.random.uniform(self.aLo, self.aHi, self.nPts)
+        ratios = np.random.uniform(self.ratLo, self.ratHi, self.nPts)
+        self.minors = self.majors * ratios
+
+    def genRotns(self, stripe=True):
+
+        """Generates relevant vectors for transformation"""
+
+        # 2020-06-12 currently that's only rotation
+        self.rotDegs = np.repeat(self.rotDeg, self.nPts)
         
+        if stripe:
+            iHalf = int(0.5*np.size(self.rotDegs))
+            self.rotDegs [iHalf::] *= -1.
+
+    def populateDiagCovar(self):
+
+        """Populates diagonal matrix stack with major and minor axes"""
+
+        self.VV = np.array([])
+
+        nm = np.size(self.majors)
+        if nm < 1:
+            return
+
+        self.VV = np.zeros(( nm, 2, 2 ))
+        self.VV[:,0,0] = self.asVector(self.majors)
+        self.VV[:,1,1] = self.asVector(self.minors)
+
+    def populateRotationMatrix(self, rotateAxes=False):
+
+        """Populates rotation matrix stack using rotations.
+
+        rotateAxes = rotate the axes instead of the points?"""
+
+        self.RR = np.array([])
+        nR = np.size(self.rotDegs)
+        if nR < 1:
+            return
+
+        cc = np.cos(np.radians(self.rotDegs))
+        ss = np.sin(np.radians(self.rotDegs))
+        sgn = 1.
+        if not rotateAxes:
+            sgn = -1.
+
+        self.RR = np.zeros(( nR, 2, 2 ))
+        self.RR[:,0,0] = cc
+        self.RR[:,1,1] = cc
+        self.RR[:,0,1] = sgn * ss
+        self.RR[:,1,0] = 0. - sgn * ss
+        
+    def populateTransformation(self):
+
+        """Populates the transformation matrix by doing RR.VV
+        plane-by-plane"""
+
+        self.TT = np.matmul(self.RR, self.VV)
+
+    def asVector(self, x=np.array([])):
+
+        """Returns a copy of the input object if a scalar, and a
+        reference to the input if already an array"""
+
+        if np.isscalar(x):
+            return np.array([x])
+        return x
+    
+    def populateCovarStack(self):
+
+        """Populates the stack of covariance matrices"""
+
+        self.covars = AVAt(self.RR, self.VV)
+
+    def generateCovarStack(self):
+
+        """Wrapper that generates a stack of transformation
+        matrices"""
+
+        self.genEigens()
+        self.genRotns()
+        self.populateDiagCovar()
+        self.populateRotationMatrix(rotateAxes=False)
+        self.populateTransformation()
+        self.populateCovarStack()
+
+    def generateSamples(self):
+
+        """Generate samples from the distributions"""
+
+        # Creates [nPts, 2] array
+
+        # this whole thing is 2x2 so we'll do it piece by piece
+        xr = np.random.normal(size=self.nPts)
+        yr = np.random.normal(size=self.nPts)
+        xxr = np.vstack(( xr, yr )).T[:,:,np.newaxis]
+
+        self.deltaTransf = np.matmul(self.TT, xxr)[:,:,0].T
+        #self.deltaTransf = np.dot(self.TT, xxr)
+
+        # self.deltaTransf = np.einsum('ij,ik->ijk', self.TT, xxr)
+
+    def showDeltas(self, figNum=1):
+
+        """Utility: scatterplots the deltas we have generated"""
+        
+        if np.size(self.deltaTransf) < 1:
+            return
+
+        dx = self.deltaTransf[0]
+        dy = self.deltaTransf[1]
+
+        fig = plt.figure(figNum, figsize=(7,6))
+        fig.clf()
+        ax1 = fig.add_subplot(111)
+
+        dumScatt = ax1.scatter(dx, dy, s=1, c=self.rotDegs, \
+                                   cmap='inferno', zorder=5)
+        
+        ax1.set_xlabel(r'$\Delta X$')
+        ax1.set_ylabel(r'$\Delta Y$')
+
+        # enforce uniform axes
+        dm = np.max(np.abs(np.hstack(( dx, dy ))))
+        ax1.set_xlim(-dm, dm)
+        ax1.set_ylim(-dm, dm)
+
+        ax1.set_title('Deltas before shifting')
+
+        ax1.grid(which='both', visible=True, alpha=0.5, zorder=1)
+
+        cDum = fig.colorbar(dumScatt)
+
+### SOme generically useful (and possibly unused) methods follow
+
+def diagStack2x2(ul=np.array([]), lr=np.array([])):
+
+    """Given a vector of upper-left and lower-right entries, construct
+    an N x 2 x 2 diagonal matrix stack"""
+
+    nUL = np.size(ul)
+    if nUL < 1:
+        return np.array([])
+
+    # If the lower-right entry is not the same size as the upper-left,
+    # ignore it and create identical lower-right as upper-left
+    if np.size(lr) != nUL:
+        lr = np.copy(ul)
+    
+    # gracefully handle scalars
+    UL = copyAsVec(ul)
+    LR = copyAsVec(lr)
+
+    VV = np.zeros((nUL, 2, 2))
+    VV[:,0,0] = UL
+    VV[:,1,1] = LR
+
+    return VV
+
+def rotStack2x2(rotDeg=np.array([]), rotateAxes=False):
+
+    """Given a vector of rotation angles, generates a stack of
+    rotation matrices
+
+    rotDeg = scalar or array of counter-clockwise rotation angles in degrees
+
+    rotateAxes = rotates the axes about the points (if false, rotates the points)
+    """
+
+    nRot = np.size(rotDeg)
+    if nRot < 1:
+        return np.array([])
+    
+    # handle scalar input
+    rotVec = copyAsVec(rotDeg)
+
+    # Some pieces
+    cc = np.cos(np.radians(rotDeg))
+    ss = np.sin(np.radians(rotDeg))
+    sgn = 1.
+    if not rotateAxes:
+        sgn = -1.
+
+    RR = np.zeros(( nRot, 2, 2 ))
+    RR[:,0,0] = cc
+    RR[:,1,1] = cc
+    RR[:,0,1] = sgn * ss
+    RR[:,1,0] = 0. - sgn * ss
+    
+    return RR
 
 
 #### Some routines that use this follow
@@ -1580,3 +1808,42 @@ def testPlane(nPlanes=5, dxIn=0., dyIn=0., sxIn=1.1, syIn=0.7, \
             print("STACK test: %.3f, %.3f --> %.3f, %.3f and %.3f, %.3f" % \
                       (vX[i], vY[i], planeXi[i], planeEta[i], xiThis, etThis))
 
+
+def testMakingSample(nPts = 100, rotDeg=30.):
+
+    """Tests generating a sample with non-aligned covariances"""
+
+    # Many of the methods have been moved into the class CovarsNx2x2
+
+    CN = CovarsNx2x2(nPts, rotDeg)
+    CN.generateCovarStack()
+    CN.generateSamples()
+    CN.showDeltas()
+    
+
+    print np.shape(CN.deltaTransf)
+    return
+    
+    # Covariances: First we generate a set of major and minor axes
+    aLo = 1.0
+    aHi = 4.0
+    ratLo = 0.6  # ratio of minor:major axes (so that the axes don't
+                 # swap)
+    ratHi = 1.0
+    ratios = np.random.uniform(ratLo, ratHi, size=nPts)
+
+    vMajors = np.random.uniform(aLo, aHi, size=nPts)
+    vMinors = vMajors * ratios
+
+    # This allows us to generate the diagonal-covariances array...
+    VV = diagStack2x2(vMajors, vMinors)
+
+    # Now we generate rotation angles for the covariance matrices
+    rotDegs = np.repeat(rotDeg, np.size(vMajors))
+    RR = rotStack2x2(rotDegs, rotateAxes=False)
+
+    # Now we combine the two to get the stack of covariance matrices
+    CC = AVAt(RR,VV)
+
+    print(np.matmul(RR,VV))
+    #print(CC)
