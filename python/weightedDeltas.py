@@ -14,6 +14,7 @@ import numpy as np
 
 # for plotting
 import matplotlib.pylab as plt
+from matplotlib.collections import EllipseCollection
 
 # for estimating weights
 from covstack import CovStack
@@ -1285,9 +1286,18 @@ class Stack2x2(object):
 ### matrices
 class CovarsNx2x2(object):
 
-    def __init__(self, nPts=100, rotDeg=30., \
+    def __init__(self, covars=np.array([]), \
+                     nPts=100, rotDeg=30., \
                      aLo=1.0, aHi=1.0, \
                      ratLo=0.1, ratHi=0.3):
+
+        # The covariance stack (which could be input)
+        self.covars = np.copy(covars)
+
+        # Internal variables
+        self.majors = np.array([])
+        self.minors = np.array([])
+        self.rotDegs = np.array([])
 
         # Quantities we'll need when generating synthetic data
         self.nPts = nPts
@@ -1297,20 +1307,49 @@ class CovarsNx2x2(object):
         self.ratLo = ratLo
         self.ratHi = ratHi
 
-        # Internal variables
-        self.majors = np.array([])
-        self.minors = np.array([])
-        self.rotDegs = np.array([])
+        # if the covariances already have nonzero shape, override nPts
+        # with their leading dimension
+        if np.size(self.covars) > 0:
+            self.nPts = np.shape(self.covars)[0]
 
         self.VV = np.array([]) # the diagonal covar matrix
         self.RR = np.array([]) # the rotation (+ skew?) matrix
         self.TT = np.array([]) # the transformation matrix 
 
-        # Covariance matrices for each point
-        self.covars = np.array([])
-
-        # The deltas (about 0,0)
+        # The sample of deltas (about 0,0)
         self.deltaTransf = np.array([])
+
+    def eigensFromCovars(self):
+
+        """Finds the eigenvalues, eigenvectors and angles from the
+        covariance stack"""
+
+        # Get the stacks of eigenvalues and eigenvectors
+        w, v = np.linalg.eigh(self.covars)
+
+        # identify the major and minor axes (squared)
+        self.majors = w[:,1]
+        self.minors = w[:,0]
+
+        # the eigenvectors are already normalized. We'll keep them so
+        # that we can use them in plots
+        self.axMajors = v[:,:,1]
+        self.axMinors = v[:,:,0]  # Not needed?
+        
+        # enforce a convention: if the major axis points in the -x
+        # direction, flip both eigenvectors
+        bNeg = self.axMajors[:,0] < 0
+        self.axMajors[bNeg] *= -1.
+        self.axMinors[bNeg] *= -1.
+
+        # the rotation angle of the major axis
+        self.rotDegs = np.degrees(np.arctan(\
+                self.axMajors[:,1]/self.axMajors[:,0]))
+
+        # Having done this, we can now generate the diagonal, rotation
+        # and transformation matrix should we wish to generate samples
+        # from the deltas.
+
 
     def genEigens(self):
 
@@ -1403,6 +1442,25 @@ class CovarsNx2x2(object):
         self.populateRotationMatrix(rotateAxes=False)
         self.populateTransformation()
         self.populateCovarStack()
+
+    def populateTransfsFromCovar(self):
+
+        """Wrapper - populates the transformation matrix from the
+        covariance stack. Useful if we want to draw samples from a set
+        of covariance stacks"""
+
+        if np.size(self.covars) < 1:
+            return
+
+        # If we haven't already got the rotation angles from the
+        # covariance matrices, get them!
+        if np.size(self.rotDegs) < 1:
+            self.eigensFromCovars()
+
+        # Now we can populate the other pieces
+        self.populateDiagCovar()
+        self.populateRotationMatrix(rotateAxes=False)
+        self.populateTransformation()
 
     def generateSamples(self):
 
@@ -1809,19 +1867,107 @@ def testPlane(nPlanes=5, dxIn=0., dyIn=0., sxIn=1.1, syIn=0.7, \
                       (vX[i], vY[i], planeXi[i], planeEta[i], xiThis, etThis))
 
 
-def testMakingSample(nPts = 100, rotDeg=30.):
+def testMakingSample(nPts = 20, rotDeg=30., sf=1., nReplicas=2000):
 
     """Tests generating a sample with non-aligned covariances"""
 
     # Many of the methods have been moved into the class CovarsNx2x2
 
-    CN = CovarsNx2x2(nPts, rotDeg)
+    CN = CovarsNx2x2(nPts=nPts, rotDeg=rotDeg)
     CN.generateCovarStack()
     CN.generateSamples()
-    CN.showDeltas()
+    # CN.showDeltas()
     
+    # OK now we set up a second covarstack object, this time with the
+    # covariances
+    CF = CovarsNx2x2(CN.covars)
+    CF.eigensFromCovars()
 
-    print np.shape(CN.deltaTransf)
+    # Populate the transformation matrices so that we can generate
+    # points that follow these ellipses
+    CF.populateTransfsFromCovar()
+
+    # Now we generate points at these locations...
+    nPts = np.size(CF.rotDegs)
+    xGen = np.random.uniform(-10., 10., size=nPts)
+    yGen = np.random.uniform(-10., 10., size=nPts)
+
+    # now we generate replicas of the points but offset by these
+    # covariances.
+    xRep = np.array([])
+    yRep = np.array([])
+    cRep = np.array([])
+    
+    for iRep in range(nReplicas):
+
+        # Generate a replica set
+        CF.generateSamples()
+        xRep = np.hstack(( xRep, CF.deltaTransf[0] + xGen)) 
+        yRep = np.hstack(( yRep, CF.deltaTransf[1] + yGen )) 
+        cRep = np.hstack(( cRep, CF.rotDegs ))
+
+    # PLOT FOR CENTROIDS COMES HERE
+
+    # generate ellipse collection
+    xy = np.column_stack(( xGen, yGen ))
+
+    # ... plot them...
+    fig1 = plt.figure(1, figsize=(5,4))
+    fig1.clf()
+    ax1 = fig1.add_subplot(111)
+
+    # centers
+    dum = ax1.scatter(xGen, yGen, s=.1, color='k')
+
+    # major axes
+    dumMaj = ax1.quiver(xGen, yGen, CF.axMajors[:,0]*sf*CF.majors, \
+                            CF.axMajors[:,1]*sf*CF.majors, \
+                            zorder=6, color='r',\
+                            units='xy', angles='xy', scale_units='xy', scale=1., \
+                            width=0.05*np.median(CF.axMajors[:,0])*sf, headwidth=2)
+
+    dumMin = ax1.quiver(xGen, yGen, CF.axMinors[:,0]*sf*CF.minors, \
+                            CF.axMinors[:,1]*sf*CF.minors, \
+                            zorder=6, color='r', \
+                            units='xy', angles='xy', scale_units='xy', scale=1., \
+                            width=0.04*np.median(CF.axMajors[:,0])*sf, headwidth=2)
+
+    # ellipses (remember the ellipse expects the *width*, not the
+    # half-width!)
+    ec = EllipseCollection(CF.majors*sf*2., CF.minors*sf*2., CF.rotDegs, \
+                               units='xy', \
+                               offsets=xy, transOffset=ax1.transData, alpha=0.5, \
+                               edgecolor='r', zorder=5)
+    ec.set_array(CF.rotDegs)
+    ax1.add_collection(ec)
+    cbar = fig1.colorbar(ec)
+    cbar.set_label(r'$\theta$ (deg)')
+
+    # SCATTER PLOT OF REPLICAS COMES HERE
+    alph = 10.0**(3.-np.log10(np.size(xRep)) )
+    alph = np.float(np.clip(alph, 0.06, 1.0))
+    dumScat = ax1.scatter(xRep, yRep, c=cRep, zorder=1, s=1, \
+                              alpha=alph, \
+                              edgecolor='0.3')
+
+    # enforce uniform size
+    dmax = np.max(np.abs(np.hstack(( xGen+CF.majors*sf, yGen+CF.majors*sf)) ))
+    ax1.set_xlim(-dmax, dmax)
+    ax1.set_ylim(-dmax, dmax)
+
+    # label the axes
+    ax1.set_xlabel(r'X')
+    ax1.set_ylabel(r'Y')
+
+    ax1.set_title('Covariances and samples: %i sets of %i points' \
+                      % (nReplicas, np.size(xGen)), fontsize=10)
+
+    ax1.grid(which='both', visible=True, zorder=0, alpha=0.5)
+
+    return
+
+
+    #print np.shape(CN.deltaTransf)
     return
     
     # Covariances: First we generate a set of major and minor axes
