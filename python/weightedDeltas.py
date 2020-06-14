@@ -1567,6 +1567,160 @@ def rotStack2x2(rotDeg=np.array([]), rotateAxes=False):
     
     return RR
 
+### Utility - covariant error plot
+
+def coverrplot(x=np.array([]), y=np.array([]), covars=None, \
+                   errSF = 1., \
+                   showMajors = True, \
+                   showMinors = True, \
+                   showEllipses = True, \
+                   colorMajors = 'c', \
+                   colorMinors = 'c', \
+                   edgecolorEllipse = 'c', \
+                   alphaEllipse = 0.5, \
+                   cmapEllipse = 'inferno', \
+                   showColorbarEllipse = True, \
+                   labelColorbarEllipse = r'$\theta$ ($^\circ$)', \
+                   enforceUniformAxes=True, \
+                   ax=None, fig=None, figNum=1):
+
+    """Utility - given points with covariant uncertainties, plot
+    them. Arguments:
+
+    x, y = positions
+    
+    covars = Nx2x2 stack of uncertainty covariances
+
+    errSF = scale factor to multiply the uncertainties for display
+
+    showMajors = draw major axes?
+
+    showMinors = draw minor axes?
+
+    showEllipses = draw ellipses? 
+
+    colorMajors, colorMinors = colors for the major and minor axes
+
+    edgecolorEllipse = edgecolor for the ellipse edge (by default the
+                       ellipse is color coded by the position angle of
+                       its major axis)
+
+    alphaEllipse = transparency for ellipses
+
+    cmapEllipse = colormap use for ellipse shading
+
+    enforceUniformAxes = ensure the data ranges of the two axes are
+                         the same (otherwise the major and minor axes
+                         will not be perpendicular in the plot)
+                      
+    ax = axis on which to draw the plot
+
+    fig = figure in which to draw the axis (needed for the colorbar)
+
+    figNum = if we are making a new figure, the figure number"""
+
+    if np.size(x) < 1:
+        return
+
+    if np.size(y) != np.size(x):
+        return
+
+    if not covars:
+        return
+
+    # Expects to be given an axis, but generates a new figure if none
+    # is passed.
+    if not fig:
+        fig = plt.figure(figNum, figsize=(5,4))
+    
+    if not ax:
+        ax = fig.add_subplot(111)
+
+    # A few convenience views. (covars.axMajors are the normalized
+    # major eigenvector of each plane of the covariance stack,
+    # covars.majors are the major eigenvalues. Similar for the minor
+    # axes.)
+    xMajors = covars.axMajors[:,0]*errSF*covars.majors
+    yMajors = covars.axMajors[:,1]*errSF*covars.majors
+
+    xMinors = covars.axMinors[:,0]*errSF*covars.minors
+    yMinors = covars.axMinors[:,1]*errSF*covars.minors
+
+    # For the moment, we use the covariance-stacks to plot. Later we
+    # will give this method the ability to do its own covar
+    # interpretation.
+    if showMajors:
+        dumMaj = ax.quiver(x,y, xMajors, yMajors, zorder=6, \
+                               color=colorMajors, \
+                               units='xy', angles='xy', scale_units='xy', \
+                               scale=1., \
+                               width=0.05*np.median(xMajors), headwidth=2)
+    if showMinors:
+        dumMin = ax.quiver(x,y, xMinors, yMinors, zorder=6, \
+                               color=colorMinors, \
+                               units='xy', angles='xy', scale_units='xy', \
+                               scale=1., \
+                               width=0.05*np.median(xMajors), headwidth=2)
+
+    # Do the ellipse plot (Currently color-coded by rotation
+    # angle. The choice of array to use as a color-coding could be
+    # passed in as an argument.)
+    if showEllipses:
+        # (EllipseCollection wants the full widths not the half widths)
+        xy = np.column_stack(( x, y ))
+
+        ec = EllipseCollection(covars.majors*errSF*2., \
+                                   covars.minors*errSF*2., \
+                                   covars.rotDegs, \
+                                   units='xy', offsets=xy, \
+                                   transOffset=ax.transData, \
+                                   alpha=alphaEllipse, \
+                                   edgecolor=edgecolorEllipse, \
+                                   cmap=cmapEllipse, \
+                                   zorder=5)
+        ec.set_array(covars.rotDegs)
+        ax.add_collection(ec)
+    
+        if showColorbarEllipse:
+            cbar = fig.colorbar(ec)
+            cbar.set_label(labelColorbarEllipse)
+        
+    # enforce uniform axes?
+    if enforceUniformAxes:
+        unifAxisLengths(ax)
+
+def unifAxisLengths(ax=None):
+
+    """Utility - ensure axis has the same axis lengths"""
+
+    if not ax:
+        return
+
+    xax = np.copy(ax.get_xlim())
+    yax = np.copy(ax.get_ylim())
+        
+    xc = 0.5*(xax[0] + xax[1])
+    yc = 0.5*(yax[0] + yax[1])
+
+    xdelt = xax - xc
+    ydelt = yax - yc
+
+    # maximum abs delta
+    dmax = np.max(np.abs( np.hstack(( xdelt, ydelt )) ))
+
+    xnew = xc + dmax*np.array([-1., 1.])
+    ynew = yc + dmax*np.array([-1., 1.])
+
+    # handle the sign
+    if xdelt[0] > 0:
+        xnew *= -1.
+
+    if ydelt[0] > 0:
+        ynew *= -1.
+            
+    ax.set_xlim(xnew)
+    ax.set_ylim(ynew)
+
 
 #### Some routines that use this follow
 
@@ -1906,54 +2060,31 @@ def testMakingSample(nPts = 20, rotDeg=30., sf=1., nReplicas=2000):
         yRep = np.hstack(( yRep, CF.deltaTransf[1] + yGen )) 
         cRep = np.hstack(( cRep, CF.rotDegs ))
 
-    # PLOT FOR CENTROIDS COMES HERE
-
-    # generate ellipse collection
-    xy = np.column_stack(( xGen, yGen ))
-
-    # ... plot them...
+    # TEST THE REFACTORING IF OUR COVAR ERRPLOT
     fig1 = plt.figure(1, figsize=(5,4))
     fig1.clf()
     ax1 = fig1.add_subplot(111)
 
-    # centers
-    dum = ax1.scatter(xGen, yGen, s=.1, color='k')
-
-    # major axes
-    dumMaj = ax1.quiver(xGen, yGen, CF.axMajors[:,0]*sf*CF.majors, \
-                            CF.axMajors[:,1]*sf*CF.majors, \
-                            zorder=6, color='r',\
-                            units='xy', angles='xy', scale_units='xy', scale=1., \
-                            width=0.05*np.median(CF.axMajors[:,0])*sf, headwidth=2)
-
-    dumMin = ax1.quiver(xGen, yGen, CF.axMinors[:,0]*sf*CF.minors, \
-                            CF.axMinors[:,1]*sf*CF.minors, \
-                            zorder=6, color='r', \
-                            units='xy', angles='xy', scale_units='xy', scale=1., \
-                            width=0.04*np.median(CF.axMajors[:,0])*sf, headwidth=2)
-
-    # ellipses (remember the ellipse expects the *width*, not the
-    # half-width!)
-    ec = EllipseCollection(CF.majors*sf*2., CF.minors*sf*2., CF.rotDegs, \
-                               units='xy', \
-                               offsets=xy, transOffset=ax1.transData, alpha=0.5, \
-                               edgecolor='r', zorder=5)
-    ec.set_array(CF.rotDegs)
-    ax1.add_collection(ec)
-    cbar = fig1.colorbar(ec)
-    cbar.set_label(r'$\theta$ (deg)')
-
-    # SCATTER PLOT OF REPLICAS COMES HERE
+    # We add a scatterplot 
     alph = 10.0**(3.-np.log10(np.size(xRep)) )
     alph = np.float(np.clip(alph, 0.06, 1.0))
     dumScat = ax1.scatter(xRep, yRep, c=cRep, zorder=1, s=1, \
                               alpha=alph, \
                               edgecolor='0.3')
 
-    # enforce uniform size
-    dmax = np.max(np.abs(np.hstack(( xGen+CF.majors*sf, yGen+CF.majors*sf)) ))
-    ax1.set_xlim(-dmax, dmax)
-    ax1.set_ylim(-dmax, dmax)
+    # uncomment this to test the sign-retention when coverrplot's
+    # uniform axis length preservation is used.
+    ax1.set_xlim(3,-3)
+    
+    # Plot arguments moved into new method:
+    coverrplot(xGen, yGen, CF, errSF=sf, ax=ax1, fig=fig1)
+
+    # We add a scatterplot 
+    #alph = 10.0**(3.-np.log10(np.size(xRep)) )
+    #alph = np.float(np.clip(alph, 0.06, 1.0))
+    #dumScat = ax1.scatter(xRep, yRep, c=cRep, zorder=1, s=1, \
+    #                          alpha=alph, \
+    #                          edgecolor='0.3')
 
     # label the axes
     ax1.set_xlabel(r'X')
