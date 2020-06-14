@@ -1287,22 +1287,19 @@ class Stack2x2(object):
 class CovarsNx2x2(object):
 
     def __init__(self, covars=np.array([]), \
-                     varxx=np.array([]), varyy=np.array([]), \
-                     covxy=np.array([]), xyIsCorrel=True, \
+                     stdx=np.array([]), stdy=np.array([]), \
+                     corrxy=np.array([]), \
                      nPts=100, rotDeg=30., \
                      aLo=1.0, aHi=1.0, \
                      ratLo=0.1, ratHi=0.3):
 
         """covars = N x 2 x 2 stack of covariances. Optional input.
 
-        varxx = N-element VARIANCES in xx
+        stdx = N-element sqrt(Var) in xx
 
-        varyy = N-element VARIANCES in yy
+        stdy = N-element sqrt(Var) in yy
         
-        covxy = N-element COVARIANCE in xy
-
-        xyIsCorrel: if varxy is given, set this to true if the x-y
-        component is a correlation coefficient not a covariance
+        corrxy = N-element xy correlation coefficients
 
         """
 
@@ -1312,10 +1309,9 @@ class CovarsNx2x2(object):
         self.covars = np.copy(covars)
 
         # Another form - the coord-aligned components of the stack
-        self.varxx = np.copy(varxx)
-        self.varyy = np.copy(varyy)
-        self.covxy = np.copy(varxy)
-        self.xyIsCorrel = xyIsCorrel
+        self.stdx = np.copy(stdx)
+        self.stdy = np.copy(stdy)
+        self.corrxy = np.copy(corrxy)
 
         # Internal variables
         self.majors = np.array([])
@@ -1335,6 +1331,15 @@ class CovarsNx2x2(object):
         if np.size(self.covars) > 0:
             self.nPts = np.shape(self.covars)[0]
 
+            # populate the xy components
+            self.populateXYcomponents()
+
+        # Or, if we have no covariance but we DO have the XY
+        # components, build it that way. covStackFromXY checks that
+        # the arrays are nonzero so we don't need to do it here)
+        else:
+            self.covStackFromXY()  
+
         self.VV = np.array([]) # the diagonal covar matrix
         self.RR = np.array([]) # the rotation (+ skew?) matrix
         self.TT = np.array([]) # the transformation matrix 
@@ -1351,14 +1356,39 @@ class CovarsNx2x2(object):
             return
 
         # if the covariance is already set, then we just read off the
-        # three components. Actually they can just be views.
-        self.varxx = self.covars[:,0,0]
-        self.varyy = self.covars[:,1,1]
-        self.covxy = self.covars[:,0,1]
+        # three components. 
+        self.stdx = np.sqrt(self.covars[:,0,0])
+        self.stdy = np.sqrt(self.covars[:,1,1])
+        self.corrxy = self.covars[:,0,1] / (self.stdx * self.stdy)
 
-        # WATCHOUT - should there be a square root here?
-        if self.xyIsCorrel:
-            self.covxy = self.covxy / np.sqrt(self.varxx * self.varyy)
+    def covStackFromXY(self):
+
+        """Populates the covariance stack from the XY components"""
+
+        nPts = np.size(self.stdx)
+        if nPts < 1:
+            return
+
+        self.nPts = nPts
+        self.covars = np.zeros((self.nPts, 2, 2))
+        
+        # Now populate the parts. The xx variance must always be
+        # populated
+        self.covars[:,0,0] = self.stdx**2
+
+        # If the y-component is not given, duplicate the xx part
+        if np.size(self.stdy) == self.nPts:
+            self.covars[:,1,1] = self.stdy**2
+        else:
+            self.covars[:,1,1] = self.stdx**2
+
+        # Populate the off-diagonal elements
+        if np.size(self.corrxy) != self.nPts:
+            return
+
+        covxy = self.corrxy * self.stdx * self.stdy
+        self.covars[:,0,1] = covxy
+        self.covars[:,1,0] = covxy
 
     def eigensFromCovars(self):
 
@@ -1483,6 +1513,7 @@ class CovarsNx2x2(object):
         self.populateRotationMatrix(rotateAxes=False)
         self.populateTransformation()
         self.populateCovarStack()
+        self.populateXYcomponents()
 
     def populateTransfsFromCovar(self):
 
@@ -1610,7 +1641,11 @@ def rotStack2x2(rotDeg=np.array([]), rotateAxes=False):
 
 ### Utility - covariant error plot
 
-def coverrplot(x=np.array([]), y=np.array([]), covars=None, \
+def coverrplot(x=np.array([]), y=np.array([]), \
+                   covars=None, \
+                   errx=np.array([]), \
+                   erry=np.array([]), \
+                   corrxy=np.array([]), \
                    errSF = 1., \
                    showMajors = True, \
                    showMinors = True, \
@@ -1631,6 +1666,13 @@ def coverrplot(x=np.array([]), y=np.array([]), covars=None, \
     x, y = positions
     
     covars = Nx2x2 stack of uncertainty covariances
+
+    errx = std devns in x (ignored if covars set)
+
+    erry = std devns in y (ignored if covars set)
+
+    corrxy = correlation coefficients for errors in xy (ignored if
+             covars set)
 
     errSF = scale factor to multiply the uncertainties for display
 
@@ -1666,8 +1708,14 @@ def coverrplot(x=np.array([]), y=np.array([]), covars=None, \
     if np.size(y) != np.size(x):
         return
 
+    # construct the covariance object if not given
     if not covars:
-        return
+        covars = CovarsNx2x2(stdx=errx, stdy=erry, corrxy=corrxy)
+        if covars.nPts < 1:
+            return
+
+        covars.eigensFromCovars()
+        covars.populateTransfsFromCovar()
 
     # Expects to be given an axis, but generates a new figure if none
     # is passed.
@@ -2062,7 +2110,8 @@ def testPlane(nPlanes=5, dxIn=0., dyIn=0., sxIn=1.1, syIn=0.7, \
                       (vX[i], vY[i], planeXi[i], planeEta[i], xiThis, etThis))
 
 
-def testMakingSample(nPts = 20, rotDeg=30., sf=1., nReplicas=2000):
+def testMakingSample(nPts = 20, rotDeg=30., sf=1., nReplicas=2000, \
+                         testComponents=True):
 
     """Tests generating a sample with non-aligned covariances"""
 
@@ -2115,10 +2164,19 @@ def testMakingSample(nPts = 20, rotDeg=30., sf=1., nReplicas=2000):
 
     # uncomment this to test the sign-retention when coverrplot's
     # uniform axis length preservation is used.
-    ax1.set_xlim(3,-3)
+    # ax1.set_xlim(3,-3)
     
     # Plot arguments moved into new method:
-    coverrplot(xGen, yGen, CF, errSF=sf, ax=ax1, fig=fig1)
+    if not testComponents:
+        coverrplot(xGen, yGen, CF, errSF=sf, ax=ax1, fig=fig1)
+    else:
+        # Try this with the xerr, yerr, corrxy. To ignore one or both
+        # of those, set the erry, corrxy to None.
+        coverrplot(xGen, yGen, None, errx=CF.stdx, \
+                       erry=CF.stdy, \
+                       corrxy=CF.corrxy, \
+                       errSF=sf, ax=ax1, fig=fig1)
+    
 
     # We add a scatterplot 
     #alph = 10.0**(3.-np.log10(np.size(xRep)) )
