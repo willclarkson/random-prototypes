@@ -1287,12 +1287,35 @@ class Stack2x2(object):
 class CovarsNx2x2(object):
 
     def __init__(self, covars=np.array([]), \
+                     varxx=np.array([]), varyy=np.array([]), \
+                     covxy=np.array([]), xyIsCorrel=True, \
                      nPts=100, rotDeg=30., \
                      aLo=1.0, aHi=1.0, \
                      ratLo=0.1, ratHi=0.3):
 
+        """covars = N x 2 x 2 stack of covariances. Optional input.
+
+        varxx = N-element VARIANCES in xx
+
+        varyy = N-element VARIANCES in yy
+        
+        covxy = N-element COVARIANCE in xy
+
+        xyIsCorrel: if varxy is given, set this to true if the x-y
+        component is a correlation coefficient not a covariance
+
+        """
+
+        
+
         # The covariance stack (which could be input)
         self.covars = np.copy(covars)
+
+        # Another form - the coord-aligned components of the stack
+        self.varxx = np.copy(varxx)
+        self.varyy = np.copy(varyy)
+        self.covxy = np.copy(varxy)
+        self.xyIsCorrel = xyIsCorrel
 
         # Internal variables
         self.majors = np.array([])
@@ -1318,6 +1341,24 @@ class CovarsNx2x2(object):
 
         # The sample of deltas (about 0,0)
         self.deltaTransf = np.array([])
+
+    def populateXYcomponents(self):
+
+        """Populates the X, Y covariance vectors from the covariance
+        stack"""
+
+        if np.size(self.covars) < 1:
+            return
+
+        # if the covariance is already set, then we just read off the
+        # three components. Actually they can just be views.
+        self.varxx = self.covars[:,0,0]
+        self.varyy = self.covars[:,1,1]
+        self.covxy = self.covars[:,0,1]
+
+        # WATCHOUT - should there be a square root here?
+        if self.xyIsCorrel:
+            self.covxy = self.covxy / np.sqrt(self.varxx * self.varyy)
 
     def eigensFromCovars(self):
 
