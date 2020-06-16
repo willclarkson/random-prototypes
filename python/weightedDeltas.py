@@ -1153,6 +1153,7 @@ class NormalEqs(object):
 
         # Internal variables
         self.pattern = np.array([]) # pattern matrix
+        self.patternT = np.array([]) # its plane-by-plane transpose
         self.H = np.array([])  # The hessian (M x M)
         self.beta = np.array([]) # beta (M)
 
@@ -1171,6 +1172,14 @@ class NormalEqs(object):
         self.pars = np.array([])  # M
         self.formalCov = np.array([]) # the formal covariance estimate
 
+        # Results decomposed into reference point and 2x2 transformation
+        self.xiRef = np.array([])   # 2-element vector
+        self.BMatrix = np.array([]) # 2x2 matrix
+
+        # The tangent point on the source system (the point
+        # corresponding to xi = [0., 0.])
+        self.xZero = np.array([])
+
     def initBplanes(self):
 
         """Ensure the b-planes object is populated"""
@@ -1183,17 +1192,25 @@ class NormalEqs(object):
         """Creates the pattern matrix using the pattern class"""
 
         self.patnObj = ptheta2d(self.x[:,0], self.x[:,1], self.fitChoice)
-        self.patnObj.populatePattern()
 
         # Worth duplicating the pattern array for clarity elsewhere in
         # THIS object.
         self.pattern = self.patnObj.pattern 
+        self.transposePattern()
+
+    def transposePattern(self):
+
+        """We'll need the plane-by-plane transpose of the pattern
+        array at least twice. So we populate it here."""
+
+        self.patternT = np.transpose(self.pattern, (0,2,1))
 
     def makeBeta(self):
 
         """Populates the beta array sum_i P^T W_i xi """
 
-        PWxi = np.matmul(self.pattern.T, np.matmul(self.W, self.xi))
+        PWxi = np.matmul(self.patternT, \
+                             np.matmul(self.W, self.xi[:,:,np.newaxis]))
 
         # sum along the i dimension, but only the planes we trust
         self.beta = np.sum(PWxi[self.bPlanes], axis=0)
@@ -1202,7 +1219,7 @@ class NormalEqs(object):
 
         """Populates the Hessian matrix: sum_i P^T W_i P"""
 
-        PWP = np.matmul(self.pattern.T, np.matmul(self.W, self.pattern))
+        PWP = np.matmul(self.patternT, np.matmul(self.W, self.pattern))
 
         # Sum along the i dimension, but only the planes we trust
         self.H = np.sum(PWP[self.bPlanes], axis=0)
@@ -1223,6 +1240,59 @@ class NormalEqs(object):
         # inverse of the Hessian.
 
         self.formalCov = np.linalg.inv(self.H)
+
+    def estTangentPoint(self):
+
+        """Inverts the linear part of the transformation to estimate
+        the location of the tangent point (where \vec{xi} = \vec{0})
+        on the detector."""
+
+        if np.size(self.pars) < 1:
+            return
+
+        # Decompose the transformation into xi_ref, B...
+        self.interpretBmatrix()
+
+        vXref = np.array([self.xref, self.yref])
+        BInv = np.linalg.inv(self.BMatrix)
+
+        self.xZero = vXref - np.dot(BInv, self.xiRef)
+
+
+    def interpretBmatrix(self):
+
+        """Interprets the linear part of the transformation as the
+        xi_ref and the linear part of the transformation so that we
+        can invert it to estimate the location of the tangent
+        point."""
+
+        # The reference point, transformed onto the target coords
+        self.xiRef = self.pars[[0,3]][:,0]
+
+        # Initialize the 2x2 matrix to the identity, filling in the
+        # pieces appropriately for the choice of transformation. 
+        self.BMatrix = np.eye(2)
+        self.BMatrix[0,0] = self.pars[1]
+        self.BMatrix[0,1] = self.pars[2]
+
+        if self.fitChoice.find('similarity') > -1:
+            self.BMatrix[1,0] = 0.-self.BMatrix[0,1]
+            self.BMatrix[1,1] = self.BMatrix[0,0]
+            return
+
+        # If we're here then the first six terms are the same as for
+        # the 6-term linear transformation
+        self.BMatrix[1,0] = self.pars[4]
+        self.BMatrix[1,1] = self.pars[5]
+
+    def doFit(self):
+
+        """Wrapper that sets up and does the fitting"""
+
+        self.buildPattern()
+        self.makeBeta()
+        self.makeHessian()
+        self.solveParams()
 
     def applyTransfToFitSample(self):
 
@@ -1273,6 +1343,9 @@ class ptheta2d(object):
         self.fitChoice = fitChoice[:]
 
         self.pattern = np.array([])
+
+        # Populate the pattern on initialization
+        self.populatePattern()
 
     def populatePattern(self):
 
@@ -2508,7 +2581,7 @@ def testMakingSample(nPts = 20, rotDeg=30., sf=1., nReplicas=2000, \
     return
 
 
-    #print np.shape(CN.deltaTransf)
+    #print(np.shape(CN.deltaTransf))
     return
     
     # Covariances: First we generate a set of major and minor axes
@@ -2534,3 +2607,118 @@ def testMakingSample(nPts = 20, rotDeg=30., sf=1., nReplicas=2000, \
 
     print(np.matmul(RR,VV))
     #print(CC)
+
+def testFitting(nPts = 20, rotDegCovar=30., \
+                    rotDeg = 30., \
+                    genStripe=True, \
+                    xDetMax=500., yDetMax=500., \
+                    xRef = 250., yRef=250.):
+
+    """End-to-end test of sample generation and fitting."""
+
+    # Generate the centroids in the DETECTOR plane
+    xGen = np.random.uniform(0., xDetMax, size=nPts)
+    yGen = np.random.uniform(0., yDetMax, size=nPts)
+
+    # Set up the transformation. For the moment this is still arranged
+    # as the A-matrix
+    sx = -5.0e-4
+    sy = 4.0e-4
+    #rotDeg = 30.
+    skewDeg = 5.
+    xiRef  = 0.05
+    etaRef = -0.06
+
+    # Convert the transformation into abcdef pars and slot into the
+    # 1D order [a,b,c,d,e,f]
+    Transf = Stack2x2(None, sx, sy, rotDeg, skewDeg)
+    vTheta = np.hstack(( xiRef, Transf.A[0,0,:], etaRef, Transf.A[0,1,:] )) 
+
+    # Armed with this, populate the true parameters array in the order
+    # in which it is expected by the P.theta object
+    PT = ptheta2d(xGen-xRef, yGen-yRef, pars=vTheta)
+
+    # Populate the target objects
+    xiTrue = PT.evaluatePtheta()
+
+    # Now, we give these objects measurement uncertainty. We'll start
+    # off assuming that our uncertainties are correct.
+    CN = CovarsNx2x2(nPts=nPts, rotDeg=rotDegCovar, \
+                         genStripe=genStripe, \
+                         aLo=1.0e-3, aHi=2.0e-2)
+    CN.generateCovarStack()
+
+    # Now we create a second object, this time with the covars as an
+    # input, and use this to draw samples
+    CF = CovarsNx2x2(CN.covars)
+    CF.populateTransfsFromCovar()
+
+    t0 = time.time()
+    CF.generateSamples()
+
+    # tweak the generated points in the target frame by adding the
+    # deltas to them
+    xiNudged  = xiTrue[:,0] + CF.deltaTransf[0] # Yes, mismatched...
+    etaNudged = xiTrue[:,1] + CF.deltaTransf[1]
+
+    # OK now we try the normal equations to see how the fit goes...
+    NE = NormalEqs(xGen, yGen, xiNudged, etaNudged, \
+                       W=np.linalg.inv(CF.covars), \
+                       xref=xRef, yref=yRef)
+
+    NE.doFit()
+    print("elapsed in simulation + fit: %.2e sec" % (time.time()-t0)) 
+
+    # Estimate the tangent point in the original coordinates, invert
+    # the Hessian to get the formal covariance estimate
+    NE.estTangentPoint()
+    NE.invertHessian()
+
+    print("Tangent point:", NE.xZero)
+
+    # what does the covariance matrix of just the positions look like?
+    covPos = np.array([ NE.formalCov[0,[0,3]], NE.formalCov[3,[0,3]] ])
+
+    # Let's try putting this into a 2x2 stack for easy (and
+    # convention-following) retrieval of the covariance parameters for
+    # the position
+    CovPos2x2 = CovarsNx2x2(covPos[np.newaxis,:])
+    CovPos2x2.eigensFromCovars()
+
+    print("Formal covariance for xiRef: %.3e, %.3e, %.2f" % \
+              (np.sqrt(CovPos2x2.majors), \
+                   np.sqrt(CovPos2x2.minors), \
+                   CovPos2x2.rotDegs))
+
+    #print(NE.formalCov)
+    #print(covPos)
+
+    # Debug plots for our sample follow below    
+
+    fig2=plt.figure(2)
+    fig2.clf()
+    ax1 = fig2.add_subplot(121)
+    ax2 = fig2.add_subplot(122)
+
+    dum1 = ax1.scatter(xGen, yGen, c='r', s=3, edgecolor='0.5')
+    dum2 = ax2.scatter(xiTrue[:,0], xiTrue[:,1], c='b', s=3)
+
+    # Now show the target coords as perturbed
+    dum3 = ax2.scatter(xiNudged, etaNudged, c='0.5', s=2)
+
+    # Now try an errorplot of this
+    coverrplot(xiNudged, etaNudged, covars=CF, fig=fig2, ax=ax2, \
+                   showColorbarEllipse=False, \
+                   cmapEllipse='gray', edgecolorEllipse='k', \
+                   colorMajors='k', colorMinors='0.1')
+
+    # Show the tangent point on the plots
+    dum4 = ax1.plot(NE.xZero[0], NE.xZero[1], 'go')
+    dum5 = ax2.plot(0., 0., 'go')
+
+    ax1.set_xlabel('X, pix')
+    ax1.set_ylabel('Y, pix')
+    ax2.set_xlabel(r'$\xi$, pix')
+    ax2.set_ylabel(r'$\eta$, pix')
+
+    fig2.subplots_adjust(wspace=0.3, bottom=0.15)
