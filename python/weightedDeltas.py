@@ -1104,6 +1104,216 @@ def ensureStack(A=np.array([])):
     return A
     
 
+class NormalEqs(object):
+
+    """Finds the linear mapping from one set to the other, optionally
+    finding the formal covariance estimate on the returned
+    parameters.
+
+    Initially written with 2D data in mind."""
+
+    # Work on generalizing to N-dimensional data later.
+
+    def __init__(self, x=np.array([]), y=np.array([]), \
+                     xi=np.array([]), eta=np.array([]), \
+                     W=np.array([]), \
+                     fitChoice='6term', Verbose=False):
+
+        # the coords to be transformed 
+        self.x = np.column_stack(( x, y ))
+
+        # The target coords
+        self.xi = np.column_stack(( xi, eta ))
+
+        # The N x 2 x 2 weight array
+        self.W = W
+
+        # control variables
+        self.fitChoice = fitChoice[:]
+        self.Verbose = Verbose
+
+        # Internal variables
+        self.pattern = np.array([]) # pattern matrix
+        self.H = np.array([])  # The hessian (M x M)
+        self.beta = np.array([]) # beta (M)
+
+        # pattern object containing the sample to be used when fitting
+        self.patnObj = None 
+
+        # row-by-row fit statistic - for all objects
+        self.s2All = np.array([])
+        self.outlyNsigma = 4.
+
+        # Which planes do we trust?
+        self.bPlanes = np.array([])
+        self.initBplanes()
+
+        # The results
+        self.pars = np.array([])  # M
+        self.formalCov = np.array([]) # the formal covariance estimate
+
+    def initBplanes(self):
+
+        """Ensure the b-planes object is populated"""
+
+        if np.size(self.bPlanes) < 1:
+            self.bPlanes = np.isfinite(self.x[:,0])
+
+    def buildPattern(self):
+
+        """Creates the pattern matrix using the pattern class"""
+
+        self.patnObj = ptheta2d(self.x[:,0], self.x[:,1], self.fitChoice)
+        self.patnObj.populatePattern()
+
+        # Worth duplicating the pattern array for clarity elsewhere in
+        # THIS object.
+        self.pattern = self.patnObj.pattern 
+
+    def makeBeta(self):
+
+        """Populates the beta array sum_i P^T W_i xi """
+
+        PWxi = np.matmul(self.pattern.T, np.matmul(self.W, self.xi))
+
+        # sum along the i dimension, but only the planes we trust
+        self.beta = np.sum(PWxi[self.bPlanes], axis=0)
+
+    def makeHessian(self):
+
+        """Populates the Hessian matrix: sum_i P^T W_i P"""
+
+        PWP = np.matmul(self.pattern.T, np.matmul(self.W, self.pattern))
+
+        # Sum along the i dimension, but only the planes we trust
+        self.H = np.sum(PWP[self.bPlanes], axis=0)
+        
+    def solveParams(self):
+
+        """Solves the normal equations to find the parameters theta"""
+
+        self.pars = np.linalg.solve(self.H, self.beta)
+
+    def invertHessian(self):
+
+        """Inverts the hessian to estimate the formal covariance of
+        the parameters"""
+
+        # We probably won't need to do this every time through a monte
+        # carlo simulation, so I assign a separate variable for the
+        # inverse of the Hessian.
+
+        self.formalCov = np.linalg.inv(self.H)
+
+    def applyTransfToFitSample(self):
+
+        """Applies the transformation to the fit sample"""
+
+        # Note that it does this to the entire sample. This is so that
+        # the booleans always have the same length and I don't go nuts
+        # trying to trace the booleans round an ever-shrinking sample
+        # when sigma-clipping...
+
+        self.patnObj.pars = np.copy(self.pars)
+        self.xiPred = self.patnObj.evaluatePtheta()
+
+    def evaluateS2all(self):
+
+        """Evaluates the row-by-row fit statistic s^2 = (xi -
+        xi_pred)^T W (xi - xi_pred)"""
+
+        self.applyTransfToFitSample()
+        deltAll = self.xi - self.xiPred
+        self.s2All = np.matmul(deltAll.T, np.matmul(self.W, deltAll))
+
+    def findOutliers(self):
+
+        """Finds strong outliers"""
+
+        # ( if W is accurately giving inverse variance weights, then
+        # s^2 should be chi-square distributed. If we really believe
+        # this is chi-square distributed then we could use the upper
+        # tail to find and remove outliers.)
+        peak = np.median(self.s2All)
+        
+        # 2020-06-15: come back to this because I'm not sure I have a
+        # way to ID outliers yet that I trust for the general weighted
+        # average.
+
+class ptheta2d(object):
+
+    """(Needs a better name...) Object to hold the pattern matrix and
+    the parameters encoding a linear transformation"""
+
+    def __init__(self, x=np.array([]), y=np.array([]), \
+                     fitChoice='6term', pars=np.array([]) ):
+
+        self.x = x
+        self.y = y
+        self.pars = pars
+        self.fitChoice = fitChoice[:]
+
+        self.pattern = np.array([])
+
+    def populatePattern(self):
+
+        """Applies the fit choice by populating the pattern matrix."""
+        
+        if self.fitChoice.find('similarity') > -1:
+            self.patternSimilarity()
+            return
+
+        # default to the six-term case
+        self.pattern6term()
+
+    def pattern6term(self):
+
+        """Populates the pattern matrix for the 6-term linear
+        transformation"""
+
+        if np.size(self.x) < 1:
+            return
+
+        # Do this the hardcoded way (there's probably an np.einsum way
+        # to do this in a couple of lines...)
+        nRows = self.x.shape[0]
+        self.pattern = np.zeros(( nRows, 2, 6 ))
+
+        self.pattern[:,0,0] = 1.
+        self.pattern[:,0,1] = self.x
+        self.pattern[:,0,2] = self.y
+        self.pattern[:,1,3] = 1.
+        self.pattern[:,1,4] = self.x
+        self.pattern[:,1,5] = self.y
+
+    def patternSimilarity(self):
+
+        """Builds the pattern matrix for the 4-term similarity
+        transformation"""
+
+        if np.size(self.x) < 1:
+            return
+
+        # We drop this in term by term
+        nRows = self.x.shape[0]
+        self.pattern = np.zeros(( nRows, 2, 4 ))
+
+        self.pattern[:,0,0] = 1.
+        self.pattern[:,0,1] = self.x
+        self.pattern[:,0,2] = self.y
+        self.pattern[:,1,1] = self.y
+        self.pattern[:,1,2] = 0.-self.x
+        self.pattern[:,1,3] = 1.
+
+    def evaluatePtheta(self):
+
+        """Evaluates P.theta, returning the NxK array of evaluates"""
+
+        if np.size(self.pars) < 1:
+            return np.array([])
+
+        return np.matmul(self.pattern, self.pars)
+
 class Stack2x2(object):
 
     """Stack of N x 2 x 2 transformation matrices. Intended use:
