@@ -1515,12 +1515,14 @@ class Stack2x2(object):
 ### matrices
 class CovarsNx2x2(object):
 
-    """Given a set of covariances as a stack, or as the individual
-    components (as might be read from an astrometric catalog),
-    populates all the following forms: covariance stack, components,
-    major and minor axes and rotation angles. Any of the three forms
-    can be supplied: the stack is populated in the following order of
-    preference: {covars, xy components, abtheta}
+    """Given a set of covariances as an Nx2x2 stack, or as the
+    individual components (as might be read from an astrometric
+    catalog), populates all the following forms: {covariance stack},
+    {x-y components}, {major and minor axes and rotation angles}. Any
+    of the three forms can be supplied: the stack is populated in the
+    following order of preference: {covars, xy components,
+    abtheta}. Computes various useful intermediate attributes that are
+    useful when plotting: my coverrplot uses this fairly extensively.
 
     Also contains methods to generate datapoints described by the
     covariance stack. 
