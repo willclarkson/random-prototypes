@@ -14,7 +14,7 @@ import numpy as np
 
 # for plotting
 import matplotlib.pylab as plt
-from matplotlib.collections import EllipseCollection
+from matplotlib.collections import EllipseCollection, LineCollection
 
 # for estimating weights
 from covstack import CovStack
@@ -2130,33 +2130,29 @@ def coverrplot(x=np.array([]), y=np.array([]), \
     # will give this method the ability to do its own covar
     # interpretation.
     if showMajors:
-        dumMaj = ax.quiver(x,y, xMajors, yMajors, zorder=6, \
-                               color=colorMajors, \
-                               units='xy', angles='xy', scale_units='xy', \
-                               scale=1., \
-                               width=0.05*np.median(xMajors), headwidth=2)
-        if crossStyle:
-            dumMaj2 = ax.quiver(x,y, -xMajors, -yMajors, zorder=6, \
-                                    color=colorMajors, \
-                                    units='xy', angles='xy', scale_units='xy', \
-                                    scale=1., \
-                                    width=0.05*np.median(xMajors), headwidth=2)
+        if not crossStyle:
+            dumMaj = ax.quiver(x,y, xMajors, yMajors, zorder=6, \
+                                   color=colorMajors, \
+                                   units='xy', angles='xy', scale_units='xy', \
+                                   scale=1., \
+                                   width=0.05*np.median(xMajors), headwidth=2)
+        else:
+            lcMaj = LineCollection(lineSetFromVectors(x, xMajors, y, yMajors), \
+                                       zorder=6, color=colorMajors, lw=0.5)
+            ax.add_collection(lcMaj)
+
         
     if showMinors:
-        dumMin = ax.quiver(x,y, xMinors, yMinors, zorder=6, \
-                               color=colorMinors, \
-                               units='xy', angles='xy', scale_units='xy', \
-                               scale=1., \
-                               width=0.05*np.median(xMajors), headwidth=2)
-
-        if crossStyle:
-            dumMin2 = ax.quiver(x,y, -xMinors, -yMinors, zorder=6, \
-                                    color=colorMinors, \
-                                    units='xy', angles='xy', scale_units='xy', \
-                                    scale=1., \
-                                    width=0.05*np.median(xMajors), headwidth=2)
-        
-            
+        if not crossStyle:
+            dumMin = ax.quiver(x,y, xMinors, yMinors, zorder=6, \
+                                   color=colorMinors, \
+                                   units='xy', angles='xy', scale_units='xy', \
+                                   scale=1., \
+                                   width=0.05*np.median(xMajors), headwidth=2)
+        else:
+            lcMin=LineCollection( lineSetFromVectors(x,xMinors,y,yMinors), \
+                                      zorder=6, color=colorMinors, lw=.3)
+            ax.add_collection(lcMin)
 
     # Do the ellipse plot (Currently color-coded by rotation
     # angle. The choice of array to use as a color-coding could be
@@ -2186,6 +2182,26 @@ def coverrplot(x=np.array([]), y=np.array([]), \
     # enforce uniform axes?
     if enforceUniformAxes:
         unifAxisLengths(ax)
+        ax.set_aspect('equal')
+
+def lineSetFromVectors(x=np.array([]), dx=np.array([]), \
+                           y=np.array([]), dy=np.array([]) ):
+
+    """Utility - returns an [Nx2x2] set of lines corresponding to
+    point +/- vector, for use setting up a line collection in
+    coverrplot."""
+
+    if np.size(x) < 1:
+        return np.array([])
+
+    lms = np.zeros((np.size(x), 2, 2))
+    lms[:,0,0] = x-dx
+    lms[:,0,1] = y-dy
+
+    lms[:,1,0] = x+dx
+    lms[:,1,1] = y+dy
+
+    return lms
 
 def unifAxisLengths(ax=None):
 
