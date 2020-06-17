@@ -2034,6 +2034,7 @@ def coverrplot(x=np.array([]), y=np.array([]), \
                    showMajors = True, \
                    showMinors = True, \
                    showEllipses = True, \
+                   shadeEllipses = True, \
                    colorMajors = 'c', \
                    colorMinors = 'c', \
                    edgecolorEllipse = 'c', \
@@ -2041,6 +2042,7 @@ def coverrplot(x=np.array([]), y=np.array([]), \
                    cmapEllipse = 'inferno', \
                    showColorbarEllipse = True, \
                    labelColorbarEllipse = r'$\theta$ ($^\circ$)', \
+                   crossStyle=False, \
                    enforceUniformAxes=True, \
                    ax=None, fig=None, figNum=1):
 
@@ -2066,6 +2068,8 @@ def coverrplot(x=np.array([]), y=np.array([]), \
 
     showEllipses = draw ellipses? 
 
+    shadeEllipses = shade the ellipses by an array value?
+
     colorMajors, colorMinors = colors for the major and minor axes
 
     edgecolorEllipse = edgecolor for the ellipse edge (by default the
@@ -2075,6 +2079,9 @@ def coverrplot(x=np.array([]), y=np.array([]), \
     alphaEllipse = transparency for ellipses
 
     cmapEllipse = colormap use for ellipse shading
+
+    crossStyle = plot the major and minor axes as crosses rather than
+                 half-widths
 
     enforceUniformAxes = ensure the data ranges of the two axes are
                          the same (otherwise the major and minor axes
@@ -2128,12 +2135,28 @@ def coverrplot(x=np.array([]), y=np.array([]), \
                                units='xy', angles='xy', scale_units='xy', \
                                scale=1., \
                                width=0.05*np.median(xMajors), headwidth=2)
+        if crossStyle:
+            dumMaj2 = ax.quiver(x,y, -xMajors, -yMajors, zorder=6, \
+                                    color=colorMajors, \
+                                    units='xy', angles='xy', scale_units='xy', \
+                                    scale=1., \
+                                    width=0.05*np.median(xMajors), headwidth=2)
+        
     if showMinors:
         dumMin = ax.quiver(x,y, xMinors, yMinors, zorder=6, \
                                color=colorMinors, \
                                units='xy', angles='xy', scale_units='xy', \
                                scale=1., \
                                width=0.05*np.median(xMajors), headwidth=2)
+
+        if crossStyle:
+            dumMin2 = ax.quiver(x,y, -xMinors, -yMinors, zorder=6, \
+                                    color=colorMinors, \
+                                    units='xy', angles='xy', scale_units='xy', \
+                                    scale=1., \
+                                    width=0.05*np.median(xMajors), headwidth=2)
+        
+            
 
     # Do the ellipse plot (Currently color-coded by rotation
     # angle. The choice of array to use as a color-coding could be
@@ -2151,10 +2174,12 @@ def coverrplot(x=np.array([]), y=np.array([]), \
                                    edgecolor=edgecolorEllipse, \
                                    cmap=cmapEllipse, \
                                    zorder=5)
-        ec.set_array(covars.rotDegs)
+        if shadeEllipses:
+            ec.set_array(covars.rotDegs)
+
         ax.add_collection(ec)
     
-        if showColorbarEllipse:
+        if showColorbarEllipse and shade_ellipses:
             cbar = fig.colorbar(ec)
             cbar.set_label(labelColorbarEllipse)
         
@@ -2710,7 +2735,9 @@ def testFitting(nPts = 20, rotDegCovar=30., \
     coverrplot(xiNudged, etaNudged, covars=CF, fig=fig2, ax=ax2, \
                    showColorbarEllipse=False, \
                    cmapEllipse='gray', edgecolorEllipse='k', \
-                   colorMajors='k', colorMinors='0.1')
+                   colorMajors='k', colorMinors='0.1', \
+                   shadeEllipses=False, crossStyle=True, \
+                   alphaEllipse=0.1)
 
     # Show the tangent point on the plots
     dum4 = ax1.plot(NE.xZero[0], NE.xZero[1], 'go')
