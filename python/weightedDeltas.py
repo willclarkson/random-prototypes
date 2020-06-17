@@ -2042,7 +2042,11 @@ def coverrplot(x=np.array([]), y=np.array([]), \
                    cmapEllipse = 'inferno', \
                    showColorbarEllipse = True, \
                    labelColorbarEllipse = r'$\theta$ ($^\circ$)', \
-                   crossStyle=False, \
+                   crossStyle=True, \
+                   lwMajor = 0.5, \
+                   lwMinor=0.3, \
+                   showCaps=True, \
+                   capScale=0.1, \
                    enforceUniformAxes=True, \
                    ax=None, fig=None, figNum=1):
 
@@ -2081,7 +2085,15 @@ def coverrplot(x=np.array([]), y=np.array([]), \
     cmapEllipse = colormap use for ellipse shading
 
     crossStyle = plot the major and minor axes as crosses rather than
-                 half-widths
+                 half-width vectors
+
+    lwMajor = if crossStyle, linewidth for major axis and its endcap
+
+    lwMinor = if crossStyle, linewidth for minor axis and its endcap
+
+    showCaps = if crossStyle, show the endcaps for the crosses?
+
+    capScale = fraction of major/minor axis length for the endcaps
 
     enforceUniformAxes = ensure the data ranges of the two axes are
                          the same (otherwise the major and minor axes
@@ -2138,10 +2150,18 @@ def coverrplot(x=np.array([]), y=np.array([]), \
                                    width=0.05*np.median(xMajors), headwidth=2)
         else:
             lcMaj = LineCollection(lineSetFromVectors(x, xMajors, y, yMajors), \
-                                       zorder=6, color=colorMajors, lw=0.5)
+                                       zorder=6, color=colorMajors, \
+                                       lw=lwMajor)
             ax.add_collection(lcMaj)
 
-        
+            # try the endcaps
+            if showCaps:
+                capsMaj = endcapsFromVectors(x,xMajors,y,yMajors, capScale)
+                lcCapsMaj = LineCollection(capsMaj, zorder=6, \
+                                               color=colorMajors, \
+                                               lw=lwMajor)
+                ax.add_collection(lcCapsMaj)
+
     if showMinors:
         if not crossStyle:
             dumMin = ax.quiver(x,y, xMinors, yMinors, zorder=6, \
@@ -2151,8 +2171,17 @@ def coverrplot(x=np.array([]), y=np.array([]), \
                                    width=0.05*np.median(xMajors), headwidth=2)
         else:
             lcMin=LineCollection( lineSetFromVectors(x,xMinors,y,yMinors), \
-                                      zorder=6, color=colorMinors, lw=.3)
+                                      zorder=6, color=colorMinors, \
+                                      lw=lwMinor)
             ax.add_collection(lcMin)
+
+            # show the endcaps
+            if showCaps:
+                capsMin = endcapsFromVectors(x, xMinors, y, yMinors, capScale)
+                lcCapsMin = LineCollection(capsMin, zorder=6, \
+                                               color=colorMinors, \
+                                               lw=lwMinor)
+                ax.add_collection(lcCapsMin)
 
     # Do the ellipse plot (Currently color-coded by rotation
     # angle. The choice of array to use as a color-coding could be
@@ -2175,7 +2204,7 @@ def coverrplot(x=np.array([]), y=np.array([]), \
 
         ax.add_collection(ec)
     
-        if showColorbarEllipse and shade_ellipses:
+        if showColorbarEllipse and shadeEllipses:
             cbar = fig.colorbar(ec)
             cbar.set_label(labelColorbarEllipse)
         
@@ -2202,6 +2231,38 @@ def lineSetFromVectors(x=np.array([]), dx=np.array([]), \
     lms[:,1,1] = y+dy
 
     return lms
+
+def endcapsFromVectors(x=np.array([]), dx=np.array([]), \
+                           y=np.array([]), dy=np.array([]), \
+                           capscale=0.1):
+
+    """Given centroids and vectors, returns a set of endcap lines for
+    use as a line collection."""
+
+    # Same ideas as lineSetFromVectors() except this time we focus on
+    # the ends of the lines
+    if np.size(x) < 1:
+        return np.array([])
+
+    # To construct the deltas, simply rotate the dx, dy vector by 90
+    # degrees. In other words:
+    dxCap = dy*capscale
+    dyCap = -dx*capscale
+
+    # We build the caps at either end of the vector then stack them
+    emsLo = np.zeros((np.size(x),2,2))
+    emsHi = np.copy(emsLo) 
+    emsLo[:,0,0] = x-dx - dxCap
+    emsLo[:,0,1] = y-dy - dyCap
+    emsLo[:,1,0] = x-dx + dxCap
+    emsLo[:,1,1] = y-dy + dyCap
+
+    emsHi[:,0,0] = x+dx - dxCap
+    emsHi[:,0,1] = y+dy - dyCap
+    emsHi[:,1,0] = x+dx + dxCap
+    emsHi[:,1,1] = y+dy + dyCap
+    
+    return np.vstack(( emsLo, emsHi ))
 
 def unifAxisLengths(ax=None):
 
@@ -2742,18 +2803,19 @@ def testFitting(nPts = 20, rotDegCovar=30., \
     ax2 = fig2.add_subplot(122)
 
     dum1 = ax1.scatter(xGen, yGen, c='r', s=3, edgecolor='0.5')
-    dum2 = ax2.scatter(xiTrue[:,0], xiTrue[:,1], c='b', s=3)
+    ##dum2 = ax2.scatter(xiTrue[:,0], xiTrue[:,1], c='b', s=3)
 
     # Now show the target coords as perturbed
     dum3 = ax2.scatter(xiNudged, etaNudged, c='0.5', s=2)
 
     # Now try an errorplot of this
     coverrplot(xiNudged, etaNudged, covars=CF, fig=fig2, ax=ax2, \
-                   showColorbarEllipse=False, \
-                   cmapEllipse='gray', edgecolorEllipse='k', \
+                   showColorbarEllipse=True, \
+                   cmapEllipse='viridis', edgecolorEllipse='k', \
                    colorMajors='k', colorMinors='0.1', \
                    shadeEllipses=False, crossStyle=True, \
-                   alphaEllipse=0.1)
+                   showEllipses=True, \
+                   alphaEllipse=0.2)
 
     # Show the tangent point on the plots
     dum4 = ax1.plot(NE.xZero[0], NE.xZero[1], 'go')
@@ -2761,7 +2823,11 @@ def testFitting(nPts = 20, rotDegCovar=30., \
 
     ax1.set_xlabel('X, pix')
     ax1.set_ylabel('Y, pix')
-    ax2.set_xlabel(r'$\xi$, pix')
-    ax2.set_ylabel(r'$\eta$, pix')
+    ax2.set_xlabel(r'$\xi$, degrees')
+    ax2.set_ylabel(r'$\eta$, degrees')
 
     fig2.subplots_adjust(wspace=0.3, bottom=0.15)
+
+    # add the grid?
+    for ax in [ax1, ax2]:
+        ax.grid(which='both', visible=True, alpha=0.3)
