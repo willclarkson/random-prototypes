@@ -2298,6 +2298,10 @@ def unifAxisLengths(ax=None):
     ax.set_xlim(xnew)
     ax.set_ylim(ynew)
 
+#### Normal equations fitting plus monte carlo
+
+
+
 #### Normal Equations Fitting class
 
 class FitNormEq(object):
@@ -2355,14 +2359,13 @@ class FitNormEq(object):
         # Normal equations object, formal covariance estimate (if
         # desired)
         self.NE = None
-        self.covFormal = np.array([])
 
         # perform the fit on initialization
         self.performFit()
         
         if invertHessian:
             self.NE.invertHessian()
-            self.covFormal = np.copy(self.NE.formalCov)
+
 
     def ensureWeightsPopulated(self):
 
@@ -2399,7 +2402,9 @@ class FitNormEq(object):
 
     def performFit(self):
 
-        """Sets up the normal equations object and performs the fit"""
+        """Sets up the normal equations object and performs the fit,
+        as well as operations we are likely to want for every trial
+        (such as finding the tangent point from the fit parameters)"""
 
         self.NE = NormalEqs(self.x, self.y, self.xi, self.eta, W=self.W, \
                                 xref=self.xRef, yref=self.yRef)
@@ -2910,7 +2915,7 @@ def testFitting(nPts = 20, rotDegCovar=30., \
     print("Tangent point:", FNE.NE.xZero)
 
     # what does the covariance matrix of just the positions look like?
-    covPos = np.array([ FNE.covFormal[0,[0,3]], FNE.covFormal[3,[0,3]] ])
+    covPos = np.array([ FNE.NE.formalCov[0,[0,3]], FNE.NE.formalCov[3,[0,3]] ])
 
     # Let's try putting this into a 2x2 stack for easy (and
     # convention-following) retrieval of the covariance parameters for
