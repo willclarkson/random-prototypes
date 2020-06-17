@@ -1711,7 +1711,7 @@ class CovarsNx2x2(object):
         # have major axes, then populate the covariance stack from the
         # abtheta form.
         if np.size(self.covars) < 1 and np.size(self.majors) > 0:
-            self.coverFromABtheta()
+            self.covarFromABtheta()
 
 
     def populateXYcomponents(self):
@@ -2268,6 +2268,8 @@ def unifAxisLengths(ax=None):
 
     """Utility - ensure axis has the same axis lengths"""
 
+    # Used by coverrplot
+
     if not ax:
         return
 
@@ -2296,6 +2298,120 @@ def unifAxisLengths(ax=None):
     ax.set_xlim(xnew)
     ax.set_ylim(ynew)
 
+#### Normal Equations Fitting class
+
+class FitNormEq(object):
+
+    """Fits the transformation between two datasets using the normal
+    equations approach, allowing for possibly covariant
+    uncertainties. Runs on initialization. The weights can be
+    specified in the following ways:
+
+    W = Nx2x2 array of weights. If specified, then covariances are
+        ignored.
+
+    covars = Nx2x2 array of covariances. If weights not specified,
+             they are constructed by inversion of the covariances
+             matrix-stack.
+
+    stdxi, stdeta, corrxieta = covariances in xi, eta specified as
+             stddev in xi, stddev in eta, correlation coefficient
+             between xi and eta.
+
+    """
+
+    def __init__(self, x=np.array([]), y=np.array([]), \
+                     xi=np.array([]), eta=np.array([]), \
+                     covars=np.array([]), \
+                     stdxi=np.array([]), stdeta=np.array([]), \
+                     corrxieta=np.array([]), \
+                     W=np.array([]), \
+                     xRef=0., yRef=0., \
+                     invertHessian=False, \
+                     Verbose=False):
+
+        self.Verbose = Verbose
+
+        # Datapoints in each frame, ref points, covariances
+        self.x = np.copy(x)
+        self.y = np.copy(y)
+        self.xi = np.copy(xi)
+        self.eta = np.copy(eta)
+        self.xRef = np.copy(xRef)
+        self.yRef = np.copy(yRef)
+        
+        # Covariances in the target frame, if given
+        self.covars = np.copy(covars)
+
+        # Covariances as stddevs & correlation, if given
+        self.stdxi = np.copy(stdxi)
+        self.stdeta = np.copy(stdeta)
+        self.corrxieta = np.copy(corrxieta)
+
+        # Weights (can be supplied)
+        self.W = np.copy(W)        
+        self.ensureWeightsPopulated()
+
+        # Normal equations object, formal covariance estimate (if
+        # desired)
+        self.NE = None
+        self.covFormal = np.array([])
+
+        # perform the fit on initialization
+        self.performFit()
+        
+        if invertHessian:
+            self.NE.invertHessian()
+            self.covFormal = np.copy(self.NE.formalCov)
+
+    def ensureWeightsPopulated(self):
+
+        """Ensures weights are populated"""
+
+        nRows = np.size(self.x)
+
+        # Weights should be nRows x 2 x 2 so size 4Nrows.
+        if np.size(self.W) == 4*nRows:
+            return
+
+        if np.size(self.covars) < 1 and np.size(self.stdxi) == nRows:
+            CD=CovarsNx2x2(stdx=self.stdxi, stdy=self.stdeta, \
+                               corrxy=self.corrxieta)
+            self.covars = CD.covars
+
+        if np.size(self.covars) == 4*nRows:
+            self.weightsFromCovars()
+            return
+
+        # If we got here then neither the weights, nor a covariance
+        # stack, nor the information needed to build the covariance
+        # stack, were supplied. In that instance, just use uniform
+        # weights.
+        if self.Verbose:
+            print("FitNormEq.ensureWeightsPopulated WARN - using uniform weights")
+        self.W = np.repeat(np.eye(2)[np.newaxis,:,:], nRows, axis=0)
+
+    def weightsFromCovars(self):
+
+        """Populates the weights given the covariances"""
+
+        self.W = np.linalg.inv(self.covars)
+
+    def performFit(self):
+
+        """Sets up the normal equations object and performs the fit"""
+
+        self.NE = NormalEqs(self.x, self.y, self.xi, self.eta, W=self.W, \
+                                xref=self.xRef, yref=self.yRef)
+
+        self.NE.doFit()
+        self.NE.estTangentPoint()
+
+    def findFormalCovar(self):
+
+        """Finds the formal covariance estimate for the parameters"""
+
+        self.NE.invertHessian()
 
 #### Some routines that use this follow
 
@@ -2750,6 +2866,11 @@ def testFitting(nPts = 20, rotDegCovar=30., \
                          aLo=1.0e-3, aHi=2.0e-2)
     CN.generateCovarStack()
 
+    # It will be useful to produce catalog-like uncertainties
+    stdXiGen = CN.stdx
+    stdEtaGen = CN.stdy
+    corrXiEtaGen = CN.corrxy
+
     # Now we create a second object, this time with the covars as an
     # input, and use this to draw samples
     CF = CovarsNx2x2(CN.covars)
@@ -2763,23 +2884,33 @@ def testFitting(nPts = 20, rotDegCovar=30., \
     xiNudged  = xiTrue[:,0] + CF.deltaTransf[0] # Yes, mismatched...
     etaNudged = xiTrue[:,1] + CF.deltaTransf[1]
 
-    # OK now we try the normal equations to see how the fit goes...
-    NE = NormalEqs(xGen, yGen, xiNudged, etaNudged, \
-                       W=np.linalg.inv(CF.covars), \
-                       xref=xRef, yref=yRef)
+    # To test the different forms of covariance input, uncomment the
+    # relevant lines in the FNE call.
+    FNE = FitNormEq(xGen, yGen, xiNudged, etaNudged, \
+                        covars=CF.covars, W=np.array([]), \
+                        #covars=np.array([]), W=np.array([]), \
+                        #stdxi=stdXiGen, stdeta=stdEtaGen, \
+                        #corrxieta=corrXiEtaGen, \
+                        xRef=xRef, yRef=yRef, invertHessian=True, \
+                        Verbose=True)
 
-    NE.doFit()
+    # OK now we try the normal equations to see how the fit goes...
+    #NE = NormalEqs(xGen, yGen, xiNudged, etaNudged, \
+    #                   W=np.linalg.inv(CF.covars), \
+    #                   xref=xRef, yref=yRef)
+
+    #NE.doFit()
     print("elapsed in simulation + fit: %.2e sec" % (time.time()-t0)) 
 
     # Estimate the tangent point in the original coordinates, invert
     # the Hessian to get the formal covariance estimate
-    NE.estTangentPoint()
-    NE.invertHessian()
+    #NE.estTangentPoint()
+    #NE.invertHessian()
 
-    print("Tangent point:", NE.xZero)
+    print("Tangent point:", FNE.NE.xZero)
 
     # what does the covariance matrix of just the positions look like?
-    covPos = np.array([ NE.formalCov[0,[0,3]], NE.formalCov[3,[0,3]] ])
+    covPos = np.array([ FNE.covFormal[0,[0,3]], FNE.covFormal[3,[0,3]] ])
 
     # Let's try putting this into a 2x2 stack for easy (and
     # convention-following) retrieval of the covariance parameters for
@@ -2815,10 +2946,10 @@ def testFitting(nPts = 20, rotDegCovar=30., \
                    colorMajors='k', colorMinors='0.1', \
                    shadeEllipses=False, crossStyle=True, \
                    showEllipses=True, \
-                   alphaEllipse=0.2)
+                   alphaEllipse=0.15)
 
     # Show the tangent point on the plots
-    dum4 = ax1.plot(NE.xZero[0], NE.xZero[1], 'go')
+    dum4 = ax1.plot(FNE.NE.xZero[0], FNE.NE.xZero[1], 'go')
     dum5 = ax2.plot(0., 0., 'go')
 
     ax1.set_xlabel('X, pix')
