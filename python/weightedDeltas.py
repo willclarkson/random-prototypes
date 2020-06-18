@@ -12,6 +12,8 @@ import time
 
 import numpy as np
 
+import copy
+
 # for plotting
 import matplotlib.pylab as plt
 from matplotlib.collections import EllipseCollection, LineCollection
@@ -1586,6 +1588,7 @@ class Stack2x2(object):
 
 ### Utility class to generate XY points with different covariance
 ### matrices
+
 class CovarsNx2x2(object):
 
     """Given a set of covariances as an Nx2x2 stack, or as the
@@ -2300,7 +2303,373 @@ def unifAxisLengths(ax=None):
 
 #### Monte Carlo framework for NE Fitting comes here.
 
+class NormWithMonteCarlo(object):
 
+    """Performs a normal equations-based fit to data, whether supplied
+    or generated. Includes various ways to do Monte Carlo on the
+    results. Optional inputs:
+
+    x, y = source coords
+
+    xi, eta = target coords
+
+    stdxi, stdeta = uncertainties in the target coords
+
+    corrxieta = correlation coefficient for uncertainty in target coords
+
+    xref, yref = reference point in source coords
+
+    --- simulation variables - parameters 
+
+    simNpts = number of objects to simulate
+
+    simSx, simSy = "true" scale factors
+
+    simRotDeg, simSkewDeg = "true" rotation and skew angles, degrees
+
+    simXiRef, simEtaRef = "true" reference xi, eta
+
+    simParsVec = parameters as [a,b,c,d,e,f] or [a,b,c,d] 
+
+    simXmin, simYmin = minmax source X coords
+
+    simYmin, simYmax = minmax source Y coords
+
+    --- simulation variables - covariances 
+
+    simAlo, simAhi = min, max semimajor axes of Xi, Eta covariance
+                   matrices
+    
+    simRotCov = rotation angle (degrees, ccw) of canned covariance
+                   major axis
+
+    genStripe = flip the covariances for the back half of the samples
+                in the xi-axis
+    
+
+    --- Choices for the simulations -----
+
+    nTrials = number of Monte Carlo trials to do
+
+    resetPositions = populate the positions each simulation?
+
+    """
+
+    def __init__(self, x=np.array([]), y=np.array([]), \
+                     xi=np.array([]), eta=np.array([]), \
+                     stdxi=np.array([]), stdeta=np.array([]), \
+                     corrxieta=np.array([]), xref=0., yref=0., \
+                     simNpts = 20, \
+                     simSx = -5.0e-4, simSy = 4.0e-4, \
+                     simRotDeg = 30., simSkewDeg = 5., \
+                     simXiRef = 0.05, simEtaRef = -0.06, \
+                     simParsVec = np.array([]), \
+                     simXmin = 0., simXmax = 500., \
+                     simYmin = 0., simYmax = 500., \
+                     simAlo = 1.0e-3, simAhi=2.0e-2, \
+                     simRotCov=30., genStripe=True, \
+                     nTrials = 3, \
+                     resetPositions=False):
+
+        # coords, if given
+        self.x = np.copy(x)
+        self.y = np.copy(y)
+        self.xi = np.copy(xi)
+        self.eta = np.copy(eta)
+        self.stdxi = np.copy(stdxi)
+        self.stdeta = np.copy(stdeta)
+        self.corrxieta = np.copy(corrxieta)
+        self.xRef = np.copy(xref)
+        self.yRef = np.copy(yref)
+
+        # For parametric monte carlo, the simulation parameters as
+        # geometric params
+        self.simSx = np.copy(simSx)
+        self.simSy = np.copy(simSy)
+        self.simRotDeg = np.copy(simRotDeg)
+        self.simSkewDeg = np.copy(simSkewDeg)
+        self.simXiRef = np.copy(simXiRef)
+        self.simEtaRef = np.copy(simEtaRef)
+        self.simNpts = np.copy(simNpts)
+
+        # or, we might already have the 6-term vector [a,b,c,d,e,f]:
+        self.simTheta = np.copy(simParsVec)
+
+        # Field of view limits for X, Y (later, we could be clever and
+        # get these from the input dataset)
+        self.simXmin = np.copy(simXmin)
+        self.simXmax = np.copy(simXmax)
+        self.simYmin = np.copy(simYmin)
+        self.simYmax = np.copy(simYmax)
+
+        # Variables for canned covariance matrices in xi, eta
+        self.simAlo = np.copy(simAlo)
+        self.simAhi = np.copy(simAhi)
+        self.simRotCov = np.copy(simRotCov)
+        self.genStripe = genStripe
+
+        # Number of trials we will be using
+        self.nTrials = np.copy(nTrials)
+        self.resetPositions = resetPositions
+
+        # There are three fitting objects. FitData holds the info and
+        # fit for the actual data. FitUnperturbed holds the points,
+        # covariances, etc. for the unperturbed samples. Finally,
+        # FitSample holds the values actually used, which in the case
+        # of parametric Monte Carlo, will be drawn by perturbing the
+        # values of FitUnperturbed.
+        #
+        # This way, FitUnperturbed is not changed after first
+        # populated. This also allows us to play with the covariances
+        # in the FitSample object, for example changing the estimate
+        # of the covariances after the perturbations have been done
+        # (to simulate cases where the covariances are inaccurate).
+        self.FitData = None
+        self.FitUnperturbed = None
+        self.FitSample = None
+
+        # Covariance stack (will be used to draw perturbation samples
+        # from the covariances if doing parametric monte carlo)
+        self.CF = None
+
+        # Some internal variables for sample-generation. 
+        self.xRaw = np.array([])
+        self.yRaw = np.array([])
+        self.xiRaw = np.array([])
+        self.etaRaw = np.array([])
+
+        # Internal variables: generated points (in practice I think
+        # it'll be better to initialize the fit object and manipulate
+        # it directly, but having the parameters here will keep things
+        # clearer while writing this the first time through). It also
+        # depends a bit on what kind of monte carlo we're doing:
+        # nonparametric bootstrap (or jackknife) or parametric
+        # bootstrap.
+        self.xGen = np.array([])
+        self.yGen = np.array([])
+        self.xiGen = np.array([])
+        self.etaGen = np.array([])
+
+        # The parameters that were fit from the data, the tangent
+        # point corresponding to these params, and the formal
+        # covariance matrix
+        self.parsData = np.array([])
+        self.tpData = np.array([])
+        self.formalCovData = np.array([])
+
+        # Set of fitted parameters from the monte carlo trials
+        self.parsTrials = np.array([])
+        self.tpTrials = np.array([]) # tangent points
+        self.nUseTrials = np.array([]) # number of objects fit
+
+    def simParsAsVec(self):
+
+        """Translates the geometric simulation parameters into
+        [a,b,c,d,e,f] vector"""
+
+        Transf = Stack2x2(None, self.simSx, self.simSy, \
+                              self.simRotDeg, self.simSkewDeg)
+        self.simTheta = np.hstack(( self.simXiRef, Transf.A[0,0,:], \
+                                        self.simEtaRef, Transf.A[0,1,:] ))
+
+    def setSimRangesFromData(self):
+
+        """If the input data are populated, get the relevant
+        simulation quantities (like minmax X, npts) from the data"""
+
+        if np.size(self.x) < 1:
+            return
+
+        # Bounds are rounded to the nearest 10
+        self.simXmin = np.round(np.min(self.x), -1)
+        self.simXmax = np.round(np.max(self.x), -1)
+        self.simYmin = np.round(np.min(self.y), -1)
+        self.simYmax = np.round(np.max(self.y), -1)
+        self.simNpts = np.size(self.x)
+
+    def generateRawXY(self):
+
+        """Generates a set of unperturbed X, Y coords"""
+
+        self.xRaw = np.random.uniform(self.simXmin, self.simXmax, \
+                                          size=self.simNpts)
+        self.yRaw = np.random.uniform(self.simYmin, self.simYmax, \
+                                          size=self.simNpts)
+
+        ## print("INFO::", self.simNpts, self.simYmin, self.simYmax, np.shape(self.simTheta))
+
+    def populateRawXiEta(self):
+
+        """Populates simulated Xi, Eta by transforming the unperturbed
+        X, Y to the Xi, Eta system using the 'true' coordinates"""
+
+        PT = ptheta2d(self.xRaw-self.xRef, self.yRaw-self.yRef, \
+                          pars=self.simTheta)
+
+        aXiTrue = PT.evaluatePtheta()
+
+        ## print("INFO:-", self.simTheta)
+
+        self.xiRaw = aXiTrue[:,0]
+        self.etaRaw = aXiTrue[:,1]
+
+    def populateCovarsFromSim(self):
+
+        """Populates the covariances object with simulated parameters"""
+
+        CN = CovarsNx2x2(nPts=self.simNpts, rotDeg=self.simRotCov, \
+                             aLo=self.simAlo, aHi=self.simAhi, \
+                             genStripe=self.genStripe)
+        CN.generateCovarStack()
+
+        self.CF = CovarsNx2x2(CN.covars)
+        self.CF.populateTransfsFromCovar()
+
+    def populateCovarsFromData(self):
+
+        """Populates the covariances object from the data"""
+
+        if np.size(self.stdxi) < 1:
+            return
+
+        # (note to self: None has nonzero size)
+        self.CF = CovarsNx2x2(np.array([]), \
+                                  self.stdxi, self.stdeta, self.corrxieta)
+        self.CF.populateTransfsFromCovar()
+
+    def populateUnperturbedFitObj(self):
+
+        """Populates the unperturbed fit object for Monte Carlo
+        simulations"""
+
+        self.FitUnperturbed = FitNormEq(self.xRaw, self.yRaw, \
+                                            self.xiRaw, self.etaRaw, \
+                                            covars=self.CF.covars, \
+                                            xRef=self.xRef, yRef=self.yRef, \
+                                            runOnInit=False)
+
+    def populatePerturbedFitObj(self):
+
+        """Popualtes the 'perturbed' fit object out of the unperturbed
+        fit object"""
+        
+        # Initialize the perturbed fit object out of the unperturbed
+        # fit object. NOTE: uncommenting the conditional breaks the
+        # monte carlo (i.e. the fit parameters come out random) when
+        # resetting positions, but NOT when perturbing from the
+        # unperturbed.
+
+        # if self.FitSample is None:
+        self.FitSample = FitNormEq(self.xRaw, self.yRaw, \
+                                       self.xiRaw, self.etaRaw, \
+                                       covars=self.CF.covars, \
+                                       xRef=self.xRef, yRef=self.yRef, \
+                                       runOnInit=False)
+
+        # Generate the perturbations in xi, eta
+        self.CF.generateSamples()
+        self.FitSample.xi  = self.FitUnperturbed.xi  + self.CF.deltaTransf[0]
+        self.FitSample.eta = self.FitUnperturbed.eta + self.CF.deltaTransf[1]
+
+        # Other steps (like messing with the covariance) could come
+        # here.
+
+    def fitPerturbed(self):
+
+        """Does the fit for the perturbed object"""
+
+        self.FitSample.performFit()
+
+    def copyPerturbedSimToData(self):
+
+        """Utility - copies the current simulation object into the
+        data arrays"""
+
+        # This is useful when using this class to generate the
+        # hypothetical data as well as doing the simulations.
+
+        self.x = np.copy(self.FitSample.x)
+        self.y = np.copy(self.FitSample.y)
+        self.xi = np.copy(self.FitSample.xi)
+        self.eta = np.copy(self.FitSample.eta)
+        self.stdxi = np.copy(self.CF.stdx)
+        self.stdeta = np.copy(self.CF.stdy)
+        self.corrxieta = np.copy(self.CF.corrxy)
+        self.nPts = np.size(self.x)
+
+    def fitData(self):
+
+        """Initializes the fitting object for data. If we already have
+        data, then the fit will be performed on initialization."""
+
+        self.FitData = FitNormEq(self.x, self.y, self.xi, self.eta, \
+                                     stdxi=self.stdxi, stdeta=self.stdeta, \
+                                     corrxieta=self.corrxieta, \
+                                     xRef=self.xRef, yRef=self.yRef, \
+                                     invertHessian=True, Verbose=True)
+
+        self.parsData = np.copy(self.FitData.NE.pars[:,0])
+        self.tpData = np.copy(self.FitData.NE.xZero)
+        self.formalCovData = np.copy(self.FitData.NE.formalCov)
+
+    def accumulateTrialParams(self):
+
+        """Abuts the trial parameters onto the master-array"""
+
+        thesePars = np.copy(self.FitSample.NE.pars[:,0])
+        thisTP = np.copy(self.FitSample.NE.xZero)
+        nFitted = np.sum(self.FitSample.NE.bPlanes)
+
+        # It seems like there should be a more efficient way to do
+        # this. This procedure will result in an Ntrials x 6 array
+
+#        # If this is the first...
+        if np.size(self.parsTrials) < 1:
+            self.parsTrials = thesePars
+            self.tpTrials = thisTP
+            self.nUseTrials = nFitted
+            return
+
+        self.parsTrials = np.vstack(( self.parsTrials, thesePars ))
+        self.tpTrials   = np.vstack(( self.tpTrials, thisTP ))
+        self.nUseTrials = np.hstack(( self.nUseTrials, nFitted ))
+
+    def initTrials(self):
+
+        """Initializes the trials object"""
+
+        self.parsTrials = np.array([])
+        self.tpTrials = np.array([])
+        self.nUseTrials = np.array([])
+
+    def doMonteCarlo(self):
+
+        """Wrapper - does the monte carlo trials"""
+        
+        if self.nTrials < 1:
+            return
+
+        self.initTrials()
+
+        for iTrial in range(self.nTrials):
+            
+            # If we are resetting the positions as well, then we need
+            # to update the positions in the unperturbed object.
+            if self.resetPositions:
+                self.generateRawXY()
+                self.populateRawXiEta()
+                self.FitUnperturbed.x = self.xRaw
+                self.FitUnperturbed.y = self.yRaw
+                self.FitUnperturbed.xi = self.xiRaw
+                self.FitUnperturbed.eta = self.etaRaw
+
+            # now we create the perturbed positions out of the
+            # unperturbed positions
+            self.populatePerturbedFitObj()
+            self.fitPerturbed()
+
+            # add the results to the stack of fit parameters
+            self.accumulateTrialParams()
 
 #### Normal Equations Fitting class
 
@@ -2332,6 +2701,7 @@ class FitNormEq(object):
                      W=np.array([]), \
                      xRef=0., yRef=0., \
                      invertHessian=False, \
+                     runOnInit=True, \
                      Verbose=False):
 
         self.Verbose = Verbose
@@ -2360,11 +2730,12 @@ class FitNormEq(object):
         # desired)
         self.NE = None
 
-        # perform the fit on initialization
-        self.performFit()
+        # perform the fit on initialization unless told not to
+        if runOnInit:
+            self.performFit()
         
-        if invertHessian:
-            self.NE.invertHessian()
+            if invertHessian:
+                self.NE.invertHessian()
 
 
     def ensureWeightsPopulated(self):
@@ -2405,6 +2776,10 @@ class FitNormEq(object):
         """Sets up the normal equations object and performs the fit,
         as well as operations we are likely to want for every trial
         (such as finding the tangent point from the fit parameters)"""
+
+        # Exit gracefully if data not set yet
+        if np.size(self.x) < 1:
+            return
 
         self.NE = NormalEqs(self.x, self.y, self.xi, self.eta, W=self.W, \
                                 xref=self.xRef, yref=self.yRef)
@@ -2967,3 +3342,51 @@ def testFitting(nPts = 20, rotDegCovar=30., \
     # add the grid?
     for ax in [ax1, ax2]:
         ax.grid(which='both', visible=True, alpha=0.3)
+
+def testFitOO(nPts=50, resetPositions=False, nTrials=3):
+
+    """Tests fitting with the class NormFitMC"""
+
+    NMC = NormWithMonteCarlo(simNpts=nPts)
+    
+    # Create a synthetic dataset
+    NMC.simParsAsVec()
+    NMC.generateRawXY()
+    NMC.populateRawXiEta()
+    NMC.populateCovarsFromSim()
+    NMC.populateUnperturbedFitObj()
+
+    # The first time, we assume the perturbed fit object constitutes
+    # the "data". This mimics the case of feeding the object our
+    # matched catalogs
+    NMC.populatePerturbedFitObj()
+    NMC.copyPerturbedSimToData()
+    NMC.fitData()
+
+    print("Round 1 - Pars fit from data:", NMC.parsData)
+    print("Round 1 - Pars simulated:", NMC.simTheta)
+
+    # OK now we have our "data", and parameters we have got from
+    # fitting the data, let's test the case of setting up a second
+    # object with the data as input. We'll try a parametric monte
+    # carlo case, in which the model is fit to the data, then those
+    # parameters are used to generate draws from the same model.
+    MC = NormWithMonteCarlo(NMC.x, NMC.y, NMC.xi, NMC.eta, \
+                                NMC.stdxi, NMC.stdeta, NMC.corrxieta, \
+                                xref=NMC.xRef, yref=NMC.yRef, \
+                                simParsVec=NMC.simTheta, \
+                                nTrials=nTrials, \
+                                resetPositions=resetPositions)
+    MC.setSimRangesFromData()
+    MC.populateCovarsFromData()
+
+    # OK now we set up the unperturbed object and perturb it for the
+    # monte carlo
+    MC.generateRawXY()
+    MC.populateRawXiEta()
+    MC.populateUnperturbedFitObj()
+
+    # now do the monte carlo
+    MC.doMonteCarlo()
+
+    print(MC.parsTrials[:,0])
