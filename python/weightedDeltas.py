@@ -2298,7 +2298,7 @@ def unifAxisLengths(ax=None):
     ax.set_xlim(xnew)
     ax.set_ylim(ynew)
 
-#### Normal equations fitting plus monte carlo
+#### Monte Carlo framework for NE Fitting comes here.
 
 
 
