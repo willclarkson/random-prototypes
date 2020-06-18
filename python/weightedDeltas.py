@@ -2550,7 +2550,7 @@ class NormWithMonteCarlo(object):
 
     def populatePerturbedFitObj(self):
 
-        """Popualtes the 'perturbed' fit object out of the unperturbed
+        """Populates the 'perturbed' fit object out of the unperturbed
         fit object"""
         
         # Initialize the perturbed fit object out of the unperturbed
@@ -2559,12 +2559,18 @@ class NormWithMonteCarlo(object):
         # resetting positions, but NOT when perturbing from the
         # unperturbed.
 
-        # if self.FitSample is None:
-        self.FitSample = FitNormEq(self.xRaw, self.yRaw, \
-                                       self.xiRaw, self.etaRaw, \
-                                       covars=self.CF.covars, \
-                                       xRef=self.xRef, yRef=self.yRef, \
-                                       runOnInit=False)
+        if self.FitSample is None:
+            self.FitSample = FitNormEq(self.xRaw, self.yRaw, \
+                                           self.xiRaw, self.etaRaw, \
+                                           covars=self.CF.covars, \
+                                           xRef=self.xRef, yRef=self.yRef, \
+                                           runOnInit=False)
+
+        # ensure the raw positions are populated (we could perturb
+        # these too to simulate 'realistic' measurement uncertainties
+        # in the DETX, DETY frames).
+        self.FitSample.x = self.FitUnperturbed.x
+        self.FitSample.y = self.FitUnperturbed.y
 
         # Generate the perturbations in xi, eta
         self.CF.generateSamples()
