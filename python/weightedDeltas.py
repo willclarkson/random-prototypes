@@ -1418,7 +1418,7 @@ class Stack2x2(object):
     If the matrix stack is supplied, the geometric parameters are
     generated on initialization. 
 
-    If the parameters are supplied, the matrix stack is generated on
+    If the geometric parameters are supplied, the matrix stack is generated on
     initialization."""
 
     def __init__(self, Asup=np.array([]), \
@@ -2462,6 +2462,11 @@ class NormWithMonteCarlo(object):
         self.tpTrials = np.array([]) # tangent points
         self.nUseTrials = np.array([]) # number of objects fit
 
+        # Transformation N x 2 x 2 stack for conversion to geometric
+        # parameters
+        self.transfs2x2 = None
+        self.transfs2x2rev = None # going the other way 
+
     def simParsAsVec(self):
 
         """Translates the geometric simulation parameters into
@@ -2568,7 +2573,8 @@ class NormWithMonteCarlo(object):
 
         # ensure the raw positions are populated (we could perturb
         # these too to simulate 'realistic' measurement uncertainties
-        # in the DETX, DETY frames).
+        # in the DETX, DETY frames). We could do a covariance stack in
+        # XY just like we do for xi, eta. TO BE ADDED.
         self.FitSample.x = self.FitUnperturbed.x
         self.FitSample.y = self.FitUnperturbed.y
 
@@ -2676,6 +2682,43 @@ class NormWithMonteCarlo(object):
 
             # add the results to the stack of fit parameters
             self.accumulateTrialParams()
+
+    def convertParsToGeom(self):
+
+        """Converts the [[b,c],[e,f]] transformations into geometric
+        parameters sx, sy, rotation, skew"""
+
+        if np.size(self.parsTrials) < 1:
+            return
+
+        # There's probably a clever pythonic way to construct the
+        # Nx2x2 matrix stack out of the Nx4 or Nx6 stack of fitted
+        # parameters (like reshaping and then removing a column). For
+        # now, I build this in a way I understand...
+        nDone, nTerms = np.shape(self.parsTrials)
+        stackTransfs = np.zeros((nDone, 2, 2))
+
+        stackTransfs[:,0,0] = self.parsTrials[:,1]
+        stackTransfs[:,0,1] = self.parsTrials[:,2]
+
+        print("INFO::", nDone, nTerms)
+
+        if nTerms < 6:
+            stackTransfs[:,1,0] = 0 - self.parsTrials[:,2]
+            stackTransfs[:,1,1] = self.parsTrials[:,1]
+        else:
+            stackTransfs[:,1,0] = self.parsTrials[:,4]
+            stackTransfs[:,1,1] = self.parsTrials[:,5]
+
+        # Create the object
+        self.transfs2x2 = Stack2x2(stackTransfs)
+
+        # Also do the inverse transformation
+        self.transfs2x2rev = Stack2x2(self.transfs2x2.AINV)
+        
+        #print(stackTransfs[2])
+        #print(np.linalg.inv(stackTransfs[2]))
+        #print(self.transfs2x2.AINV[2])
 
 #### Normal Equations Fitting class
 
@@ -3349,11 +3392,11 @@ def testFitting(nPts = 20, rotDegCovar=30., \
     for ax in [ax1, ax2]:
         ax.grid(which='both', visible=True, alpha=0.3)
 
-def testFitOO(nPts=50, resetPositions=False, nTrials=3):
+def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5.):
 
     """Tests fitting with the class NormFitMC"""
 
-    NMC = NormWithMonteCarlo(simNpts=nPts)
+    NMC = NormWithMonteCarlo(simNpts=nPts, simSkewDeg=skewDeg)
     
     # Create a synthetic dataset
     NMC.simParsAsVec()
@@ -3395,4 +3438,8 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3):
     # now do the monte carlo
     MC.doMonteCarlo()
 
-    print(MC.parsTrials[:,0])
+    MC.convertParsToGeom()
+
+    print(MC.parsTrials[:,1])
+    print(MC.transfs2x2.rotDeg)
+    print(MC.transfs2x2rev.rotDeg)
