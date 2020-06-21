@@ -9,9 +9,7 @@
 #
 
 import time
-
 import numpy as np
-
 import copy
 
 # for plotting
@@ -1826,7 +1824,11 @@ class CovarsNx2x2(object):
 
         self.VV = np.zeros(( nm, 2, 2 ))
         self.VV[:,0,0] = self.asVector(self.majors)
-        self.VV[:,1,1] = self.asVector(self.minors)
+
+        if np.size(self.minors) == np.size(self.majors):
+            self.VV[:,1,1] = self.asVector(self.minors)
+        else:
+            self.VV[:,1,1] = self.VV[:,0,0]
 
     def populateRotationMatrix(self, rotateAxes=False):
 
@@ -1836,7 +1838,12 @@ class CovarsNx2x2(object):
 
         self.RR = np.array([])
         nR = np.size(self.rotDegs)
+        nMaj = np.size(self.majors)
         if nR < 1:
+            # If we DO have major array, use the identity matrix stack
+            if nMaj > 0:
+                i2 = np.eye(2, dtype='double')
+                self.RR = np.repeat(i2[np.newaxis,:,:], nMaj, axis=0)
             return
 
         cc = np.cos(np.radians(self.rotDegs))
@@ -2353,6 +2360,8 @@ class NormWithMonteCarlo(object):
 
     resetPositions = populate the positions each simulation?
 
+    doFewWeightings = do diagonal and unweighted monte carlo as well?
+
     """
 
     def __init__(self, x=np.array([]), y=np.array([]), \
@@ -2369,7 +2378,8 @@ class NormWithMonteCarlo(object):
                      simAlo = 1.0e-3, simAhi=2.0e-2, \
                      simRotCov=30., genStripe=True, \
                      nTrials = 3, \
-                     resetPositions=False):
+                     resetPositions=False, \
+                     doFewWeightings=True):
 
         # coords, if given
         self.x = np.copy(x)
@@ -2411,6 +2421,9 @@ class NormWithMonteCarlo(object):
         # Number of trials we will be using
         self.nTrials = np.copy(nTrials)
         self.resetPositions = resetPositions
+
+        # Do we try a few different weightings in the monte carlo?
+        self.doFewWeightings = doFewWeightings
 
         # There are three fitting objects. FitData holds the info and
         # fit for the actual data. FitUnperturbed holds the points,
@@ -2458,14 +2471,28 @@ class NormWithMonteCarlo(object):
         self.formalCovData = np.array([])
 
         # Set of fitted parameters from the monte carlo trials
-        self.parsTrials = np.array([])
-        self.tpTrials = np.array([]) # tangent points
-        self.nUseTrials = np.array([]) # number of objects fit
+        self.stackTrials = None
+
+        # 2020-06-21: We may also want to try several different types
+        # of fit for the same sample. For ease of debugging later (and
+        # NOT minimization of lines of code) I give the trial types
+        # different named objects (rather than, say, dictionary
+        # entries). So:
+        self.stackTrialsDiag = None
+        self.stackTrialsUnweighted = None
+        
+
+
+        # refactored into StackTrials object
+        # 
+        #self.parsTrials = np.array([])
+        #self.tpTrials = np.array([]) # tangent points
+        #self.nUseTrials = np.array([]) # number of objects fit
 
         # Transformation N x 2 x 2 stack for conversion to geometric
         # parameters
-        self.transfs2x2 = None
-        self.transfs2x2rev = None # going the other way 
+        #self.transfs2x2 = None
+        #self.transfs2x2rev = None # going the other way 
 
     def simParsAsVec(self):
 
@@ -2553,6 +2580,17 @@ class NormWithMonteCarlo(object):
                                             xRef=self.xRef, yRef=self.yRef, \
                                             runOnInit=False)
 
+    def resetUnperturbedPositions(self):
+
+        """Generates new unperturbed positions in-place"""
+
+        self.generateRawXY()
+        self.populateRawXiEta()
+        self.FitUnperturbed.x = self.xRaw
+        self.FitUnperturbed.y = self.yRaw
+        self.FitUnperturbed.xi = self.xiRaw
+        self.FitUnperturbed.eta = self.etaRaw
+
     def populatePerturbedFitObj(self):
 
         """Populates the 'perturbed' fit object out of the unperturbed
@@ -2585,6 +2623,40 @@ class NormWithMonteCarlo(object):
 
         # Other steps (like messing with the covariance) could come
         # here.
+
+    def makeSampleWeightsScalar(self):
+
+        """Changes the weights array in the FitSample object to be
+        scalars:"""
+
+        # Get the covariance matrix in the FitSample object, find the
+        # eigenvalues, and use the major axes to populate the new
+        # weights in the fit object.
+        self.FitSampleCopy = copy.deepcopy(self.FitSample)
+
+        CV = CovarsNx2x2(self.FitSampleCopy.covars)
+        CV.eigensFromCovars()
+
+        # Create a new covariance object out of the major axes only
+        CS = CovarsNx2x2(np.array([]), majors=np.copy(CV.majors))
+        
+        # Now update the perturbed fit object with the uniform weights
+        self.FitSampleCopy.covars = CS.covars
+        self.FitSampleCopy.weightsFromCovars()
+
+    def makeSampleWeightsUniform(self):
+
+        """Creates a copy of the fitsample object, this time with
+        uniform weighting"""
+
+        self.FitSampleCopy = copy.deepcopy(self.FitSample)
+        
+        nCovs = self.FitSampleCopy.covars.shape[0]
+        eyePlane = np.eye(2, dtype='double')
+        eyeStack = np.repeat(eyePlane[np.newaxis,:,:], nCovs, axis=0)
+
+        self.FitSampleCopy.covars = eyeStack # this might be redundant
+        self.FitSampleCopy.W = eyeStack
 
     def fitPerturbed(self):
 
@@ -2650,13 +2722,22 @@ class NormWithMonteCarlo(object):
 
         """Initializes the trials object"""
 
-        self.parsTrials = np.array([])
-        self.tpTrials = np.array([])
-        self.nUseTrials = np.array([])
+        # refactored into StackTrials object
+        #self.parsTrials = np.array([])
+        #self.tpTrials = np.array([])
+        #self.nUseTrials = np.array([])
+
+        # Also initialize the results object
+        self.stackTrials = SimResultsStack()
+        self.stackTrialsDiag = SimResultsStack()
+        self.stackTrialsUnif = SimResultsStack()
 
     def doMonteCarlo(self):
 
         """Wrapper - does the monte carlo trials"""
+
+        # This is the one we call if we want to do just a single type
+        # of monte carlo
         
         if self.nTrials < 1:
             return
@@ -2668,12 +2749,7 @@ class NormWithMonteCarlo(object):
             # If we are resetting the positions as well, then we need
             # to update the positions in the unperturbed object.
             if self.resetPositions:
-                self.generateRawXY()
-                self.populateRawXiEta()
-                self.FitUnperturbed.x = self.xRaw
-                self.FitUnperturbed.y = self.yRaw
-                self.FitUnperturbed.xi = self.xiRaw
-                self.FitUnperturbed.eta = self.etaRaw
+                self.resetUnperturbedPositions()
 
             # now we create the perturbed positions out of the
             # unperturbed positions
@@ -2681,7 +2757,115 @@ class NormWithMonteCarlo(object):
             self.fitPerturbed()
 
             # add the results to the stack of fit parameters
-            self.accumulateTrialParams()
+            #self.accumulateTrialParams()
+            self.stackTrials.appendNewResults(self.FitSample.NE)
+
+            # If we're only doing the one weighting, break off this
+            # loop
+            if not self.doFewWeightings:
+                continue
+
+            # Now that's done, try scalar weights...
+            self.makeSampleWeightsScalar()
+            self.FitSampleCopy.performFit()
+            self.stackTrialsDiag.appendNewResults(self.FitSampleCopy.NE)
+
+            # ... and uniform weights
+            self.makeSampleWeightsUniform()
+            self.FitSampleCopy.performFit()
+            self.stackTrialsUnif.appendNewResults(self.FitSampleCopy.NE)
+
+        # Once the monte carlo is done, convert the parameters to
+        # geometric parameters
+        self.stackTrials.convertParsToGeom()
+
+        if not self.doFewWeightings:
+            return
+
+        self.stackTrialsDiag.convertParsToGeom()
+        self.stackTrialsUnif.convertParsToGeom()
+
+#    def convertParsToGeom(self):
+
+#        """Converts the [[b,c],[e,f]] transformations into geometric
+#        parameters sx, sy, rotation, skew"""
+
+#        # REFACTORED into StackTrials object
+
+#        if np.size(self.parsTrials) < 1:
+#            return
+
+#        # There's probably a clever pythonic way to construct the
+#        # Nx2x2 matrix stack out of the Nx4 or Nx6 stack of fitted
+#        # parameters (like reshaping and then removing a column). For
+#        # now, I build this in a way I understand...
+#        nDone, nTerms = np.shape(self.parsTrials)
+#        stackTransfs = np.zeros((nDone, 2, 2))
+
+#        stackTransfs[:,0,0] = self.parsTrials[:,1]
+#        stackTransfs[:,0,1] = self.parsTrials[:,2]
+
+#        print("INFO::", nDone, nTerms)
+
+#        if nTerms < 6:
+#            stackTransfs[:,1,0] = 0 - self.parsTrials[:,2]
+#            stackTransfs[:,1,1] = self.parsTrials[:,1]
+#        else:
+#            stackTransfs[:,1,0] = self.parsTrials[:,4]
+#            stackTransfs[:,1,1] = self.parsTrials[:,5]
+
+#        # Create the object
+#        self.transfs2x2 = Stack2x2(stackTransfs)
+
+#        # Also do the inverse transformation
+#        self.transfs2x2rev = Stack2x2(self.transfs2x2.AINV)
+        
+#        #print(stackTransfs[2])
+#        #print(np.linalg.inv(stackTransfs[2]))
+#        #print(self.transfs2x2.AINV[2])
+
+#### Normal Equations Fitting class
+
+class SimResultsStack(object):
+
+    """N x K stack of K-length results from N monte carlo trials.
+
+    Written for NormWithMonteCarlo, so includes input parameters,
+    tangent points estimated from those parameters, and the number of
+    points kept."""
+
+    def __init__(self, doRev=True):
+
+        # Do the reverse transformation as well?
+        self.doRev = doRev
+
+        # The parameters, tangent points, and number kept
+        self.parsTrials = np.array([])
+        self.tpTrials = np.array([])
+        self.nUseTrials = None
+
+        # linear transformation including geometric parameters
+        self.transfs2x2 = None
+        self.transfs2x2rev = None
+
+    def appendNewResults(self, NE=None):
+
+        """Appends the results onto the stack"""
+
+        # Uses as input a NormalEqs object
+        thesePars = np.copy(NE.pars[:,0])
+        thisTP = np.copy(NE.xZero)
+        nFitted = np.sum(NE.bPlanes)
+
+        if np.size(self.parsTrials) < 1:
+            self.parsTrials = thesePars
+            self.tpTrials = thisTP
+            self.nUseTrials = nFitted
+            return
+
+        self.parsTrials = np.vstack(( self.parsTrials, thesePars ))
+        self.tpTrials   = np.vstack(( self.tpTrials, thisTP ))
+        self.nUseTrials = np.hstack(( self.nUseTrials, nFitted ))
 
     def convertParsToGeom(self):
 
@@ -2701,8 +2885,6 @@ class NormWithMonteCarlo(object):
         stackTransfs[:,0,0] = self.parsTrials[:,1]
         stackTransfs[:,0,1] = self.parsTrials[:,2]
 
-        print("INFO::", nDone, nTerms)
-
         if nTerms < 6:
             stackTransfs[:,1,0] = 0 - self.parsTrials[:,2]
             stackTransfs[:,1,1] = self.parsTrials[:,1]
@@ -2714,13 +2896,9 @@ class NormWithMonteCarlo(object):
         self.transfs2x2 = Stack2x2(stackTransfs)
 
         # Also do the inverse transformation
-        self.transfs2x2rev = Stack2x2(self.transfs2x2.AINV)
+        if self.doRev:
+            self.transfs2x2rev = Stack2x2(self.transfs2x2.AINV)
         
-        #print(stackTransfs[2])
-        #print(np.linalg.inv(stackTransfs[2]))
-        #print(self.transfs2x2.AINV[2])
-
-#### Normal Equations Fitting class
 
 class FitNormEq(object):
 
@@ -3438,8 +3616,11 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5.):
     # now do the monte carlo
     MC.doMonteCarlo()
 
-    MC.convertParsToGeom()
+    # MC.stackTrials.convertParsToGeom()
 
-    print(MC.parsTrials[:,1])
-    print(MC.transfs2x2.rotDeg)
-    print(MC.transfs2x2rev.rotDeg)
+    print(MC.stackTrials.parsTrials[:,1])
+    print(MC.stackTrials.transfs2x2.rotDeg)
+    print(MC.stackTrialsDiag.transfs2x2.rotDeg)
+    print(MC.stackTrialsUnif.transfs2x2.rotDeg)
+
+    #print(MC.stackTrials.transfs2x2rev.rotDeg)
