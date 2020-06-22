@@ -1165,8 +1165,8 @@ class NormalEqs(object):
         self.outlyNsigma = 4.
 
         # Which planes do we trust?
-        self.bPlanes = np.array([])
-        self.initBplanes()
+        self.gPlanes = np.array([])
+        self.initGplanes()
 
         # The results
         self.pars = np.array([])  # M
@@ -1180,12 +1180,14 @@ class NormalEqs(object):
         # corresponding to xi = [0., 0.])
         self.xZero = np.array([])
 
-    def initBplanes(self):
+    def initGplanes(self):
 
-        """Ensure the b-planes object is populated"""
+        """Initializes the selection index for planes we trust"""
 
-        if np.size(self.bPlanes) < 1:
-            self.bPlanes = np.isfinite(self.x[:,0])
+        self.gPlanes = np.arange(self.x.shape[0], dtype='int')
+
+        #if np.size(self.bPlanes) < 1:
+        #    self.bPlanes = np.isfinite(self.x[:,0])
 
     def buildPattern(self):
 
@@ -1213,7 +1215,7 @@ class NormalEqs(object):
                              np.matmul(self.W, self.xi[:,:,np.newaxis]))
 
         # sum along the i dimension, but only the planes we trust
-        self.beta = np.sum(PWxi[self.bPlanes], axis=0)
+        self.beta = np.sum(PWxi[self.gPlanes], axis=0)
 
     def makeHessian(self):
 
@@ -1222,7 +1224,7 @@ class NormalEqs(object):
         PWP = np.matmul(self.patternT, np.matmul(self.W, self.pattern))
 
         # Sum along the i dimension, but only the planes we trust
-        self.H = np.sum(PWP[self.bPlanes], axis=0)
+        self.H = np.sum(PWP[self.gPlanes], axis=0)
         
     def solveParams(self):
 
@@ -2702,7 +2704,7 @@ class NormWithMonteCarlo(object):
 
         thesePars = np.copy(self.FitSample.NE.pars[:,0])
         thisTP = np.copy(self.FitSample.NE.xZero)
-        nFitted = np.sum(self.FitSample.NE.bPlanes)
+        nFitted = np.size(self.FitSample.NE.gPlanes)
 
         # It seems like there should be a more efficient way to do
         # this. This procedure will result in an Ntrials x 6 array
@@ -2855,7 +2857,7 @@ class SimResultsStack(object):
         # Uses as input a NormalEqs object
         thesePars = np.copy(NE.pars[:,0])
         thisTP = np.copy(NE.xZero)
-        nFitted = np.sum(NE.bPlanes)
+        nFitted = np.size(NE.gPlanes)
 
         if np.size(self.parsTrials) < 1:
             self.parsTrials = thesePars
