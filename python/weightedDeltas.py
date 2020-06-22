@@ -2364,6 +2364,10 @@ class NormWithMonteCarlo(object):
 
     doFewWeightings = do diagonal and unweighted monte carlo as well?
 
+    fNonparam = fraction of original data size to use in nonparametric
+                resampling (set to 0.5 for half-sample
+                bootstrap). Will be clipped to 1.
+
     """
 
     def __init__(self, x=np.array([]), y=np.array([]), \
@@ -2381,7 +2385,8 @@ class NormWithMonteCarlo(object):
                      simRotCov=30., genStripe=True, \
                      nTrials = 3, \
                      resetPositions=False, \
-                     doFewWeightings=True):
+                     doFewWeightings=True, \
+                     fNonparam=1.):
 
         # coords, if given
         self.x = np.copy(x)
@@ -2442,6 +2447,12 @@ class NormWithMonteCarlo(object):
         self.FitData = None
         self.FitUnperturbed = None
         self.FitSample = None
+        
+        self.FitResample = None  # for nonparametric resampling 
+
+        # Fraction of sample size to draw if doing non-parametric
+        # bootstraps
+        self.fNonparam = np.clip(fNonparam, 0.01, 1.)
 
         # Covariance stack (will be used to draw perturbation samples
         # from the covariances if doing parametric monte carlo)
@@ -2482,8 +2493,7 @@ class NormWithMonteCarlo(object):
         # entries). So:
         self.stackTrialsDiag = None
         self.stackTrialsUnweighted = None
-        
-
+        self.stackTrialsResample = None
 
         # refactored into StackTrials object
         # 
@@ -2626,39 +2636,82 @@ class NormWithMonteCarlo(object):
         # Other steps (like messing with the covariance) could come
         # here.
 
-    def makeSampleWeightsScalar(self):
+    def makeSampleWeightsScalar(self, fitTemplate=None):
 
         """Changes the weights array in the FitSample object to be
-        scalars:"""
+        scalars. This returns a copy of the input template object."""
+
+        if fitTemplate is None:
+            return None
 
         # Get the covariance matrix in the FitSample object, find the
         # eigenvalues, and use the major axes to populate the new
         # weights in the fit object.
-        self.FitSampleCopy = copy.deepcopy(self.FitSample)
+        FitSampleCopy = copy.deepcopy(fitTemplate)
 
-        CV = CovarsNx2x2(self.FitSampleCopy.covars)
+        CV = CovarsNx2x2(FitSampleCopy.covars)
         CV.eigensFromCovars()
 
         # Create a new covariance object out of the major axes only
         CS = CovarsNx2x2(np.array([]), majors=np.copy(CV.majors))
         
         # Now update the perturbed fit object with the uniform weights
-        self.FitSampleCopy.covars = CS.covars
-        self.FitSampleCopy.weightsFromCovars()
+        FitSampleCopy.covars = CS.covars
+        FitSampleCopy.weightsFromCovars()
+        FitSampleCopy.initNE()
 
-    def makeSampleWeightsUniform(self):
+        return FitSampleCopy
+
+    def makeSampleWeightsUniform(self, fitTemplate=None):
 
         """Creates a copy of the fitsample object, this time with
-        uniform weighting"""
+        uniform weighting. Takes the object passed in as a
+        fitTemplate, makes a copy, and adjusts the weights. 
 
-        self.FitSampleCopy = copy.deepcopy(self.FitSample)
+        The adjusted object is returned (rather than set at an
+        instance level) since this may be called in different
+        circumstances depending on what monte carlo we're doing."""
+
+        if fitTemplate is None:
+            return None
+
+        FitSampleCopy = copy.deepcopy(fitTemplate)
         
-        nCovs = self.FitSampleCopy.covars.shape[0]
+        nCovs = FitSampleCopy.covars.shape[0]
         eyePlane = np.eye(2, dtype='double')
         eyeStack = np.repeat(eyePlane[np.newaxis,:,:], nCovs, axis=0)
 
-        self.FitSampleCopy.covars = eyeStack # this might be redundant
-        self.FitSampleCopy.W = eyeStack
+        FitSampleCopy.covars = eyeStack # this might be redundant
+        FitSampleCopy.W = eyeStack
+        FitSampleCopy.initNE()
+
+        return FitSampleCopy
+
+    def drawNonparamSample(self):
+
+        """Draws a sample for non-parametric bootstrap using options
+        set at the instance level."""
+
+        # Ensure the nonparametric bootstrap object is initialized
+        # *with the full dataset* (we'll use an index array to select
+        # the objects we want to use in the fitting
+        if self.FitResample is None:
+            if self.FitData is not None:
+                self.FitResample = copy.deepcopy(self.FitData)
+            else:
+                return
+
+        # Initialize the normal eq object in FitResample if not
+        # already set
+        if self.FitResample.NE is None:
+            self.FitResample.initNE()
+
+        # Draw the sample
+        nAll = np.size(self.FitResample.x)
+        nDraw = int(nAll * self.fNonparam)
+        self.FitResample.NE.gPlanes = np.random.randint(0, nAll, size=nDraw)
+        
+        
 
     def fitPerturbed(self):
 
@@ -2734,13 +2787,71 @@ class NormWithMonteCarlo(object):
         self.stackTrialsDiag = SimResultsStack()
         self.stackTrialsUnif = SimResultsStack()
 
+    def setupForNonparam(self):
+
+        """Sets up the various objects for nonparametric
+        boostrapping"""
+
+        self.stackTrialsResampled = SimResultsStack()
+        self.drawNonparamSample() # We do this once to initialize the object
+
+        # Set the list of objects and stacks
+        lFit = [self.FitResample]
+        lSta = [self.stackTrialsResampled]
+
+        return lFit, lSta
+
+    def doNonparamBootstrap(self):
+
+        """Perform non-parametric bootstrapping"""
+
+        if self.nTrials < 1:
+            return
+
+        lFit, lSta = self.setupForNonparam()
+
+        if self.doFewWeightings:
+            self.stackTrialsDiag = SimResultsStack()
+            self.stackTrialsUnif = SimResultsStack()
+        
+            # Create copies with different weighting schemes
+            FitScalar  = self.makeSampleWeightsScalar(self.FitData)
+            FitUnif = self.makeSampleWeightsUniform(self.FitData)
+            
+            # Wrap our non-standard weight cases into lists 
+            lFit = [self.FitResample, FitScalar, FitUnif]
+            lSta = [self.stackTrialsResampled, \
+                        self.stackTrialsDiag, \
+                        self.stackTrialsUnif]
+
+        for iBoot in range(self.nTrials):
+            
+            # draw nonparam sample
+            self.drawNonparamSample()
+
+            # Propagate into the different-weighting objects (we must
+            # do this BEFORE fitting (in case sigma-clipping in the
+            # .NE. object cuts down the index array as part of the
+            # fitting).
+            if self.doFewWeightings:
+                planesSel = self.FitResample.NE.gPlanes
+                FitScalar.NE.gPlanes = planesSel
+                FitUnif.NE.gPlanes = planesSel
+
+            # Fit the samples
+            for Fit, Stack in zip(lFit, lSta):
+                Fit.performFit(reInit=False)
+                Stack.appendNewResults(Fit.NE)
+
+        # Now convert the b,d,e,f to sx, sy, rotDeg, skewDeg
+        for Stack in lSta:
+            Stack.convertParsToGeom()
+            
+
     def doMonteCarlo(self):
 
         """Wrapper - does the monte carlo trials"""
 
-        # This is the one we call if we want to do just a single type
-        # of monte carlo
-        
         if self.nTrials < 1:
             return
 
@@ -2768,12 +2879,12 @@ class NormWithMonteCarlo(object):
                 continue
 
             # Now that's done, try scalar weights...
-            self.makeSampleWeightsScalar()
+            self.FitSampleCopy = self.makeSampleWeightsScalar(self.FitSample)
             self.FitSampleCopy.performFit()
             self.stackTrialsDiag.appendNewResults(self.FitSampleCopy.NE)
 
             # ... and uniform weights
-            self.makeSampleWeightsUniform()
+            self.FitSampleCopy = self.makeSampleWeightsUniform(self.FitSample)
             self.FitSampleCopy.performFit()
             self.stackTrialsUnif.appendNewResults(self.FitSampleCopy.NE)
 
@@ -3000,7 +3111,15 @@ class FitNormEq(object):
 
         self.W = np.linalg.inv(self.covars)
 
-    def performFit(self):
+    def initNE(self):
+
+        """(Re-) initializes the Normal-Equations object for this Fit
+        object"""
+
+        self.NE = NormalEqs(self.x, self.y, self.xi, self.eta, W=self.W, \
+                                xref=self.xRef, yref=self.yRef)
+
+    def performFit(self, reInit=True):
 
         """Sets up the normal equations object and performs the fit,
         as well as operations we are likely to want for every trial
@@ -3010,8 +3129,8 @@ class FitNormEq(object):
         if np.size(self.x) < 1:
             return
 
-        self.NE = NormalEqs(self.x, self.y, self.xi, self.eta, W=self.W, \
-                                xref=self.xRef, yref=self.yRef)
+        if reInit:
+            self.initNE()
 
         self.NE.doFit()
         self.NE.estTangentPoint()
@@ -3572,7 +3691,8 @@ def testFitting(nPts = 20, rotDegCovar=30., \
     for ax in [ax1, ax2]:
         ax.grid(which='both', visible=True, alpha=0.3)
 
-def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5.):
+def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
+                  testNonparam=True, fNonparam=1.0):
 
     """Tests fitting with the class NormFitMC"""
 
@@ -3594,6 +3714,22 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5.):
 
     print("Round 1 - Pars fit from data:", NMC.parsData)
     print("Round 1 - Pars simulated:", NMC.simTheta)
+
+    # If we are doing nonparametric bootstrapping, then we can
+    # simulate with the same object
+    if testNonparam:
+        NMC.nTrials = nTrials
+        NMC.doFewWeightings=True
+        NMC.fNonparam = fNonparam
+
+        t1 = time.time()
+        NMC.doNonparamBootstrap()
+        print("Nonparam bootstraps took %.2e sec" % (time.time()-t1))
+
+        print(NMC.stackTrialsResampled.transfs2x2.rotDeg)
+        print(NMC.stackTrialsDiag.transfs2x2.rotDeg)
+        print(NMC.stackTrialsUnif.transfs2x2.rotDeg)
+        return
 
     # OK now we have our "data", and parameters we have got from
     # fitting the data, let's test the case of setting up a second
@@ -3620,9 +3756,11 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5.):
 
     # MC.stackTrials.convertParsToGeom()
 
-    print(MC.stackTrials.parsTrials[:,1])
+    ##print(MC.stackTrials.parsTrials[:,1])
     print(MC.stackTrials.transfs2x2.rotDeg)
     print(MC.stackTrialsDiag.transfs2x2.rotDeg)
     print(MC.stackTrialsUnif.transfs2x2.rotDeg)
 
     #print(MC.stackTrials.transfs2x2rev.rotDeg)
+
+    ##print(MC.stackTrialsResampled.transfs2x2.rotDeg)
