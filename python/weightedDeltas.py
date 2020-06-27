@@ -3767,10 +3767,14 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
 
 
 def demoTranslatedGaussians(nPts=1000, skewDeg=20., stdx=6., stdy=2., \
-                                plotLim=20.):
+                                plotLim=20., rotDeg=0., sx=1., sy=1.):
 
     """Simulates a single Gaussian in one frame, performs a frame
     transformation, and shows the distributions in the two frames."""
+
+    # Example call:
+    # 
+    # weightedDeltas.demoTranslatedGaussians(skewDeg=-30., stdy=4, nPts=10000)
 
     # Create the covariance matrix in the original frame
     C1 = CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=0.)
@@ -3779,9 +3783,8 @@ def demoTranslatedGaussians(nPts=1000, skewDeg=20., stdx=6., stdy=2., \
     sampl = np.random.multivariate_normal(mean=np.zeros(2), cov=C1.covars[0], \
                                               size=nPts)
 
-
     # Now we generate the transformation
-    TRANSF = Stack2x2(sx=1., sy=1., rotDeg=0., skewDeg=skewDeg)
+    TRANSF = Stack2x2(sx=sx, sy=sy, rotDeg=rotDeg, skewDeg=skewDeg)
 
     # Now apply the transformation to produce the transformed
     # positions
@@ -3811,31 +3814,31 @@ def demoTranslatedGaussians(nPts=1000, skewDeg=20., stdx=6., stdy=2., \
     ax1=fig.add_subplot(121)
     ax2=fig.add_subplot(122)
 
-    dum1 = ax1.scatter(sampl[:,0], sampl[:,1], alpha=0.5, s=1, c='0.4', zorder=2)
-    dum2 = ax2.scatter(newSampl[0], newSampl[1], alpha=0.5, s=1, c='0.4', zorder=2)
+    dum1 = ax1.scatter(sampl[:,0], sampl[:,1], alpha=0.5, s=.1, c='0.3', zorder=2)
+    dum2 = ax2.scatter(newSampl[0], newSampl[1], alpha=0.5, s=.1, c='0.4', zorder=2)
 
     # now show the eigenvectors
 
     ## ORIGINAL
     C1.eigensFromCovars()
-    xMajors = C1.axMajors[:,0]*CT.majors**0.5
-    yMajors = C1.axMajors[:,1]*CT.majors**0.5
+    xMajors = C1.axMajors[:,0]*C1.majors**0.5
+    yMajors = C1.axMajors[:,1]*C1.majors**0.5
 
-    xMinors = C1.axMinors[:,0]*CT.minors**0.5
-    yMinors = C1.axMinors[:,1]*CT.minors**0.5 
+    xMinors = C1.axMinors[:,0]*C1.minors**0.5
+    yMinors = C1.axMinors[:,1]*C1.minors**0.5
 
-    dumMaj1 = ax1.quiver(0., 0., xMajors, yMajors, zorder=6, \
+    dumMaj1 = ax1.quiver(0., 0., xMajors, yMajors, zorder=8, \
                             units='xy', angles='xy', scale_units='xy', \
                             scale=1., \
                             width=0.05*np.median(uMajors), headwidth=2)
-    dumMin1 = ax1.quiver(0., 0., xMinors, yMinors, zorder=6, \
+    dumMin1 = ax1.quiver(0., 0., xMinors, yMinors, zorder=8, \
                             units='xy', angles='xy', scale_units='xy', \
                             scale=1., \
                             width=0.05*np.median(uMajors), headwidth=2)
 
 
     ecXY = EllipseCollection(C1.majors**0.5*2., \
-                                 C1.minors**0.5*2., \
+                                 C1.minors**0.5*2, \
                                  C1.rotDegs, \
                                  units='xy', offsets=[0.,0.], \
                                  transOffset=ax1.transData, \
@@ -3849,13 +3852,13 @@ def demoTranslatedGaussians(nPts=1000, skewDeg=20., stdx=6., stdy=2., \
     
 
     ## TRANSFORMED
-    dumMaj = ax2.quiver(0., 0., uMajors, vMajors, zorder=6, \
+    dumMaj = ax2.quiver(0., 0., uMajors, vMajors, zorder=8, \
                             units='xy', angles='xy', scale_units='xy', \
                             scale=1., \
                             width=0.05*np.median(uMajors), headwidth=2, \
-                            label='Major axis of U,V')
+                            label='U,V major, minor axes')
 
-    dumMin = ax2.quiver(0., 0., uMinors, vMinors, zorder=6, \
+    dumMin = ax2.quiver(0., 0., uMinors, vMinors, zorder=8, \
                             units='xy', angles='xy', scale_units='xy', \
                             scale=1., \
                             width=0.05*np.median(uMajors), headwidth=2)
@@ -3886,7 +3889,7 @@ def demoTranslatedGaussians(nPts=1000, skewDeg=20., stdx=6., stdy=2., \
                                   units='xy', angles='xy', scale_units='xy', \
                                   scale=1., \
                                   width=0.05*np.median(uMajors), headwidth=2, \
-                                  color='r', label='Transformed major axis of X, Y')
+                                  color='r', label='Transformed X, Y major, minor axes')
 
     dumMinTransf = ax2.quiver(0., 0., uvMinors[0], uvMinors[1], zorder=7, \
                                   units='xy', angles='xy', scale_units='xy', \
@@ -3945,12 +3948,14 @@ def demoTranslatedGaussians(nPts=1000, skewDeg=20., stdx=6., stdy=2., \
     ax2.set_ylabel('V')
 
     # show the legend
-    leg2=ax2.legend(loc=0)
+    leg2=ax2.legend(loc=0, fontsize=8)
     
-    ax1.set_title('X,Y positions')
-    ax2.set_title('U,V = A.(X, Y)')
+    ax1.set_title(r'X,Y data ("1$\sigma$" ellipse, eigenvectors shown)', fontsize=10)
+    ax2.set_title('U,V = A.(X, Y)', fontsize=10)
 
     sOtitl = 'X,Y -->  U,V by skew matrix only: each axis rotated (in opposite directions) by %i degrees' % (skewDeg/2.)
 
-    fig.suptitle(sOtitl)
+    fig.suptitle(sOtitl, fontsize=10)
     fig.subplots_adjust(top=0.80)
+
+    fig.savefig('2020-06-27_exampleSkewOnly.jpg', rasterized=True)
