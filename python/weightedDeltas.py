@@ -3764,3 +3764,193 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
     #print(MC.stackTrials.transfs2x2rev.rotDeg)
 
     ##print(MC.stackTrialsResampled.transfs2x2.rotDeg)
+
+
+def demoTranslatedGaussians(nPts=1000, skewDeg=20., stdx=6., stdy=2., \
+                                plotLim=20.):
+
+    """Simulates a single Gaussian in one frame, performs a frame
+    transformation, and shows the distributions in the two frames."""
+
+    # Create the covariance matrix in the original frame
+    C1 = CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=0.)
+
+    # Now generate a large sample of these points
+    sampl = np.random.multivariate_normal(mean=np.zeros(2), cov=C1.covars[0], \
+                                              size=nPts)
+
+
+    # Now we generate the transformation
+    TRANSF = Stack2x2(sx=1., sy=1., rotDeg=0., skewDeg=skewDeg)
+
+    # Now apply the transformation to produce the transformed
+    # positions
+    newSampl = np.matmul(TRANSF.A[0], sampl.T)
+
+    # numpy of course has a convenient method to compute the
+    # covariance matrix from data... So we'll insert this into our
+    # covarsNx2x2 object and uses its methods to find the eigenvalues
+    # and eigenvectors.
+    covUV = np.cov(newSampl[0], newSampl[1])
+    covUV = covUV[np.newaxis, :, :]
+
+    CT = CovarsNx2x2(covars=covUV)
+    CT.eigensFromCovars()
+    
+    # Consider moving this into Covars2x2 as a method. WATCHOUT - why
+    # are the eigenvectors coming out squared here but not in
+    # coverrplot?
+    uMajors = CT.axMajors[:,0]*CT.majors**0.5
+    vMajors = CT.axMajors[:,1]*CT.majors**0.5
+
+    uMinors = CT.axMinors[:,0]*CT.minors**0.5
+    vMinors = CT.axMinors[:,1]*CT.minors**0.5 
+
+    fig = plt.figure(1)
+    fig.clf()
+    ax1=fig.add_subplot(121)
+    ax2=fig.add_subplot(122)
+
+    dum1 = ax1.scatter(sampl[:,0], sampl[:,1], alpha=0.5, s=1, c='0.4', zorder=2)
+    dum2 = ax2.scatter(newSampl[0], newSampl[1], alpha=0.5, s=1, c='0.4', zorder=2)
+
+    # now show the eigenvectors
+
+    ## ORIGINAL
+    C1.eigensFromCovars()
+    xMajors = C1.axMajors[:,0]*CT.majors**0.5
+    yMajors = C1.axMajors[:,1]*CT.majors**0.5
+
+    xMinors = C1.axMinors[:,0]*CT.minors**0.5
+    yMinors = C1.axMinors[:,1]*CT.minors**0.5 
+
+    dumMaj1 = ax1.quiver(0., 0., xMajors, yMajors, zorder=6, \
+                            units='xy', angles='xy', scale_units='xy', \
+                            scale=1., \
+                            width=0.05*np.median(uMajors), headwidth=2)
+    dumMin1 = ax1.quiver(0., 0., xMinors, yMinors, zorder=6, \
+                            units='xy', angles='xy', scale_units='xy', \
+                            scale=1., \
+                            width=0.05*np.median(uMajors), headwidth=2)
+
+
+    ecXY = EllipseCollection(C1.majors**0.5*2., \
+                                 C1.minors**0.5*2., \
+                                 C1.rotDegs, \
+                                 units='xy', offsets=[0.,0.], \
+                                 transOffset=ax1.transData, \
+                                 alpha=0.5, \
+                                 edgecolor='k', \
+                                 facecolor='r', \
+                                 cmap='Reds', \
+                                 zorder=5)
+
+    ax1.add_collection(ecXY)
+    
+
+    ## TRANSFORMED
+    dumMaj = ax2.quiver(0., 0., uMajors, vMajors, zorder=6, \
+                            units='xy', angles='xy', scale_units='xy', \
+                            scale=1., \
+                            width=0.05*np.median(uMajors), headwidth=2, \
+                            label='Major axis of U,V')
+
+    dumMin = ax2.quiver(0., 0., uMinors, vMinors, zorder=6, \
+                            units='xy', angles='xy', scale_units='xy', \
+                            scale=1., \
+                            width=0.05*np.median(uMajors), headwidth=2)
+    
+
+    ecUV = EllipseCollection(CT.majors**0.5*2., \
+                                 CT.minors**0.5*2., \
+                                 CT.rotDegs, \
+                                 units='xy', offsets=[0.,0.], \
+                                 transOffset=ax2.transData, \
+                                 alpha=0.5, \
+                                 edgecolor='k', \
+                                 cmap='gray', \
+                                 zorder=5)
+
+    ax2.add_collection(ecUV)
+
+    # Now try transforming the eigenvectors to the destination frame
+    xyMajors = np.column_stack(( xMajors, yMajors ))
+    xyMinors = np.column_stack(( xMinors, yMinors ))
+    
+    uvMajors = np.matmul(TRANSF.A, xyMajors.T)[0,:,:]
+    uvMinors = np.matmul(TRANSF.A, xyMinors.T)[0,:,:]
+
+    print np.shape(uvMajors)
+
+    dumMajTransf = ax2.quiver(0., 0., uvMajors[0], uvMajors[1], zorder=7, \
+                                  units='xy', angles='xy', scale_units='xy', \
+                                  scale=1., \
+                                  width=0.05*np.median(uMajors), headwidth=2, \
+                                  color='r', label='Transformed major axis of X, Y')
+
+    dumMinTransf = ax2.quiver(0., 0., uvMinors[0], uvMinors[1], zorder=7, \
+                                  units='xy', angles='xy', scale_units='xy', \
+                                  scale=1., \
+                                  width=0.05*np.median(uMajors), headwidth=2, \
+                                  color='r')
+
+    # under-plot the axes
+    xyHorizX = np.array([-plotLim*2., plotLim*2.])
+    xyHorizY = np.array([0., 0.])
+    xyVertX = np.array([0., 0.])
+    xyVertY = np.array([-plotLim*2., plotLim*2.])
+
+    # stack the coords together for transformation
+    xyHorizXY = np.column_stack(( xyHorizX, xyHorizY ))
+    xyVertXY = np.column_stack(( xyVertX, xyVertY ))
+
+    # transform them
+    uvHorizXY = np.matmul(TRANSF.AINV[0], xyHorizXY.T)
+    uvVertXY = np.matmul(TRANSF.AINV[0], xyVertXY.T)
+
+    uvHorizX = uvHorizXY[0]
+    uvHorizY = uvHorizXY[1]
+    uvVertX = uvVertXY[0]
+    uvVertY = uvVertXY[1]
+    
+    # original axes
+    ax1.plot(xyHorizX, xyHorizY, 'r-', lw=1, zorder=1)
+    ax1.plot(xyVertX, xyVertY, 'r-', lw=1, zorder=1)
+
+    ax1.plot([0.,xyHorizX[-1]], [0., xyHorizY[-1]], 'r-', lw=2, zorder=1)
+    ax1.plot([0.,xyVertX[-1]], [0.,xyVertY[-1]], 'r-', lw=2, zorder=1)
+
+    ax1.plot(uvHorizX, uvHorizY, 'b-', lw=1, ls='--', zorder=1)
+    ax1.plot(uvVertX, uvVertY, 'b-', lw=1, ls='--', zorder=1)
+
+    # do the bold upper-right quadrant
+    ax1.plot([0., uvHorizX[-1]], [0.,uvHorizY[-1]], 'b-', lw=2, ls='--', zorder=1)
+    ax1.plot([0.,uvVertX[-1]], [0., uvVertY[-1]], 'b-', lw=2, ls='--', zorder=1)
+
+    # Now do the transformed axes in the transformed space
+    ax2.plot(xyHorizX, xyHorizY, 'b-', lw=1, ls='--', zorder=1)
+    ax2.plot(xyVertX, xyVertY, 'b-', lw=1, ls='--', zorder=1)
+
+    ax2.plot([0.,xyHorizX[-1]], [0., xyHorizY[-1]], 'b-', lw=2, ls='--', zorder=1)
+    ax2.plot([0.,xyVertX[-1]], [0.,xyVertY[-1]], 'b-', lw=2, ls='--', zorder=1)
+
+    for ax in [ax1, ax2]:
+        ax.set_xlim(-plotLim, plotLim)
+        ax.set_ylim(-plotLim, plotLim)
+        ax.set_aspect('equal')
+
+    ax1.set_xlabel('X')
+    ax1.set_ylabel('Y')
+    ax2.set_xlabel('U')
+    ax2.set_ylabel('V')
+
+    # show the legend
+    leg2=ax2.legend(loc=0)
+    
+    ax1.set_title('X,Y positions')
+    ax2.set_title('U,V = A.(X, Y)')
+
+    sOtitl = 'X,Y -->  U,V by skew matrix only: each axis rotated (in opposite directions) by %i degrees' % (skewDeg/2.)
+
+    fig.suptitle(sOtitl)
+    fig.subplots_adjust(top=0.80)
