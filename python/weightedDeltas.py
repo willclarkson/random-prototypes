@@ -1636,6 +1636,12 @@ class CovarsNx2x2(object):
     genStripe = The covariances of the back half of the generated
                 sample are flipped in the x-axis
 
+    stripeFrac = fraction of the sample that will be the `special`
+                 set. Default 0.5 .
+
+    stripeCovRatio = ratio of the axis-lengths for the second and
+                     first stripe
+
     """
 
 
@@ -1648,7 +1654,9 @@ class CovarsNx2x2(object):
                      nPts=100, rotDeg=30., \
                      aLo=1.0, aHi=1.0, \
                      ratLo=0.1, ratHi=0.3, \
-                     genStripe=True):
+                     genStripe=True, \
+                     stripeFrac=0.5, \
+                     stripeCovRatio=1.):
 
         # The covariance stack (which could be input)
         self.covars = np.copy(covars)
@@ -1674,6 +1682,12 @@ class CovarsNx2x2(object):
 
         # Options for some particular patterns can come here.
         self.genStripe = genStripe
+        self.stripeFrac = np.clip(stripeFrac, 0., 1.)
+
+        #print("INFO: stripeFrac", self.stripeFrac)
+
+        # ratio between the axis lengths of the two stripes
+        self.stripeCovRatio = stripeCovRatio
 
         # Initialize some internal variables that will be useful for
         # anything that needs abtheta:
@@ -1811,8 +1825,12 @@ class CovarsNx2x2(object):
         
         # stipe the rotation angles? 
         if self.genStripe:
-            iHalf = int(0.5*np.size(self.rotDegs))
-            self.rotDegs [iHalf::] *= -1.
+            iPartition = int(self.stripeFrac*np.size(self.rotDegs))
+            self.rotDegs[iPartition::] *= -1.
+
+            # Scale the covar axes of the stripe
+            self.majors[iPartition::] *= self.stripeCovRatio 
+            self.minors[iPartition::] *= self.stripeCovRatio
 
     def populateDiagCovar(self):
 
@@ -2060,7 +2078,8 @@ def coverrplot(x=np.array([]), y=np.array([]), \
                    showCaps=True, \
                    capScale=0.1, \
                    enforceUniformAxes=True, \
-                   ax=None, fig=None, figNum=1):
+                   ax=None, fig=None, figNum=1, \
+                   xLabel='', yLabel='', adjustMargins=True):
 
     """Utility - given points with covariant uncertainties, plot
     them. Arguments:
@@ -2115,7 +2134,13 @@ def coverrplot(x=np.array([]), y=np.array([]), \
 
     fig = figure in which to draw the axis (needed for the colorbar)
 
-    figNum = if we are making a new figure, the figure number"""
+    figNum = if we are making a new figure, the figure number
+
+    xLabel = string for x-axis label. Ignored if zero length
+
+    yLabel = string for y-axis label. Ignored if zero length
+
+    adjustMargins - set the figure margins to reveal the labels"""
 
     if np.size(x) < 1:
         return
@@ -2124,7 +2149,7 @@ def coverrplot(x=np.array([]), y=np.array([]), \
         return
 
     # construct the covariance object if not given
-    if not covars:
+    if covars is None:
         covars = CovarsNx2x2(stdx=errx, stdy=erry, corrxy=corrxy)
         if covars.nPts < 1:
             return
@@ -2136,7 +2161,8 @@ def coverrplot(x=np.array([]), y=np.array([]), \
     # is passed.
     if not fig:
         fig = plt.figure(figNum, figsize=(5,4))
-    
+        fig.clf()
+
     if not ax:
         ax = fig.add_subplot(111)
 
@@ -2219,11 +2245,23 @@ def coverrplot(x=np.array([]), y=np.array([]), \
         if showColorbarEllipse and shadeEllipses:
             cbar = fig.colorbar(ec)
             cbar.set_label(labelColorbarEllipse)
-        
+            
+    # Ensure the axis autoscales with the data
+    ax.autoscale(enable=True, axis='both')
+
     # enforce uniform axes?
     if enforceUniformAxes:
         unifAxisLengths(ax)
         ax.set_aspect('equal')
+
+    # label the axes?
+    if len(xLabel) > 0:
+        ax.set_xlabel(xLabel)
+    if len(yLabel) > 0:
+        ax.set_ylabel(yLabel)
+
+    if adjustMargins:
+        fig.subplots_adjust(left=0.15, bottom=0.15)
 
 def lineSetFromVectors(x=np.array([]), dx=np.array([]), \
                            y=np.array([]), dy=np.array([]) ):
@@ -2306,7 +2344,7 @@ def unifAxisLengths(ax=None):
 
     if ydelt[0] > 0:
         ynew *= -1.
-            
+
     ax.set_xlim(xnew)
     ax.set_ylim(ynew)
 
@@ -2344,6 +2382,14 @@ class NormWithMonteCarlo(object):
 
     simYmin, simYmax = minmax source Y coords
 
+    -- If simulating a gaussian field rather than uniform
+
+    simGauMajor = major axis of gaussian component
+
+    simGauMinor = minor axis of gaussian component
+    
+    simGauTheta = position angle of gaussian component
+
     --- simulation variables - covariances 
 
     simAlo, simAhi = min, max semimajor axes of Xi, Eta covariance
@@ -2354,7 +2400,15 @@ class NormWithMonteCarlo(object):
 
     genStripe = flip the covariances for the back half of the samples
                 in the xi-axis
-    
+   
+    stripeFrac = fraction of objects assigned to the second stripe
+
+    stripeCovRatio = covariance axis-length ratio for the second to
+                     first stripe
+
+    posnSortCol = if nonzero length, the attribute on which positions
+                  are to be sorted (Useful if preparing two
+                  populations with differing covariance properties.)
 
     --- Choices for the simulations -----
 
@@ -2367,6 +2421,10 @@ class NormWithMonteCarlo(object):
     fNonparam = fraction of original data size to use in nonparametric
                 resampling (set to 0.5 for half-sample
                 bootstrap). Will be clipped to 1.
+
+    --- Misc control variables ---
+
+    Verbose = Print some screen output?
 
     """
 
@@ -2381,12 +2439,22 @@ class NormWithMonteCarlo(object):
                      simParsVec = np.array([]), \
                      simXmin = 0., simXmax = 500., \
                      simYmin = 0., simYmax = 500., \
-                     simAlo = 1.0e-3, simAhi=2.0e-2, \
-                     simRotCov=30., genStripe=True, \
+                     simGauMajor = 10., simGauMinor=7., \
+                     simGauTheta = 30. \
+                     simAlo = 1.0e-3, simAhi=2.0e-2, \                     
+                     simRotCov=30., \
+                     genStripe=True, \
+                     stripeFrac=0.5, \
+                     stripeCovRatio=1., \
+                     posnSortCol='', \
                      nTrials = 3, \
                      resetPositions=False, \
                      doFewWeightings=True, \
-                     fNonparam=1.):
+                     fNonparam=1., \
+                     Verbose=False):
+
+        # Control variables
+        self.Verbose = Verbose
 
         # coords, if given
         self.x = np.copy(x)
@@ -2419,11 +2487,22 @@ class NormWithMonteCarlo(object):
         self.simYmin = np.copy(simYmin)
         self.simYmax = np.copy(simYmax)
 
+        # Paramaters for gaussian simulation (if we're doing that)
+        self.simGauMajor = simGauMajor
+        self.simGauMinor = simGauMinor
+        self.simGauTheta = simGauTheta
+
         # Variables for canned covariance matrices in xi, eta
         self.simAlo = np.copy(simAlo)
         self.simAhi = np.copy(simAhi)
         self.simRotCov = np.copy(simRotCov)
+
+        # Variables to do with the special stripe (the back stripeFrac
+        # of the samples)
         self.genStripe = genStripe
+        self.stripeFrac = np.clip(stripeFrac, 0., 1.)
+        self.stripeCovRatio = stripeCovRatio
+        self.posnSortCol = posnSortCol[:] # column to sort positions
 
         # Number of trials we will be using
         self.nTrials = np.copy(nTrials)
@@ -2506,7 +2585,7 @@ class NormWithMonteCarlo(object):
         #self.transfs2x2 = None
         #self.transfs2x2rev = None # going the other way 
 
-    def simParsAsVec(self):
+    def transfParsAsVecs(self):
 
         """Translates the geometric simulation parameters into
         [a,b,c,d,e,f] vector"""
@@ -2535,6 +2614,12 @@ class NormWithMonteCarlo(object):
 
         """Generates a set of unperturbed X, Y coords"""
 
+        self.generateXYuniform()
+
+    def generateXYuniform(self):
+
+        """Generates raw X, Y from rectangular uniform distribution"""
+
         self.xRaw = np.random.uniform(self.simXmin, self.simXmax, \
                                           size=self.simNpts)
         self.yRaw = np.random.uniform(self.simYmin, self.simYmax, \
@@ -2542,10 +2627,60 @@ class NormWithMonteCarlo(object):
 
         ## print("INFO::", self.simNpts, self.simYmin, self.simYmax, np.shape(self.simTheta))
 
+    def generateXYgauss(self):
+
+        """Generates raw X, raw Y from gaussian"""
+
+        
+
+    def sortRawPositions(self, sortCol=''):
+
+        """Arg-sorts the raw points by raw x (useful when imposing
+        systematics on the covariances). How this works: if the
+        `stripe` argument in the Covars2D object is true, then the
+        first half of the rows have a different covariance matrix
+        (angle) than the second half. *This* routine argsorts the
+        positions by sortCol, thus inserting a spatial correlation
+        between covariance and location."""
+
+        # Either use the input argument or the instance sort column,
+        # ensuring both are consistent (i.e. passing the argument into
+        # this method causes the instance-wide attribute to be
+        # changed).
+        if len(sortCol) < 1:
+            sortCol = self.posnSortCol[:]
+        else:
+            self.posnSortCol = sortCol[:]
+
+        if not hasattr(self, sortCol):
+            if self.Verbose:
+                print("sortPositions WARN - attribute not populated: %s" \
+                          % (sortCol))
+            return
+
+        vSort = getattr(self, sortCol)        
+        if np.size(vSort) < 1:
+            if self.Verbose:
+                print("sortPositions WARN - column %s has zero length" \
+                          % (sortCol))
+            return
+
+        lSor = np.argsort(vSort)
+
+        if np.size(self.xRaw) > 0:
+            self.xRaw = self.xRaw[lSor]
+            self.yRaw = self.yRaw[lSor]
+
+        # if the xi, eta raw have already been populated, sort them
+        # too
+        if np.size(self.xiRaw) > 0:
+            self.xiRaw = self.xiRaw[lSor]
+            self.etaRaw = self.etaRaw[lSor]
+
     def populateRawXiEta(self):
 
         """Populates simulated Xi, Eta by transforming the unperturbed
-        X, Y to the Xi, Eta system using the 'true' coordinates"""
+        X, Y to the Xi, Eta system using the 'true' transformation"""
 
         PT = ptheta2d(self.xRaw-self.xRef, self.yRaw-self.yRef, \
                           pars=self.simTheta)
@@ -2563,7 +2698,9 @@ class NormWithMonteCarlo(object):
 
         CN = CovarsNx2x2(nPts=self.simNpts, rotDeg=self.simRotCov, \
                              aLo=self.simAlo, aHi=self.simAhi, \
-                             genStripe=self.genStripe)
+                             genStripe=self.genStripe, \
+                             stripeCovRatio=self.stripeCovRatio, \
+                             stripeFrac=self.stripeFrac)
         CN.generateCovarStack()
 
         self.CF = CovarsNx2x2(CN.covars)
@@ -2595,9 +2732,14 @@ class NormWithMonteCarlo(object):
     def resetUnperturbedPositions(self):
 
         """Generates new unperturbed positions in-place"""
+        
+        # Notice that the covariance matrices are NOT touched by this
+        # method. So the row-ordering of the covariance matrices is
+        # still useful to do the covariance-striping.
 
         self.generateRawXY()
         self.populateRawXiEta()
+        self.sortRawPositions() # apply position-striping if attribute set
         self.FitUnperturbed.x = self.xRaw
         self.FitUnperturbed.y = self.yRaw
         self.FitUnperturbed.xi = self.xiRaw
@@ -3692,18 +3834,32 @@ def testFitting(nPts = 20, rotDegCovar=30., \
         ax.grid(which='both', visible=True, alpha=0.3)
 
 def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
-                  testNonparam=True, fNonparam=1.0):
+                  testNonparam=True, fNonparam=1.0, showPoints=False, \
+                  stripeAxRatio=1.0, \
+                  stripeFrac = 0.5, posnSortCol=''):
 
-    """Tests fitting with the class NormFitMC"""
+    """Tests fitting with the class NormWithMC"""
 
-    NMC = NormWithMonteCarlo(simNpts=nPts, simSkewDeg=skewDeg)
+    NMC = NormWithMonteCarlo(simNpts=nPts, simSkewDeg=skewDeg, \
+                                 stripeCovRatio=stripeAxRatio, \
+                                 stripeFrac=stripeFrac, \
+                                 posnSortCol=posnSortCol, \
+                                 Verbose=True)
     
     # Create a synthetic dataset
-    NMC.simParsAsVec()
+    NMC.transfParsAsVecs()
     NMC.generateRawXY()
     NMC.populateRawXiEta()
+    NMC.sortRawPositions() # note that the sorting does nothing if no
+                        # position sort column has been supplied.
+
     NMC.populateCovarsFromSim()
     NMC.populateUnperturbedFitObj()
+
+    # show the points?
+    if showPoints:
+        coverrplot(NMC.xiRaw, NMC.etaRaw, NMC.CF, \
+                       xLabel=r'$\xi$, deg', yLabel=r'$\eta$, deg')
 
     # The first time, we assume the perturbed fit object constitutes
     # the "data". This mimics the case of feeding the object our
@@ -3724,7 +3880,8 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
 
         t1 = time.time()
         NMC.doNonparamBootstrap()
-        print("Nonparam bootstraps took %.2e sec" % (time.time()-t1))
+        print("%i Nonparam bootstraps took %.2e sec" \
+                  % (nTrials, time.time()-t1))
 
         print(NMC.stackTrialsResampled.transfs2x2.rotDeg)
         print(NMC.stackTrialsDiag.transfs2x2.rotDeg)
