@@ -2452,7 +2452,7 @@ class NormWithMonteCarlo(object):
                      simYmin = 0., simYmax = 500., \
                      simXcen = 0., simYcen = 0., \
                      simMakeGauss = False, \
-                     simGauMajor = 1000., simGauMinor=600., \
+                     simGauMajor = 100., simGauMinor=60., \
                      simGauTheta = -15., \
                      simAlo = 1.0e-4, simAhi=2.0e-3, simRotCov=30., \
                      genStripe=True, \
@@ -4058,11 +4058,15 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
     # object with the data as input. We'll try a parametric monte
     # carlo case, in which the model is fit to the data, then those
     # parameters are used to generate draws from the same model.
+    
+    # 2020-07-10 WATCHOUT - this is now somewhat different frmo the
+    # NMC object in some of the arguments. COME BACK TO THIS.
     MC = NormWithMonteCarlo(NMC.x, NMC.y, NMC.xi, NMC.eta, \
                                 NMC.stdxi, NMC.stdeta, NMC.corrxieta, \
                                 xref=NMC.xRef, yref=NMC.yRef, \
                                 simParsVec=NMC.simTheta, \
                                 nTrials=nTrials, \
+                                fitChoice=NMC.fitChoice, \
                                 resetPositions=resetPositions)
     MC.setSimRangesFromData()
     MC.populateCovarsFromData()
