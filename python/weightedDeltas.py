@@ -16,6 +16,9 @@ import copy
 import matplotlib.pylab as plt
 from matplotlib.collections import EllipseCollection, LineCollection
 
+# for the param plots
+import corner
+
 # for estimating weights
 from covstack import CovStack
 
@@ -2382,7 +2385,11 @@ class NormWithMonteCarlo(object):
 
     simYmin, simYmax = minmax source Y coords
 
+    simXcen, simYcen = offset for the source X, Y coords
+
     -- If simulating a gaussian field rather than uniform
+
+    simMakeGauss = simulate a gaussian field?
 
     simGauMajor = major axis of gaussian component
 
@@ -2422,6 +2429,10 @@ class NormWithMonteCarlo(object):
                 resampling (set to 0.5 for half-sample
                 bootstrap). Will be clipped to 1.
 
+    --- Choices for the fitting ---
+
+    fitChoice = string, choice of model fitting between the frames
+
     --- Misc control variables ---
 
     Verbose = Print some screen output?
@@ -2439,10 +2450,11 @@ class NormWithMonteCarlo(object):
                      simParsVec = np.array([]), \
                      simXmin = 0., simXmax = 500., \
                      simYmin = 0., simYmax = 500., \
-                     simGauMajor = 10., simGauMinor=7., \
-                     simGauTheta = 30. \
-                     simAlo = 1.0e-3, simAhi=2.0e-2, \                     
-                     simRotCov=30., \
+                     simXcen = 0., simYcen = 0., \
+                     simMakeGauss = False, \
+                     simGauMajor = 1000., simGauMinor=600., \
+                     simGauTheta = -15., \
+                     simAlo = 1.0e-4, simAhi=2.0e-3, simRotCov=30., \
                      genStripe=True, \
                      stripeFrac=0.5, \
                      stripeCovRatio=1., \
@@ -2451,6 +2463,7 @@ class NormWithMonteCarlo(object):
                      resetPositions=False, \
                      doFewWeightings=True, \
                      fNonparam=1., \
+                     fitChoice='6term', \
                      Verbose=False):
 
         # Control variables
@@ -2475,7 +2488,7 @@ class NormWithMonteCarlo(object):
         self.simSkewDeg = np.copy(simSkewDeg)
         self.simXiRef = np.copy(simXiRef)
         self.simEtaRef = np.copy(simEtaRef)
-        self.simNpts = np.copy(simNpts)
+        self.simNpts = int(np.copy(simNpts)) # scalars copy to array!
 
         # or, we might already have the 6-term vector [a,b,c,d,e,f]:
         self.simTheta = np.copy(simParsVec)
@@ -2487,15 +2500,20 @@ class NormWithMonteCarlo(object):
         self.simYmin = np.copy(simYmin)
         self.simYmax = np.copy(simYmax)
 
+        # Offset for the simulated points
+        self.simXcen = float(np.copy(simXcen))
+        self.simYcen = float(np.copy(simYcen))
+
         # Paramaters for gaussian simulation (if we're doing that)
+        self.simMakeGauss = simMakeGauss # True/False
         self.simGauMajor = simGauMajor
         self.simGauMinor = simGauMinor
         self.simGauTheta = simGauTheta
 
         # Variables for canned covariance matrices in xi, eta
-        self.simAlo = np.copy(simAlo)
-        self.simAhi = np.copy(simAhi)
-        self.simRotCov = np.copy(simRotCov)
+        self.simAlo = simAlo
+        self.simAhi = simAhi
+        self.simRotCov = simRotCov
 
         # Variables to do with the special stripe (the back stripeFrac
         # of the samples)
@@ -2507,6 +2525,9 @@ class NormWithMonteCarlo(object):
         # Number of trials we will be using
         self.nTrials = np.copy(nTrials)
         self.resetPositions = resetPositions
+
+        # choice for the fitting 
+        self.fitChoice = fitChoice[:]
 
         # Do we try a few different weightings in the monte carlo?
         self.doFewWeightings = doFewWeightings
@@ -2614,6 +2635,14 @@ class NormWithMonteCarlo(object):
 
         """Generates a set of unperturbed X, Y coords"""
 
+        if self.simMakeGauss:
+            self.generateXYgauss()
+
+            print("INFO - xRaw, yRaw:", \
+                      np.shape(self.xRaw), np.shape(self.yRaw))
+            return
+
+        # If we got here, then we do the rectangular field
         self.generateXYuniform()
 
     def generateXYuniform(self):
@@ -2621,9 +2650,9 @@ class NormWithMonteCarlo(object):
         """Generates raw X, Y from rectangular uniform distribution"""
 
         self.xRaw = np.random.uniform(self.simXmin, self.simXmax, \
-                                          size=self.simNpts)
+                                          size=self.simNpts) + self.simXcen
         self.yRaw = np.random.uniform(self.simYmin, self.simYmax, \
-                                          size=self.simNpts)
+                                          size=self.simNpts) + self.simYcen
 
         ## print("INFO::", self.simNpts, self.simYmin, self.simYmax, np.shape(self.simTheta))
 
@@ -2631,7 +2660,25 @@ class NormWithMonteCarlo(object):
 
         """Generates raw X, raw Y from gaussian"""
 
-        
+        CG = CovarsNx2x2(nPts = 1, \
+                             majors=self.simGauMajor, \
+                             minors=self.simGauMinor, \
+                             rotDegs=self.simGauTheta, \
+                             genStripe=False)
+
+        # This is a little ugly since CovarsNx2x2 expects one
+        # covariance matrix per plane, rather than N objects all of
+        # which use the same covariance matrix. Rather than trying to
+        # alter CovarsNx2x2, let's just generate normal random
+        # variables using the GC.covar[0] as the covariance matrix. As
+        # a ``plus'', we can naturally handle a zeropoint offset too.
+
+        vCen = np.array([self.simXcen, self.simYcen])
+        cova = CG.covars[0]
+        normPts = np.random.multivariate_normal(vCen, cova, self.simNpts)
+
+        self.xRaw = normPts[:,0]
+        self.yRaw = normPts[:,1]
 
     def sortRawPositions(self, sortCol=''):
 
@@ -2651,6 +2698,10 @@ class NormWithMonteCarlo(object):
             sortCol = self.posnSortCol[:]
         else:
             self.posnSortCol = sortCol[:]
+
+        # silently exit if there's no column to sort on
+        if len(sortCol) < 1:
+            return
 
         if not hasattr(self, sortCol):
             if self.Verbose:
@@ -2681,6 +2732,10 @@ class NormWithMonteCarlo(object):
 
         """Populates simulated Xi, Eta by transforming the unperturbed
         X, Y to the Xi, Eta system using the 'true' transformation"""
+
+        # Note that the true transformation will usually be 6-term
+        # even if we are fitting with 4-term. So - don't pass the
+        # fitChoice through to this object.
 
         PT = ptheta2d(self.xRaw-self.xRef, self.yRaw-self.yRef, \
                           pars=self.simTheta)
@@ -2727,6 +2782,7 @@ class NormWithMonteCarlo(object):
                                             self.xiRaw, self.etaRaw, \
                                             covars=self.CF.covars, \
                                             xRef=self.xRef, yRef=self.yRef, \
+                                            fitChoice=self.fitChoice, \
                                             runOnInit=False)
 
     def resetUnperturbedPositions(self):
@@ -2761,6 +2817,7 @@ class NormWithMonteCarlo(object):
                                            self.xiRaw, self.etaRaw, \
                                            covars=self.CF.covars, \
                                            xRef=self.xRef, yRef=self.yRef, \
+                                           fitChoice=self.fitChoice, \
                                            runOnInit=False)
 
         # ensure the raw positions are populated (we could perturb
@@ -2853,8 +2910,6 @@ class NormWithMonteCarlo(object):
         nDraw = int(nAll * self.fNonparam)
         self.FitResample.NE.gPlanes = np.random.randint(0, nAll, size=nDraw)
         
-        
-
     def fitPerturbed(self):
 
         """Does the fit for the perturbed object"""
@@ -2887,6 +2942,7 @@ class NormWithMonteCarlo(object):
                                      stdxi=self.stdxi, stdeta=self.stdeta, \
                                      corrxieta=self.corrxieta, \
                                      xRef=self.xRef, yRef=self.yRef, \
+                                     fitChoice=self.fitChoice, \
                                      invertHessian=True, Verbose=True)
 
         self.parsData = np.copy(self.FitData.NE.pars[:,0])
@@ -2988,7 +3044,8 @@ class NormWithMonteCarlo(object):
         # Now convert the b,d,e,f to sx, sy, rotDeg, skewDeg
         for Stack in lSta:
             Stack.convertParsToGeom()
-            
+            Stack.assembleParamSet()
+
 
     def doMonteCarlo(self):
 
@@ -3033,12 +3090,55 @@ class NormWithMonteCarlo(object):
         # Once the monte carlo is done, convert the parameters to
         # geometric parameters
         self.stackTrials.convertParsToGeom()
+        self.stackTrials.assembleParamSet()
 
         if not self.doFewWeightings:
             return
 
-        self.stackTrialsDiag.convertParsToGeom()
-        self.stackTrialsUnif.convertParsToGeom()
+        for Stack in [self.stackTrialsDiag, self.stackTrialsUnif]:
+            Stack.convertParsToGeom()
+            Stack.assembleParamSet()
+
+        ##self.stackTrialsDiag.convertParsToGeom()
+        ##self.stackTrialsUnif.convertParsToGeom()
+
+    def showCornerPlot(self, sStack='stackTrials', figNum=2):
+
+        """Shows a corner plot of the monte carlo trials"""
+
+        # for the moment let's hardcode one example just to see how
+        # they look
+        stackSho = getattr(self, sStack)
+        
+        stackArr = getattr(stackSho, 'paramSet')
+        labels = getattr(stackSho, 'paramLabels')
+        
+        # truth values for the simulation (for corner)
+        # self.simParsVec[0], self.simParsVec[1]
+        
+        truths = [self.simTheta[0], self.simTheta[3], \
+                      self.simSx, self.simSy, \
+                      self.simRotDeg, self.simSkewDeg]
+
+        if self.fitChoice.find('similarity') > -1:
+            truths = [self.simTheta[0], self.simTheta[3], \
+                          0.5*(np.abs(self.simSx) + np.abs(self.simSy)), \
+                          self.simRotDeg]
+
+            print("INFO:", truths)
+
+        # OK now try the corner plot. Passing in a blank figure
+        # doesn't seem to work, so we just generate 
+        print("Plotting corner...")
+        corner.corner(stackArr, labels=labels, \
+                          label_kwargs={'labelpad':50}, \
+                          truths=truths)
+        fig = plt.gcf()
+        fig.subplots_adjust(left=0.15, bottom=0.15)
+        fig.set_size_inches(8.,6., forward=True)
+        for ax in fig.get_axes():
+            ax.tick_params(axis='both', labelsize=6)        
+            ax.xaxis.labelpad = 500
 
 #    def convertParsToGeom(self):
 
@@ -3087,7 +3187,9 @@ class SimResultsStack(object):
 
     Written for NormWithMonteCarlo, so includes input parameters,
     tangent points estimated from those parameters, and the number of
-    points kept."""
+    points kept.
+
+    """
 
     def __init__(self, doRev=True):
 
@@ -3102,6 +3204,11 @@ class SimResultsStack(object):
         # linear transformation including geometric parameters
         self.transfs2x2 = None
         self.transfs2x2rev = None
+
+        # N x 6 array of all the parameters, labels - for sending to a
+        # plotter like Corner
+        self.paramSet = np.array([]) # (needs a better name)
+        self.paramLabels = []
 
     def appendNewResults(self, NE=None):
 
@@ -3154,6 +3261,37 @@ class SimResultsStack(object):
         if self.doRev:
             self.transfs2x2rev = Stack2x2(self.transfs2x2.AINV)
         
+    def assembleParamSet(self):
+
+        """Utility: arranges the master set of parameters into an Nx6
+        array (e.g. for use in corner plot)"""
+
+        # Judge from the array shape whether 6 or 4 term
+        nDone, nTerms = np.shape(self.parsTrials)
+
+        if nTerms == 4:
+            # for 4-term, the sx and sy are both identical (uncomment
+            # the line below to confirm this).
+            #print("INFO - 4term:", \
+            #          self.transfs2x2.sx[0:3], \
+            #          self.transfs2x2.sy[0:3] )
+
+            self.paramSet = np.column_stack(( \
+                    self.parsTrials[:,0], self.parsTrials[:,3], \
+                        self.transfs2x2.sx, self.transfs2x2.rotDeg ))
+            self.paramLabels = [r'$a$', r'$d$', r'$s$', r'$\theta$']
+            return
+
+        self.paramSet = np.column_stack(( \
+           #self.tpTrials[:,0], self.tpTrials[:,1], \
+                self.parsTrials[:,0], self.parsTrials[:,3], \
+                    self.transfs2x2.sx, self.transfs2x2.sy, \
+                    self.transfs2x2.rotDeg, self.transfs2x2.skewDeg))
+
+        self.paramLabels = [r'$a$', r'$d$', \
+                                r'$s_x$', r'$s_y$', \
+                                r'$\theta$', r'$\beta$']
+
 
 class FitNormEq(object):
 
@@ -3169,6 +3307,8 @@ class FitNormEq(object):
              they are constructed by inversion of the covariances
              matrix-stack.
 
+    fitChoice = string, choice of fitting method
+
     stdxi, stdeta, corrxieta = covariances in xi, eta specified as
              stddev in xi, stddev in eta, correlation coefficient
              between xi and eta.
@@ -3183,6 +3323,7 @@ class FitNormEq(object):
                      W=np.array([]), \
                      xRef=0., yRef=0., \
                      invertHessian=False, \
+                     fitChoice='6term', \
                      runOnInit=True, \
                      Verbose=False):
 
@@ -3195,6 +3336,9 @@ class FitNormEq(object):
         self.eta = np.copy(eta)
         self.xRef = np.copy(xRef)
         self.yRef = np.copy(yRef)
+        
+        # Choice of fitter
+        self.fitChoice = fitChoice[:]
         
         # Covariances in the target frame, if given
         self.covars = np.copy(covars)
@@ -3259,6 +3403,7 @@ class FitNormEq(object):
         object"""
 
         self.NE = NormalEqs(self.x, self.y, self.xi, self.eta, W=self.W, \
+                                fitChoice=self.fitChoice, \
                                 xref=self.xRef, yref=self.yRef)
 
     def performFit(self, reInit=True):
@@ -3835,15 +3980,28 @@ def testFitting(nPts = 20, rotDegCovar=30., \
 
 def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
                   testNonparam=True, fNonparam=1.0, showPoints=False, \
+                  genStripe=True, \
                   stripeAxRatio=1.0, \
-                  stripeFrac = 0.5, posnSortCol=''):
+                  stripeFrac = 0.5, posnSortCol='', \
+                  fitChoice='6term', \
+                  simGauss=False, \
+                  simSx = -5.0e-4, simSy=4.0e-4):
 
     """Tests fitting with the class NormWithMC"""
 
+    # close any matplotlib figures that are open (because the version
+    # of corner on my laptop doesn't allow passing a blank matplotlib
+    # figure).
+    plt.close('all')
+
     NMC = NormWithMonteCarlo(simNpts=nPts, simSkewDeg=skewDeg, \
                                  stripeCovRatio=stripeAxRatio, \
+                                 genStripe=genStripe, \
                                  stripeFrac=stripeFrac, \
                                  posnSortCol=posnSortCol, \
+                                 simMakeGauss=simGauss,  \
+                                 fitChoice=fitChoice, \
+                                 simSx=simSx, simSy=simSy, \
                                  Verbose=True)
     
     # Create a synthetic dataset
@@ -3883,10 +4041,17 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
         print("%i Nonparam bootstraps took %.2e sec" \
                   % (nTrials, time.time()-t1))
 
-        print(NMC.stackTrialsResampled.transfs2x2.rotDeg)
-        print(NMC.stackTrialsDiag.transfs2x2.rotDeg)
-        print(NMC.stackTrialsUnif.transfs2x2.rotDeg)
+        if nTrials < 10:
+            print(NMC.stackTrialsResampled.transfs2x2.rotDeg)
+            print(NMC.stackTrialsDiag.transfs2x2.rotDeg)
+            print(NMC.stackTrialsUnif.transfs2x2.rotDeg)
+            return
+
+        # show corner plot?
+        print("INFO:", NMC.simTheta)
+        NMC.showCornerPlot('stackTrialsResampled')
         return
+    
 
     # OK now we have our "data", and parameters we have got from
     # fitting the data, let's test the case of setting up a second
@@ -3909,14 +4074,25 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
     MC.populateUnperturbedFitObj()
 
     # now do the monte carlo
+    t1 = time.time()
     MC.doMonteCarlo()
+    print("%i parametric bootstraps took %.2e sec" \
+              % (nTrials, time.time()-t1))
 
     # MC.stackTrials.convertParsToGeom()
 
     ##print(MC.stackTrials.parsTrials[:,1])
-    print(MC.stackTrials.transfs2x2.rotDeg)
-    print(MC.stackTrialsDiag.transfs2x2.rotDeg)
-    print(MC.stackTrialsUnif.transfs2x2.rotDeg)
+    if nTrials < 10:
+        print(MC.stackTrials.transfs2x2.rotDeg)
+        print(MC.stackTrialsDiag.transfs2x2.rotDeg)
+        print(MC.stackTrialsUnif.transfs2x2.rotDeg)
+        return
+
+    # show corner plot?
+    print("INFO:", np.size(MC.stackTrials.transfs2x2.rotDeg))
+    MC.showCornerPlot('stackTrials')
+    return
+
 
     #print(MC.stackTrials.transfs2x2rev.rotDeg)
 
