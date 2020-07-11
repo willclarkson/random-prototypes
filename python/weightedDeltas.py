@@ -3043,8 +3043,9 @@ class NormWithMonteCarlo(object):
 
         # Now convert the b,d,e,f to sx, sy, rotDeg, skewDeg
         for Stack in lSta:
-            Stack.convertParsToGeom()
-            Stack.assembleParamSet()
+            Stack.prepareResults()
+            #Stack.convertParsToGeom()
+            #Stack.assembleParamSet()
 
 
     def doMonteCarlo(self):
@@ -3089,15 +3090,17 @@ class NormWithMonteCarlo(object):
 
         # Once the monte carlo is done, convert the parameters to
         # geometric parameters
-        self.stackTrials.convertParsToGeom()
-        self.stackTrials.assembleParamSet()
+        self.stackTrials.prepareResults()
+        #self.stackTrials.convertParsToGeom()
+        #self.stackTrials.assembleParamSet()
 
         if not self.doFewWeightings:
             return
 
         for Stack in [self.stackTrialsDiag, self.stackTrialsUnif]:
-            Stack.convertParsToGeom()
-            Stack.assembleParamSet()
+            Stack.prepareResults()
+            #Stack.convertParsToGeom()
+            #Stack.assembleParamSet()
 
         ##self.stackTrialsDiag.convertParsToGeom()
         ##self.stackTrialsUnif.convertParsToGeom()
@@ -3210,6 +3213,11 @@ class SimResultsStack(object):
         self.paramSet = np.array([]) # (needs a better name)
         self.paramLabels = []
 
+        # Since we have the paramset, we can store the covariance and
+        # median here.
+        self.paramCov = np.array([])
+        self.paramMed = np.array([])
+
     def appendNewResults(self, NE=None):
 
         """Appends the results onto the stack"""
@@ -3292,6 +3300,27 @@ class SimResultsStack(object):
                                 r'$s_x$', r'$s_y$', \
                                 r'$\theta$', r'$\beta$']
 
+    def getParamStats(self):
+
+        """Utility - computes the covariance and medians of the
+        parameter stack"""
+
+        # Don't bother if fewer than three parameters
+        if self.paramSet.shape[0] < 3:
+            return
+
+        self.paramCov = np.cov(self.paramSet, rowvar=False)
+        self.paramMed = np.median(self.paramSet, axis=0)
+
+    def prepareResults(self):
+
+        """Wrapper - converts the results to geometric parameters,
+        prepares the stack (for corner plots, say) and computes
+        summary statistics"""
+
+        self.convertParsToGeom()
+        self.assembleParamSet()
+        self.getParamStats()
 
 class FitNormEq(object):
 
