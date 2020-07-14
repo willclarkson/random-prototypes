@@ -8,9 +8,10 @@
 # between positions.
 #
 
-import time
+import time, datetime
 import numpy as np
 import copy
+import os
 
 # for plotting
 import matplotlib.pylab as plt
@@ -2469,6 +2470,10 @@ class NormWithMonteCarlo(object):
         # Control variables
         self.Verbose = Verbose
 
+        # dictionary of parameters we'd dump to or read from disk
+        self.ddump = {}
+        self.lkeys = self.ddump.keys()
+
         # coords, if given
         self.x = np.copy(x)
         self.y = np.copy(y)
@@ -2554,6 +2559,9 @@ class NormWithMonteCarlo(object):
         # bootstraps
         self.fNonparam = np.clip(fNonparam, 0.01, 1.)
 
+        # filename for parameter file
+        self.filParamsOut = 'tmp_mcparams.txt'
+
         # Covariance stack (will be used to draw perturbation samples
         # from the covariances if doing parametric monte carlo)
         self.CF = None
@@ -2605,7 +2613,7 @@ class NormWithMonteCarlo(object):
         # parameters
         #self.transfs2x2 = None
         #self.transfs2x2rev = None # going the other way 
-
+        
     def transfParsAsVecs(self):
 
         """Translates the geometric simulation parameters into
@@ -3142,6 +3150,205 @@ class NormWithMonteCarlo(object):
         for ax in fig.get_axes():
             ax.tick_params(axis='both', labelsize=6)        
             ax.xaxis.labelpad = 500
+
+    def writeParfile(self):
+
+        """Dumps the parameters to disk"""
+
+        if len(self.filParamsOut) < 3:
+            if self.Verbose:
+                print("writeParfile WARN - output parfils < 3 chars. Not writing.")
+            return
+
+        if len(self.ddump.keys()) < 1:
+            self.setParsToDump()
+
+        with open(self.filParamsOut, 'w') as wObj:
+            wObj.write('# Pars for NormWithMonteCarlo\n')
+            wObj.write('# %s\n' % (datetime.datetime.now()))
+            wObj.write('#\n')
+            wObj.write('# attribute_name value\n')
+
+            # Now write the variables.
+            for sKey in self.ldump:
+                if not sKey in self.ddump.keys():
+                    print("writeParfile WARN - param %s not in list: %s" \
+                              % (sKey))
+                    continue 
+                
+                #print("INFO - %s" % (sKey))
+                # If the attribute doesn't exist...
+                if not hasattr(self, sKey):
+                    print("writeParfile WARN - object has no attribute: %s" \
+                              % (sKey))
+                    continue
+
+                # if there's a spacer/comment, write it
+                sCommen = self.ddump[sKey]['comment']
+                if len(sCommen) > 0:
+                    # Ensure the comment starts with '#' if I forgot
+                    # to set that elsewhere.
+                    if sCommen.find('#') != 0:
+                        sCommen = '#%s' % (sCommen)
+                    wObj.write('\n')
+                    wObj.write('%s\n' % (sCommen))
+
+                # now write the keyword and value. Since my laptop is
+                # still on python 2 and I don't know how to pass the
+                # format code as a variable, we'll do this the
+                # explicit way.
+                valu = getattr(self, sKey)
+                styp = self.ddump[sKey]['dtype']
+
+                if styp.find('int') > -1 or styp.find('bool') > -1:
+                    wObj.write('%s %i\n' % (sKey, valu))
+                    continue
+
+                if styp.find('str') > -1:
+                    # strings can have zero length...
+                    if len(valu) < 1:
+                        valu = 'BLANK'
+                    wObj.write('%s %s\n' % (sKey, valu))
+                    continue
+
+                if styp.find('float') > -1:
+                    wObj.write('%s %f\n' % (sKey, valu))
+
+    def setParsToDump(self):
+
+        """Sets the list of attributes to dump to disk"""
+
+        # This probably should be called from __init__()
+
+        # We first build up the list of keywords so that we can write
+        # them out in order (as opposed to whatever order python 
+
+        # We'll build this up as keyword / dtype so that it'll be
+        # easier to read the parameters correctly. Written line by
+        # line in the source code here for ease of debugging later.
+
+        self.ldump = ['simNpts', 'simSx', 'simSy', 'simRotDeg', \
+                          'simSkewDeg', 'simXiRef', 'simEtaRef', \
+                          'simXmin', 'simXmax', 'simYmin', 'simYmax', \
+                          'simXcen', 'simYcen', 'simMakeGauss', \
+                          'simGauMajor', 'simGauMinor', 'simGauTheta', \
+                          'simAlo', 'simAhi', 'simRotCov', \
+                          'genStripe', 'stripeFrac', 'stripeCovRatio', \
+                          'posnSortCol', \
+                          'nTrials', 'resetPositions', 'doFewWeightings', \
+                          'fNonparam', 'fitChoice']
+
+        # Now we set up the parameter dtype dictionary. This also
+        # allows us to add a pre-comment should we wish. 
+        self.ddump = {}
+        for skey in self.ldump:
+            self.ddump[skey] = {'dtype':'float', 'comment':''}
+
+        # Now we add the customizations for each of the non-float
+        # datatypes
+        for sInt in ['nTrials', 'simNpts']:
+            self.ddump[sInt]['dtype'] = 'int'
+            
+        for sBool in ['simMakeGauss', 'genStripe', 'doFewWeightings', \
+                          'resetPositions']:
+            self.ddump[sBool]['dtype'] = 'bool'
+
+        for sStr in ['posnSortCol', 'fitChoice']:
+            self.ddump[sStr]['dtype'] = 'str'
+
+
+        # Now we put some comments in to separate the outputs in the
+        # param file to make it human-readable
+        self.ddump['simNpts']['comment'] = '# True transformation'
+        self.ddump['simXmin']['comment'] = '# Focal plane field of view'
+        self.ddump['simMakeGauss']['comment'] = '# Gaussian component params'
+        self.ddump['simAlo']['comment'] = '# Simulated covariances parameters'
+        self.ddump['genStripe']['comment'] = '# Stripe parameters'
+        self.ddump['posnSortCol']['comment'] = '# Sort positionally?'
+        self.ddump['nTrials']['comment'] = '# Monte carlo settings'
+        self.ddump['fitChoice']['comment'] = '# Settings for fit'
+
+            
+    def readPars(self, parFile='NONE.NONE'):
+
+        """Utility - sets simulation attributes from input file"""
+
+        if len(parFile) < 1:
+            return
+
+        if not os.access(parFile, os.R_OK):
+            return
+
+        if self.Verbose:
+            print("readPars: reading attributes from file %s" \
+                      % (parFile))
+
+        if len(self.ddump.keys()) < 1:
+            self.setParsToDump()
+
+        # Written for clarity of approach rather than speed of
+        # execution. The datatypes expected are not included in the
+        # parameter file (just because that might be annoying) but
+        # instead are pre-built in dictionary self.ddump. Attributes
+        # that don't have an entry in self.ddump are thus ignored on
+        # input. If Verbose, write when skipping so that I can work
+        # out if I need to add more objects to self.ddump.
+        with open(parFile, 'r') as rObj:
+            for inline in rObj:
+                if inline.find('#') == 0:
+                    continue
+
+                if len(inline.strip()) < 1:
+                    continue
+
+                lLine = inline.strip().split()
+                if len(lLine) == 1:
+                    if self.Verbose:
+                        print("readPars WARN - no value given for %s" \
+                                  % (lLine[0]))
+                    continue
+
+                # (Note that we DO allow > 2 entries, e.g. the user
+                # might have put a comment after the values.
+
+                # OK now how we interpret this depends on what we
+                # think this type of quantity should be. We might
+                # decide later to set default behavior (e.g. assume
+                # string unless told otherwise). For the moment,
+                # though, we will be stricter and ignore anything not
+                # in self.ddump.keys().
+                sAttr = lLine[0]
+                sValu = lLine[1]
+        
+                if not sAttr in self.ddump.keys():
+                    print("readPars WARN - unexpected attr: %s" \
+                              % (sAttr))
+                    continue
+
+                # Now interpret the quantity
+                sTyp = self.ddump[sAttr]['dtype']
+                
+                # Integers
+                if sTyp.find('int') > -1:
+                    setattr(self, sAttr, int(sValu))
+                    continue
+
+                # Booleans require conversion from integers (I think!!)
+                if sTyp.find('bool') > -1:
+                    setattr(self, sAttr, bool(int(sValu)) )
+                    continue
+
+                # floats (probably the majority)
+                if sTyp.find('float') > -1:
+                    setattr(self, sAttr, float(sValu))
+                    continue
+                            
+                # Strings are the simplest. Goes at the end since this
+                # may well end up being default behavior.
+                if sTyp.find('str') > -1:
+                    setattr(self, sAttr, sValu)
+                    continue
+
 
 #    def convertParsToGeom(self):
 
@@ -4054,6 +4261,16 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
     NMC.populatePerturbedFitObj()
     NMC.copyPerturbedSimToData()
     NMC.fitData()
+
+    # dump the parameters to disk
+    NMC.Verbose = True
+
+    # uncomment the following to test writing the parameters to disk...
+    # print("Dumping parameters to disk")
+    # NMC.writeParfile()
+    
+    # uncomment the following to test reading parameters FROM disk
+    NMC.readPars('tmp_mcparams.txt')
 
     print("Round 1 - Pars fit from data:", NMC.parsData)
     print("Round 1 - Pars simulated:", NMC.simTheta)
