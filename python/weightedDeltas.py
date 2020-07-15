@@ -3735,10 +3735,10 @@ class SimResultsStack(object):
                     cov22[1,0] = self.paramCov[jPar, iPar]
 
                 self.covPairs[sKey] = CovarsNx2x2(cov22)
-                
+                self.covPairs[sKey].eigensFromCovars()
 
                 #print("assembleCovarPairs INFO: %s, %.2f" \
-                #          % (sKey, getattr(self.covPairs[sKey], 'corrxy')) )
+                #          % (sKey, getattr(self.covPairs[sKey], 'rotDegs')) )
 
         # We'll label the params by position here. Other routines can
         # then re-interpret the strings as physical parameters at the
