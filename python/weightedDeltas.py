@@ -1717,6 +1717,11 @@ class CovarsNx2x2(object):
         # if the covariances already have nonzero shape, override nPts
         # with their leading dimension
         if np.size(self.covars) > 0:
+
+            # if passed a plane, turn into a 1x2x2 array:
+            if np.size(np.shape(self.covars)) == 2:
+                self.covars = self.covars[np.newaxis, :, :]
+
             self.nPts = np.shape(self.covars)[0]
 
             # populate the xy components
@@ -1733,7 +1738,6 @@ class CovarsNx2x2(object):
         # abtheta form.
         if np.size(self.covars) < 1 and np.size(self.majors) > 0:
             self.covarFromABtheta()
-
 
     def populateXYcomponents(self):
 
@@ -3690,6 +3694,56 @@ class SimResultsStack(object):
         self.convertParsToGeom()
         self.assembleParamSet()
         self.getParamStats()
+        self.assembleCovarPairs()
+
+    def assembleCovarPairs(self):
+
+        """Construct covariance matrices of parameter-pairs to
+        summarize the bootstrap parameters"""
+
+        # I have a feeling corner.py probably does something like this
+        # under the hood, but am not sure how to access the relevant
+        # quantities. Let's do it here.
+        if np.size(self.paramCov) < 1:
+            self.getParamStats()
+        if np.size(self.paramCov) < 1:
+            return
+
+        # dictionary of pairwise covar objects
+        self.covPairs = {}
+
+        nPars = np.shape(self.paramCov)[0]
+
+        # list of string labels for variables
+        if len(self.paramLabels) == nPars:
+            llabels = self.paramLabels[:]
+        else:
+            lLabels = ['%i' % (x) for x in range(nPars)]
+
+        for iPar in range(nPars):
+            for jPar in range(iPar, nPars):
+                sKey = '%s_vs_%s' % (llabels[iPar], llabels[jPar])
+                
+                # Construct the 2x2 covariance object from the subset
+                # of the full covariance
+                cov22=np.eye(2)
+                cov22[0,0] = self.paramCov[iPar, iPar]
+                cov22[1,1] = self.paramCov[jPar, jPar]
+
+                if iPar != jPar:
+                    cov22[0,1] = self.paramCov[iPar, jPar]
+                    cov22[1,0] = self.paramCov[jPar, iPar]
+
+                self.covPairs[sKey] = CovarsNx2x2(cov22)
+                
+
+                #print("assembleCovarPairs INFO: %s, %.2f" \
+                #          % (sKey, getattr(self.covPairs[sKey], 'corrxy')) )
+
+        # We'll label the params by position here. Other routines can
+        # then re-interpret the strings as physical parameters at the
+        # I/O stage.
+        #print("INFO:", self.paramCov.shape)
 
 class FitNormEq(object):
 
