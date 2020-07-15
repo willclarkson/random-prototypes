@@ -2430,6 +2430,8 @@ class NormWithMonteCarlo(object):
                 resampling (set to 0.5 for half-sample
                 bootstrap). Will be clipped to 1.
 
+    doNonparam = Bootstrap trials will be non-parametric if True
+
     --- Choices for the fitting ---
 
     fitChoice = string, choice of model fitting between the frames
@@ -2468,6 +2470,7 @@ class NormWithMonteCarlo(object):
                      doFewWeightings=True, \
                      fNonparam=1., \
                      fitChoice='6term', \
+                     doNonparam=True, \
                      Verbose=False, \
                      parFile=''):
 
@@ -2541,9 +2544,15 @@ class NormWithMonteCarlo(object):
         # Do we try a few different weightings in the monte carlo?
         self.doFewWeightings = doFewWeightings
 
+        # Will the bootstrap trials be non-parametric?
+        self.doNonparam = doNonparam
+
         # Fraction of sample size to draw if doing non-parametric
         # bootstraps
         self.fNonparam = np.clip(fNonparam, 0.01, 1.)
+
+        # filename stem for corner plot
+        self.stemCornerFil = 'tmp_corner'
 
         # filename for output parameter dump if we're writing it
         self.filParamsOut = 'tmp_mcparams.txt'
@@ -3133,7 +3142,7 @@ class NormWithMonteCarlo(object):
         ##self.stackTrialsDiag.convertParsToGeom()
         ##self.stackTrialsUnif.convertParsToGeom()
 
-    def showCornerPlot(self, sStack='stackTrials', figNum=2, \
+    def showCornerPlot(self, sStack='stackTrials', \
                            doAnnotations=True, \
                            stackLabel=''):
 
@@ -3160,7 +3169,7 @@ class NormWithMonteCarlo(object):
 
         # OK now try the corner plot. Passing in a blank figure
         # doesn't seem to work, so we just generate 
-        print("Plotting corner...")
+        print("Plotting corner for %s..." % (sStack))
         corner.corner(stackArr, labels=labels, \
                           label_kwargs={'labelpad':50}, \
                           truths=truths)
@@ -3192,7 +3201,15 @@ class NormWithMonteCarlo(object):
             if not self.bootsAreNonparam:
                 sTyp = '%i Parametric Monte Carlo trials' % (self.nTrials)
 
-            lAnno = [stackLabel, sUncty, sChoice, sTyp]
+            # number of datapoints
+            # what kind of positional distribution?
+            sDist = 'uniformly distributed'
+            if self.simMakeGauss:
+                sDist = 'Gaussian-distributed'
+
+            sNum = '%i %s datapoints' % (self.simNpts, sDist)
+
+            lAnno = [stackLabel, sUncty, sChoice, sTyp, sNum]
         
             # Now also show the 6-term transformation actually used...
             lAnno.append(' ')
@@ -3209,27 +3226,38 @@ class NormWithMonteCarlo(object):
                                 (0.95, yFirst - iAnno*dyAnno), \
                                 xycoords='figure fraction', \
                                 va='top', ha='right', fontsize=fszAnno)
-                                
-            #ax.annotate(stackLabel, (0.95,yFirst), \
-            #                xycoords='figure fraction', \
-            #                va='top', ha='right', fontsize=fszAnno)
+                          
+    def plotCorners(self):
 
+        """Does the corner plots for each of the pieces we simulated"""
+      
+        # On my laptop, the matplotlib window holding the corner plot
+        # sometimes triggeres a segfault if clicked on with the
+        # mouse. This method does corner plots for all three
+        # simulations in turn, saving the plots to jpeg and closing
+        # the plot window after each plot. The matplotlib state
+        # machine is queried to determine the figure object used to
+        # save the figure to disk.
 
-            # add some other information we might want to know
-            #ax.annotate(sChoice, (0.95,0.92), \
-            #                xycoords='figure fraction', \
-            #                va='top', ha='right', fontsize=fszAnno)
+        # what do we call the corner plot in the various cases?
+        dKeys = {'stackTrials':'full', 'stackTrialsDiag':'diag', \
+                     'stackTrialsUnif':'unif'} 
 
-            # Get the parameteric / nonparametric status from the
-            # instance
-            #sTyp = '%i Non-parametric bootstrap trials' % (self.nTrials)
-            #if not self.bootsAreNonparam:
-            #    sTyp = '%i Parametric Monte Carlo trials' % (self.nTrials)
+        for sTyp in dKeys.keys():
+            self.showCornerPlot(sTyp)
+
+            # now we construct the filename, save the figure and close
+            # it so that the next iteration uses the same figure number
+            thisFig = plt.gcf()
+
+            # Save the figure if the filename stem is long enough
+            if len(self.stemCornerFil) > 3:
+                fnam = '%s_%s.jpg' % (self.stemCornerFil, dKeys[sTyp])
+                thisFig.savefig(fnam, rasterized=True)
+
+            # free up the figure handle
+            plt.close(thisFig)
                 
-            #ax.annotate(sTyp, (0.95, 0.89), \
-            #                xycoords='figure fraction', \
-            #                va='top', ha='right', fontsize=fszAnno)
-
     def writeParfile(self):
 
         """Dumps the parameters to disk"""
@@ -3315,10 +3343,10 @@ class NormWithMonteCarlo(object):
                           'genStripe', 'stripeFrac', 'stripeCovRatio', \
                           'posnSortCol', \
                           'nTrials', 'resetPositions', 'doFewWeightings', \
-                          'bootsAreNonparam', \
+                          'doNonparam', \
                           'fNonparam', \
                           'filParamsIn', 'filParamsOut', \
-                          'fitChoice']
+                          'fitChoice', 'stemCornerFil']
 
         # Now we set up the parameter dtype dictionary. This also
         # allows us to add a pre-comment should we wish. 
@@ -3332,14 +3360,13 @@ class NormWithMonteCarlo(object):
             self.ddump[sInt]['dtype'] = 'int'
             
         for sBool in ['simMakeGauss', 'genStripe', 'doFewWeightings', \
-                          'bootsAreNonparam', \
+                          'doNonparam', \
                           'resetPositions']:
             self.ddump[sBool]['dtype'] = 'bool'
 
         for sStr in ['posnSortCol', 'fitChoice', \
-                         'filParamsOut', 'filParamsIn']:
+                         'filParamsOut', 'filParamsIn', 'stemCornerFil']:
             self.ddump[sStr]['dtype'] = 'str'
-
 
         # Now we put some comments in to separate the outputs in the
         # param file to make it human-readable
@@ -3351,6 +3378,7 @@ class NormWithMonteCarlo(object):
         self.ddump['posnSortCol']['comment'] = '# Sort positionally?'
         self.ddump['nTrials']['comment'] = '# Monte carlo settings'
         self.ddump['fitChoice']['comment'] = '# Settings for fit'
+        self.ddump['stemCornerFil']['comment'] = '# corner plot settings'
 
             
     def readPars(self, parFile='NONE.NONE'):
@@ -3433,6 +3461,56 @@ class NormWithMonteCarlo(object):
                     setattr(self, sAttr, sValu)
                     continue
 
+    ### A couple of wrappers follow to achieve common tasks. 
+
+    def setupAndFit(self):
+
+        """Wrapper - Sets up the simulation, and does the fit. (The
+        parameters should have been loaded on initialization.)"""
+
+        self.transfParsAsVecs()
+        self.generateRawXY()
+        self.populateRawXiEta()
+        self.sortRawPositions()
+
+        self.populateCovarsFromSim()
+        self.populateUnperturbedFitObj()
+
+        # now populate the perturbed fit object and fit the data
+        self.populatePerturbedFitObj()
+        self.copyPerturbedSimToData()
+        self.fitData()
+
+    def setupAndBootstrap(self):
+
+        """Wrapper - sets up the bootstraps (parametric or otherwise)
+        and runs them."""
+
+        if self.nTrials < 3:
+            if self.Verbose:
+                print("setupAndBootstrap INFO - nTrials < 3. Not doing bootstraps")
+            return
+
+        # string for annotations
+        sPar = 'parametric'
+        if self.doNonparam:
+            sPar = 'non-parametric'
+
+        print("Starting %i %s trials..." % (self.nTrials, sPar))
+
+        # Actually do the simulation!
+        t0 = time.time()
+        if not self.doNonparam:
+            self.doMonteCarlo()
+        else:
+            self.doNonparamBootstrap()
+
+        t1 = time.time()
+        print("%i %s bootstrap trials took %.2e seconds" \
+                  % (self.nTrials, sPar, t1 - t0))
+
+        # for the moment let's show the corner plot
+        # self.showCornerPlot()
 
 #    def convertParsToGeom(self):
 
@@ -4631,3 +4709,17 @@ def demoTranslatedGaussians(nPts=1000, skewDeg=20., stdx=6., stdy=2., \
     fig.subplots_adjust(top=0.80)
 
     fig.savefig('2020-06-27_exampleSkewOnly.jpg', rasterized=True)
+
+def fitAndBootstrap(parFile='inp_mcparams.txt'):
+
+    """Simulates, fits, and does bootstrap trials, using input
+    parameter file to control everything"""
+
+    # Close all open plot windows (I find this plays better with the
+    # version of corner.py on my laptop):
+    plt.close('all')
+
+    MC = NormWithMonteCarlo(parFile=parFile)
+    MC.setupAndFit()
+    MC.setupAndBootstrap()
+    MC.plotCorners()

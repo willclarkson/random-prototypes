@@ -1,0 +1,54 @@
+# Pars for NormWithMonteCarlo
+# 2020-07-13 21:05:19.649304
+#
+# attribute_name value
+
+# True transformation
+simNpts 250
+simSx 0.000400
+simSy 0.000400
+simRotDeg 30.000000
+simSkewDeg 3.000000
+simXiRef 0.050000
+simEtaRef -0.060000
+
+# Focal plane field of view
+simXmin 0.000000
+simXmax 500.000000
+simYmin 0.000000
+simYmax 500.000000
+simXcen 0.000000
+simYcen 0.000000
+
+# Gaussian component params
+simMakeGauss 1
+simGauMajor 100.000000
+simGauMinor 60.000000
+simGauTheta -15.000000
+
+# Simulated covariances parameters
+simAlo 0.000100
+simAhi 0.002000
+simRotCov 30.000000
+
+# Stripe parameters
+genStripe 0
+stripeFrac 0.500000
+stripeCovRatio 0.500000
+
+# Sort positionally?
+posnSortCol BLANK
+
+# Monte carlo settings
+nTrials 500
+resetPositions 0
+doFewWeightings 1
+doNonparam 1
+fNonparam 0.5  # fraction nonparam
+
+# Settings for fit
+fitChoice 6term
+##fitChoice similarity 
+
+# filename stem for corner plots
+stemCornerFil tmp_corner2
