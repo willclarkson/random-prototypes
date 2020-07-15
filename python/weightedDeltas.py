@@ -2438,6 +2438,9 @@ class NormWithMonteCarlo(object):
 
     Verbose = Print some screen output?
 
+    parFile = input parameter file (parameters read from this file
+              supersede arguments passed on the command line.)
+
     """
 
     def __init__(self, x=np.array([]), y=np.array([]), \
@@ -2465,7 +2468,8 @@ class NormWithMonteCarlo(object):
                      doFewWeightings=True, \
                      fNonparam=1., \
                      fitChoice='6term', \
-                     Verbose=False):
+                     Verbose=False, \
+                     parFile=''):
 
         # Control variables
         self.Verbose = Verbose
@@ -2537,6 +2541,17 @@ class NormWithMonteCarlo(object):
         # Do we try a few different weightings in the monte carlo?
         self.doFewWeightings = doFewWeightings
 
+        # Fraction of sample size to draw if doing non-parametric
+        # bootstraps
+        self.fNonparam = np.clip(fNonparam, 0.01, 1.)
+
+        # filename for output parameter dump if we're writing it
+        self.filParamsOut = 'tmp_mcparams.txt'
+
+        self.filParamsIn = parFile[:]
+        if len(self.filParamsIn) > 0:
+            self.readPars(self.filParamsIn)
+
         # There are three fitting objects. FitData holds the info and
         # fit for the actual data. FitUnperturbed holds the points,
         # covariances, etc. for the unperturbed samples. Finally,
@@ -2555,12 +2570,6 @@ class NormWithMonteCarlo(object):
         
         self.FitResample = None  # for nonparametric resampling 
 
-        # Fraction of sample size to draw if doing non-parametric
-        # bootstraps
-        self.fNonparam = np.clip(fNonparam, 0.01, 1.)
-
-        # filename for parameter file
-        self.filParamsOut = 'tmp_mcparams.txt'
 
         # Covariance stack (will be used to draw perturbation samples
         # from the covariances if doing parametric monte carlo)
@@ -2601,7 +2610,10 @@ class NormWithMonteCarlo(object):
         # entries). So:
         self.stackTrialsDiag = None
         self.stackTrialsUnweighted = None
-        self.stackTrialsResample = None
+
+        # Are we doing non-parametric Monte Carlo? (Status attribute,
+        # will be updated when doMonteCarlo is run.)
+        self.bootsAreNonparam = True
 
         # refactored into StackTrials object
         # 
@@ -2646,8 +2658,8 @@ class NormWithMonteCarlo(object):
         if self.simMakeGauss:
             self.generateXYgauss()
 
-            print("INFO - xRaw, yRaw:", \
-                      np.shape(self.xRaw), np.shape(self.yRaw))
+            #print("INFO - xRaw, yRaw:", \
+            #          np.shape(self.xRaw), np.shape(self.yRaw))
             return
 
         # If we got here, then we do the rectangular field
@@ -2998,12 +3010,12 @@ class NormWithMonteCarlo(object):
         """Sets up the various objects for nonparametric
         boostrapping"""
 
-        self.stackTrialsResampled = SimResultsStack()
+        self.stackTrials = SimResultsStack()
         self.drawNonparamSample() # We do this once to initialize the object
 
         # Set the list of objects and stacks
         lFit = [self.FitResample]
-        lSta = [self.stackTrialsResampled]
+        lSta = [self.stackTrials]
 
         return lFit, lSta
 
@@ -3026,9 +3038,13 @@ class NormWithMonteCarlo(object):
             
             # Wrap our non-standard weight cases into lists 
             lFit = [self.FitResample, FitScalar, FitUnif]
-            lSta = [self.stackTrialsResampled, \
+            lSta = [self.stackTrials, \
                         self.stackTrialsDiag, \
                         self.stackTrialsUnif]
+
+        # Set the instance status flag for which type of bootstrap
+        # we're doing
+        self.bootsAreNonparam = True
 
         for iBoot in range(self.nTrials):
             
@@ -3064,6 +3080,10 @@ class NormWithMonteCarlo(object):
             return
 
         self.initTrials()
+
+        # Set the instance status flag to indicate these are parameric
+        # Monte Carlo
+        self.bootsAreNonparam = False
 
         for iTrial in range(self.nTrials):
             
@@ -3113,9 +3133,11 @@ class NormWithMonteCarlo(object):
         ##self.stackTrialsDiag.convertParsToGeom()
         ##self.stackTrialsUnif.convertParsToGeom()
 
-    def showCornerPlot(self, sStack='stackTrials', figNum=2):
+    def showCornerPlot(self, sStack='stackTrials', figNum=2, \
+                           doAnnotations=True, \
+                           stackLabel=''):
 
-        """Shows a corner plot of the monte carlo trials"""
+        """Shows a corner plot of the monte carlo trials."""
 
         # for the moment let's hardcode one example just to see how
         # they look
@@ -3136,8 +3158,6 @@ class NormWithMonteCarlo(object):
                           0.5*(np.abs(self.simSx) + np.abs(self.simSy)), \
                           self.simRotDeg]
 
-            print("INFO:", truths)
-
         # OK now try the corner plot. Passing in a blank figure
         # doesn't seem to work, so we just generate 
         print("Plotting corner...")
@@ -3150,6 +3170,65 @@ class NormWithMonteCarlo(object):
         for ax in fig.get_axes():
             ax.tick_params(axis='both', labelsize=6)        
             ax.xaxis.labelpad = 500
+
+        # Add annnotations
+        if doAnnotations:
+            fszAnno = 10
+            dyAnno = 0.03 # step for annotation lines
+            yFirst = 0.95
+            if len(stackLabel) < 1:
+                stackLabel = sStack[:]
+
+            # Construct the strings for annotations
+            sUncty = 'Full covariance in fit'
+            if sStack.find('TrialsDiag') > -1:
+                sUncty = 'Diagonal covariance in fit'
+            if sStack.find('TrialsUnif') > -1:
+                sUncty = 'Covariances ignored in fit'
+
+            sChoice = r'Fit with %s transformation' % (self.fitChoice)
+
+            sTyp = '%i Non-parametric bootstrap trials' % (self.nTrials)
+            if not self.bootsAreNonparam:
+                sTyp = '%i Parametric Monte Carlo trials' % (self.nTrials)
+
+            lAnno = [stackLabel, sUncty, sChoice, sTyp]
+        
+            # Now also show the 6-term transformation actually used...
+            lAnno.append(' ')
+            lAnno.append('Simulated transformation:')
+            lAnno.append(r'a = %.3e' % (self.simTheta[0]))
+            lAnno.append(r'd = %.3e' % (self.simTheta[3]))
+            lAnno.append(r'$s_x$ = %.3e' % (self.simSx))
+            lAnno.append(r'$s_y$ = %.3e' % (self.simSy))
+            lAnno.append(r'$\theta = %.2f^{\circ}$' % (self.simRotDeg))
+            lAnno.append(r'$\beta = %.2f^{\circ}$' % (self.simSkewDeg))
+                         
+            for iAnno in range(len(lAnno)):
+                ax.annotate(lAnno[iAnno], \
+                                (0.95, yFirst - iAnno*dyAnno), \
+                                xycoords='figure fraction', \
+                                va='top', ha='right', fontsize=fszAnno)
+                                
+            #ax.annotate(stackLabel, (0.95,yFirst), \
+            #                xycoords='figure fraction', \
+            #                va='top', ha='right', fontsize=fszAnno)
+
+
+            # add some other information we might want to know
+            #ax.annotate(sChoice, (0.95,0.92), \
+            #                xycoords='figure fraction', \
+            #                va='top', ha='right', fontsize=fszAnno)
+
+            # Get the parameteric / nonparametric status from the
+            # instance
+            #sTyp = '%i Non-parametric bootstrap trials' % (self.nTrials)
+            #if not self.bootsAreNonparam:
+            #    sTyp = '%i Parametric Monte Carlo trials' % (self.nTrials)
+                
+            #ax.annotate(sTyp, (0.95, 0.89), \
+            #                xycoords='figure fraction', \
+            #                va='top', ha='right', fontsize=fszAnno)
 
     def writeParfile(self):
 
@@ -3236,7 +3315,10 @@ class NormWithMonteCarlo(object):
                           'genStripe', 'stripeFrac', 'stripeCovRatio', \
                           'posnSortCol', \
                           'nTrials', 'resetPositions', 'doFewWeightings', \
-                          'fNonparam', 'fitChoice']
+                          'bootsAreNonparam', \
+                          'fNonparam', \
+                          'filParamsIn', 'filParamsOut', \
+                          'fitChoice']
 
         # Now we set up the parameter dtype dictionary. This also
         # allows us to add a pre-comment should we wish. 
@@ -3250,10 +3332,12 @@ class NormWithMonteCarlo(object):
             self.ddump[sInt]['dtype'] = 'int'
             
         for sBool in ['simMakeGauss', 'genStripe', 'doFewWeightings', \
+                          'bootsAreNonparam', \
                           'resetPositions']:
             self.ddump[sBool]['dtype'] = 'bool'
 
-        for sStr in ['posnSortCol', 'fitChoice']:
+        for sStr in ['posnSortCol', 'fitChoice', \
+                         'filParamsOut', 'filParamsIn']:
             self.ddump[sStr]['dtype'] = 'str'
 
 
@@ -4221,7 +4305,8 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
                   stripeFrac = 0.5, posnSortCol='', \
                   fitChoice='6term', \
                   simGauss=False, \
-                  simSx = -5.0e-4, simSy=4.0e-4):
+                  simSx = -5.0e-4, simSy=4.0e-4, \
+                  parFile=''):
 
     """Tests fitting with the class NormWithMC"""
 
@@ -4230,7 +4315,8 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
     # figure).
     plt.close('all')
 
-    NMC = NormWithMonteCarlo(simNpts=nPts, simSkewDeg=skewDeg, \
+    NMC = NormWithMonteCarlo(simNpts=nPts, nTrials=nTrials, \
+                                 simSkewDeg=skewDeg, \
                                  stripeCovRatio=stripeAxRatio, \
                                  genStripe=genStripe, \
                                  stripeFrac=stripeFrac, \
@@ -4238,7 +4324,8 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
                                  simMakeGauss=simGauss,  \
                                  fitChoice=fitChoice, \
                                  simSx=simSx, simSy=simSy, \
-                                 Verbose=True)
+                                 Verbose=True, \
+                                 parFile=parFile)
     
     # Create a synthetic dataset
     NMC.transfParsAsVecs()
@@ -4267,35 +4354,37 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
 
     # uncomment the following to test writing the parameters to disk...
     # print("Dumping parameters to disk")
-    # NMC.writeParfile()
+    NMC.writeParfile()
     
     # uncomment the following to test reading parameters FROM disk
-    NMC.readPars('tmp_mcparams.txt')
+    # NMC.readPars('tmp_mcparams.txt')
 
-    print("Round 1 - Pars fit from data:", NMC.parsData)
-    print("Round 1 - Pars simulated:", NMC.simTheta)
+    ### print("Round 1 - Pars fit from data:", NMC.parsData)
+    ### print("Round 1 - Pars simulated:", NMC.simTheta)
 
     # If we are doing nonparametric bootstrapping, then we can
     # simulate with the same object
     if testNonparam:
-        NMC.nTrials = nTrials
-        NMC.doFewWeightings=True
-        NMC.fNonparam = fNonparam
+        # now set in the input param file
+        #NMC.nTrials = nTrials  
+        #NMC.doFewWeightings=True
+        #NMC.fNonparam = fNonparam
 
         t1 = time.time()
         NMC.doNonparamBootstrap()
         print("%i Nonparam bootstraps took %.2e sec" \
-                  % (nTrials, time.time()-t1))
+                  % (NMC.nTrials, time.time()-t1))
 
         if nTrials < 10:
-            print(NMC.stackTrialsResampled.transfs2x2.rotDeg)
+            print(NMC.stackTrials.transfs2x2.rotDeg)
             print(NMC.stackTrialsDiag.transfs2x2.rotDeg)
             print(NMC.stackTrialsUnif.transfs2x2.rotDeg)
             return
 
         # show corner plot?
-        print("INFO:", NMC.simTheta)
-        NMC.showCornerPlot('stackTrialsResampled')
+        ### print("INFO:", NMC.simTheta)
+        #NMC.showCornerPlot('stackTrials')
+        NMC.showCornerPlot('stackTrialsUnif')
         return
     
 
