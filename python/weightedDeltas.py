@@ -1709,6 +1709,12 @@ class CovarsNx2x2(object):
         # The sample of deltas (about 0,0)
         self.deltaTransf = np.array([])
 
+        # Labels for the planes. Useful if plotting or outputting, but
+        # will remain unused in most applications. This is initialized
+        # so that we know what to call this attribute if we decide
+        # elsewhere that we do need it after all.
+        self.planeLabels = []
+
     def populateCovarsFromInputs(self):
 
         """Populates the covariance stack from input arguments. In
@@ -3710,7 +3716,7 @@ class SimResultsStack(object):
             return
 
         # dictionary of pairwise covar objects
-        self.covPairs = {}
+        #self.covPairs = {}
 
         nPars = np.shape(self.paramCov)[0]
 
@@ -3720,30 +3726,40 @@ class SimResultsStack(object):
         else:
             lLabels = ['%i' % (x) for x in range(nPars)]
 
+        # Initialize Nx2x2 covariance matrix for use in stack
+        nPlanes = nPars*(nPars+1)/2
+        thisPlane = 0
+        covnx2x2 = np.zeros((nPlanes, 2, 2))
+
+        # strings for output
+        lKeys = []
+
         for iPar in range(nPars):
             for jPar in range(iPar, nPars):
                 sKey = '%s_vs_%s' % (llabels[iPar], llabels[jPar])
                 
-                # Construct the 2x2 covariance object from the subset
-                # of the full covariance
-                cov22=np.eye(2)
-                cov22[0,0] = self.paramCov[iPar, iPar]
-                cov22[1,1] = self.paramCov[jPar, jPar]
+                lKeys.append(sKey)
+                covnx2x2[thisPlane,0,0] = self.paramCov[iPar, iPar]
+                covnx2x2[thisPlane,1,1] = self.paramCov[jPar, jPar]
 
                 if iPar != jPar:
-                    cov22[0,1] = self.paramCov[iPar, jPar]
-                    cov22[1,0] = self.paramCov[jPar, iPar]
+                    covnx2x2[thisPlane,0,1] = self.paramCov[iPar, jPar]
+                    covnx2x2[thisPlane,1,0] = self.paramCov[jPar, iPar]
 
-                self.covPairs[sKey] = CovarsNx2x2(cov22)
-                self.covPairs[sKey].eigensFromCovars()
+                # increment the plane
+                thisPlane += 1
 
-                #print("assembleCovarPairs INFO: %s, %.2f" \
-                #          % (sKey, getattr(self.covPairs[sKey], 'rotDegs')) )
+        # Now generate the covariance stack
+        self.covPairs = CovarsNx2x2(covnx2x2)
+        self.covPairs.eigensFromCovars()
 
-        # We'll label the params by position here. Other routines can
-        # then re-interpret the strings as physical parameters at the
-        # I/O stage.
-        #print("INFO:", self.paramCov.shape)
+        # attach the plane labels as an attribute to the stack object
+        self.covPairs.planeLabels = lKeys
+
+        # Diagnostic output
+        # print("CovStack INFO:", self.covPairs.rotDegs)
+        # print("CovStack INFO:", self.covPairs.planeLabels)
+
 
 class FitNormEq(object):
 
