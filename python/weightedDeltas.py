@@ -20,7 +20,13 @@ from matplotlib.collections import EllipseCollection, LineCollection
 # for the param plots
 import corner
 
-# for estimating weights
+# When exporting the covariance-pairs in the monte carlo, the
+# astropy.table functionality is particularly useful. Later we could
+# imagine dropping down to numpy structured arrays just to decrease
+# the number of dependencies. 
+from astropy.table import Table, Column
+
+# for estimating weights in the ''simpler'' approach
 from covstack import CovStack
 
 class CooSet(object):
@@ -2563,6 +2569,8 @@ class NormWithMonteCarlo(object):
 
         # filename stem for corner plot
         self.stemCornerFil = 'tmp_corner'
+        self.stemSummStats = 'tmp_summ'
+        self.tailSummStats = '.csv'
 
         # filename for output parameter dump if we're writing it
         self.filParamsOut = 'tmp_mcparams.txt'
@@ -2628,7 +2636,7 @@ class NormWithMonteCarlo(object):
         # different named objects (rather than, say, dictionary
         # entries). So:
         self.stackTrialsDiag = None
-        self.stackTrialsUnweighted = None
+        self.stackTrialsUnif = None
 
         # Are we doing non-parametric Monte Carlo? (Status attribute,
         # will be updated when doMonteCarlo is run.)
@@ -3268,6 +3276,39 @@ class NormWithMonteCarlo(object):
             # free up the figure handle
             plt.close(thisFig)
                 
+    def writeSummaryStats(self):
+
+        """Wrapper - dumps the summary statistics to disk"""
+
+        if len(self.stemSummStats) < 1:
+            return
+
+        # file ending. Do a bit of parsing here to save angst later
+        if len(self.tailSummStats) < 1:
+            self.tailSummStats = '.csv'
+        if self.tailSummStats.find('.') < 0:
+            self.tailSummStats = '.%s' % (self.tailSummStats)
+        
+
+        for sObj in ['stackTrials', 'stackTrialsDiag', 'stackTrialsUnif']:
+            
+            # The info and methods for writing are attached to these
+            # object names. So can only proceed if the object is
+            # populated.
+            if not hasattr(self, sObj):
+                continue
+
+            stack = getattr(self, sObj)
+            if stack is None:
+                continue
+
+            if len(stack.tCovPairs) < 1:
+                continue
+
+            stack.filCovPairs = '%s_%s%s' % \
+                (self.stemSummStats, sObj, self.tailSummStats)
+            stack.writeSummaryTable()
+
     def writeParfile(self):
 
         """Dumps the parameters to disk"""
@@ -3356,7 +3397,8 @@ class NormWithMonteCarlo(object):
                           'doNonparam', \
                           'fNonparam', \
                           'filParamsIn', 'filParamsOut', \
-                          'fitChoice', 'stemCornerFil']
+                          'fitChoice', \
+                          'stemCornerFil', 'stemSummStats', 'tailSummStats']
 
         # Now we set up the parameter dtype dictionary. This also
         # allows us to add a pre-comment should we wish. 
@@ -3375,7 +3417,8 @@ class NormWithMonteCarlo(object):
             self.ddump[sBool]['dtype'] = 'bool'
 
         for sStr in ['posnSortCol', 'fitChoice', \
-                         'filParamsOut', 'filParamsIn', 'stemCornerFil']:
+                         'filParamsOut', 'filParamsIn', 'stemCornerFil', \
+                         'stemSummStats', 'tailSummStats']:
             self.ddump[sStr]['dtype'] = 'str'
 
         # Now we put some comments in to separate the outputs in the
@@ -3388,7 +3431,7 @@ class NormWithMonteCarlo(object):
         self.ddump['posnSortCol']['comment'] = '# Sort positionally?'
         self.ddump['nTrials']['comment'] = '# Monte carlo settings'
         self.ddump['fitChoice']['comment'] = '# Settings for fit'
-        self.ddump['stemCornerFil']['comment'] = '# corner plot settings'
+        self.ddump['stemCornerFil']['comment'] = '# summary statistics settings'
 
             
     def readPars(self, parFile='NONE.NONE'):
@@ -3597,6 +3640,11 @@ class SimResultsStack(object):
         self.paramCov = np.array([])
         self.paramMed = np.array([])
 
+        # astropy table of summary statistics (as covariance pairs)
+        # for convenient writing to disk
+        self.tCovPairs = []
+        self.filCovPairs = '' # output file for covariance pairs
+
     def appendNewResults(self, NE=None):
 
         """Appends the results onto the stack"""
@@ -3701,6 +3749,7 @@ class SimResultsStack(object):
         self.assembleParamSet()
         self.getParamStats()
         self.assembleCovarPairs()
+        self.tabulateCovarPairs() # repackage as table
 
     def assembleCovarPairs(self):
 
@@ -3759,7 +3808,32 @@ class SimResultsStack(object):
         # Diagnostic output
         # print("CovStack INFO:", self.covPairs.rotDegs)
         # print("CovStack INFO:", self.covPairs.planeLabels)
+    
+    def tabulateCovarPairs(self):
 
+        """Packages the covariance-pairs into a table and writes to disk"""
+
+        self.tCovPairs = Table()
+        self.tCovPairs['pair'] = self.covPairs.planeLabels[:]
+
+        # Can we loop through attribute names?
+        for sAttr in ['majors', 'minors', 'rotDegs', \
+                          'stdx', 'stdy', 'corrxy']:
+
+            if hasattr(self.covPairs, sAttr):
+                self.tCovPairs[sAttr] = getattr(self.covPairs, sAttr)
+
+    def writeSummaryTable(self):
+
+        """Writes the summary table to disk"""
+
+        if len(self.tCovPairs) < 1:
+            return
+
+        if len(self.filCovPairs) < 3:
+            return
+
+        self.tCovPairs.write(self.filCovPairs, overwrite=True)
 
 class FitNormEq(object):
 
@@ -4792,4 +4866,6 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
     MC = NormWithMonteCarlo(parFile=parFile)
     MC.setupAndFit()
     MC.setupAndBootstrap()
+    MC.writeSummaryStats()
     MC.plotCorners()
+    
