@@ -1135,6 +1135,8 @@ class NormalEqs(object):
 
     fitChoice = string, choice of transformation. '6term, similarity'
 
+    flipx = flip the x-coordinate? (Default False)
+
     Verbose = print lots of screen output
     
     """
@@ -1145,7 +1147,8 @@ class NormalEqs(object):
                      xi=np.array([]), eta=np.array([]), \
                      W=np.array([]), \
                      xref=0., yref=0., \
-                     fitChoice='6term', Verbose=False):
+                     fitChoice='6term', flipx=False, \
+                     Verbose=False):
 
         # the coords to be transformed 
         self.x = np.column_stack(( x-xref, y-yref ))
@@ -1162,6 +1165,8 @@ class NormalEqs(object):
 
         # control variables
         self.fitChoice = fitChoice[:]
+        self.flipx = flipx
+
         self.Verbose = Verbose
 
         # Internal variables
@@ -1206,7 +1211,12 @@ class NormalEqs(object):
 
         """Creates the pattern matrix using the pattern class"""
 
-        self.patnObj = ptheta2d(self.x[:,0], self.x[:,1], self.fitChoice)
+        scaleX = 1.
+        if self.flipx:
+            scaleX = -1.
+
+        self.patnObj = ptheta2d(self.x[:,0], self.x[:,1], self.fitChoice, \
+                                    xSign=scaleX)
 
         # Worth duplicating the pattern array for clarity elsewhere in
         # THIS object.
@@ -1350,9 +1360,11 @@ class ptheta2d(object):
     the parameters encoding a linear transformation"""
 
     def __init__(self, x=np.array([]), y=np.array([]), \
-                     fitChoice='6term', pars=np.array([]) ):
+                     fitChoice='6term', pars=np.array([]), xSign=1.):
 
-        self.x = x
+        # xSign - set to -1 to flip the x on initialization
+
+        self.x = x * xSign
         self.y = y
         self.pars = pars
         self.fitChoice = fitChoice[:]
@@ -2459,9 +2471,16 @@ class NormWithMonteCarlo(object):
                         or if the parametric bootstraps do not reset
                         the positions for each trial.
 
+    whichFittedTransf = 'full' - if using one of the fitted
+                         transformations rather than the true
+                         transformation, which one do we use?
+
     --- Choices for the fitting ---
 
     fitChoice = string, choice of model fitting between the frames
+
+    flipx = flip the x-coordinate in the fit? Ignored if similarity
+            transformation is used.
 
     --- Misc control variables ---
 
@@ -2497,8 +2516,10 @@ class NormWithMonteCarlo(object):
                      doFewWeightings=True, \
                      fNonparam=1., \
                      fitChoice='6term', \
+                     flipx=False, \
                      doNonparam=True, \
                      paramUsesTrueTransf=True, \
+                     whichFittedTransf='full', \
                      Verbose=False, \
                      parFile=''):
 
@@ -2579,6 +2600,7 @@ class NormWithMonteCarlo(object):
         # using the true parameters, or using the parameters
         # determined from the previous fit?
         self.paramUsesTrueTransf = paramUsesTrueTransf
+        self.whichFittedTransf = whichFittedTransf[:]
 
         # Fraction of sample size to draw if doing non-parametric
         # bootstraps
@@ -2596,6 +2618,11 @@ class NormWithMonteCarlo(object):
         if len(self.filParamsIn) > 0:
             self.readPars(self.filParamsIn)
 
+        # Flip the (x-xref) coordinate when fitting? (Ignored if
+        # 6-term transformation used)
+        if self.fitChoice.find('6term') > -1:
+            self.flipx = False
+            
         # There are three fitting objects. FitData holds the info and
         # fit for the actual data. FitUnperturbed holds the points,
         # covariances, etc. for the unperturbed samples. Finally,
@@ -2643,6 +2670,11 @@ class NormWithMonteCarlo(object):
         self.tpData = np.array([])
         self.formalCovData = np.array([])
 
+        # Fitted parameters for the other weightings (if we want to
+        # use them in the monte carlo)
+        self.parsDataDiag = np.array([])
+        self.parsDataUnif = np.array([])
+
         # Set of fitted parameters from the monte carlo trials
         self.stackTrials = None
 
@@ -2664,6 +2696,14 @@ class NormWithMonteCarlo(object):
         # doing parametric MC based on their first round of fitting)
         self.parsForParamBoots = np.array([])
         self.choiceForParamBoots = '6term'
+
+        # If doing a 4-term transformation, we might want to ensure
+        # the x coords are flipped even if the transformation doesn't
+        # include a term that does this. The flipx argument
+        # accommodates this.
+        self.xSign = 1.
+        if self.flipx:
+            self.xSign = -1.
 
         # refactored into StackTrials object
         # 
@@ -2821,7 +2861,8 @@ class NormWithMonteCarlo(object):
 
         PT = ptheta2d(self.xRaw-self.xRef, self.yRaw-self.yRef, \
                           pars=self.parsForParamBoots, \
-                          fitChoice=self.choiceForParamBoots)
+                          fitChoice=self.choiceForParamBoots, \
+                          xSign = self.xSign)
 
         aXiTrue = PT.evaluatePtheta()
 
@@ -2866,6 +2907,7 @@ class NormWithMonteCarlo(object):
                                             covars=self.CF.covars, \
                                             xRef=self.xRef, yRef=self.yRef, \
                                             fitChoice=self.fitChoice, \
+                                            flipx=self.flipx, \
                                             runOnInit=False)
 
     def resetUnperturbedPositions(self):
@@ -2901,6 +2943,7 @@ class NormWithMonteCarlo(object):
                                            covars=self.CF.covars, \
                                            xRef=self.xRef, yRef=self.yRef, \
                                            fitChoice=self.fitChoice, \
+                                           flipx=self.flipx, \
                                            runOnInit=False)
 
         # ensure the raw positions are populated (we could perturb
@@ -3026,11 +3069,26 @@ class NormWithMonteCarlo(object):
                                      corrxieta=self.corrxieta, \
                                      xRef=self.xRef, yRef=self.yRef, \
                                      fitChoice=self.fitChoice, \
+                                     flipx=self.flipx, \
                                      invertHessian=True, Verbose=True)
 
         self.parsData = np.copy(self.FitData.NE.pars[:,0])
         self.tpData = np.copy(self.FitData.NE.xZero)
         self.formalCovData = np.copy(self.FitData.NE.formalCov)
+
+        if not self.doFewWeightings:
+            return
+
+        # if we're trying multiple weightings, do the scalar and
+        # uniform weightings.
+        self.FitDataDiag = self.makeSampleWeightsScalar(self.FitData)
+        self.FitDataUnif = self.makeSampleWeightsUniform(self.FitDataDiag)
+
+        self.FitDataDiag.performFit()
+        self.FitDataUnif.performFit()
+
+        self.parsDataDiag = self.FitDataDiag.NE.pars[:,0]
+        self.parsDataUnif = self.FitDataDiag.NE.pars[:,0]
 
     def accumulateTrialParams(self):
 
@@ -3152,7 +3210,22 @@ class NormWithMonteCarlo(object):
         # carlo. Will be defaulted to the true parameters and 6term
         # transformation.
         if not self.paramUsesTrueTransf:
-            self.parsForParamBoots = np.copy(self.parsData)
+
+            # Which transformation we used is user-selectable. This
+            # makes the choice
+            parsTransf = self.parsData
+            if self.whichFittedTransf.lower().find('diag') > -1:
+                if np.size(self.parsDataDiag) > 0:
+                    parsTransf = self.parsDataDiag
+                else:
+                    self.whichFittedTransf = 'full'
+            if self.whichFittedTransf.lower().find('unif') > -1:
+                if np.size(self.parsDataUnif) > 0:
+                    parsTransf = self.parsDataUnif
+                else:
+                    self.whichFittedTransf = 'full'
+
+            self.parsForParamBoots = np.copy(parsTransf)
             self.choiceForParamBoots = self.fitChoice[:]
         
 
@@ -3260,9 +3333,24 @@ class NormWithMonteCarlo(object):
 
             sChoice = r'Fit with %s transformation' % (self.fitChoice)
 
+            # Type of monte carlo
             sTyp = '%i Non-parametric bootstrap trials' % (self.nTrials)
             if not self.bootsAreNonparam:
                 sTyp = '%i Parametric Monte Carlo trials' % (self.nTrials)
+
+            # More info about monte carlo
+            if self.bootsAreNonparam:
+                sMC = 'Bootstrap fraction %.2f' % (self.fNonparam)
+            else:
+                if self.resetPositions:
+                    if self.paramUsesTrueTransf:
+                        sMC = 'using true transformation'
+                    else:
+                        sMC = 'using "%s" fitted transformation' \
+                            % (self.whichFittedTransf)
+                else:
+                    sMC = 'Unperturbed positions not reset'
+            
 
             # number of datapoints
             # what kind of positional distribution?
@@ -3272,7 +3360,10 @@ class NormWithMonteCarlo(object):
 
             sNum = '%i %s datapoints' % (self.simNpts, sDist)
 
-            lAnno = [stackLabel, sUncty, sChoice, sTyp, sNum]
+            lAnno = [stackLabel, sUncty, sChoice, sNum, sTyp, sMC]
+
+            if self.flipx:
+                lAnno.append(r'$\Delta x$ inverted')
 
             for iAnno in range(len(lAnno)):
                 yAnno = yFirst - iAnno*dyAnno
@@ -3284,7 +3375,7 @@ class NormWithMonteCarlo(object):
             # Now also show the 6-term transformation actually used...
             lSeco = [' ']
             #lAnno.append(' ')
-            lSeco.append('Simulated transformation:')
+            lSeco.append('"True" transformation:')
             lSeco.append(r'a = %.3e' % (self.simTheta[0]))
             lSeco.append(r'd = %.3e' % (self.simTheta[3]))
             lSeco.append(r'$s_x$ = %.3e' % (self.simSx))
@@ -3449,9 +3540,11 @@ class NormWithMonteCarlo(object):
                           'posnSortCol', \
                           'nTrials', 'resetPositions', 'doFewWeightings', \
                           'doNonparam', 'paramUsesTrueTransf', \
+                          'whichFittedTransf', \
                           'fNonparam', \
                           'filParamsIn', 'filParamsOut', \
                           'fitChoice', \
+                          'flipx', \
                           'stemCornerFil', 'stemSummStats', 'tailSummStats']
 
         # Now we set up the parameter dtype dictionary. This also
@@ -3467,12 +3560,14 @@ class NormWithMonteCarlo(object):
             
         for sBool in ['simMakeGauss', 'genStripe', 'doFewWeightings', \
                           'doNonparam', 'paramUsesTrueTransf', \
+                          'flipx', \
                           'resetPositions']:
             self.ddump[sBool]['dtype'] = 'bool'
 
         for sStr in ['posnSortCol', 'fitChoice', \
                          'filParamsOut', 'filParamsIn', 'stemCornerFil', \
-                         'stemSummStats', 'tailSummStats']:
+                         'stemSummStats', 'tailSummStats', \
+                         'whichFittedTransf']:
             self.ddump[sStr]['dtype'] = 'str'
 
         # Now we put some comments in to separate the outputs in the
@@ -3565,7 +3660,7 @@ class NormWithMonteCarlo(object):
                 # Strings are the simplest. Goes at the end since this
                 # may well end up being default behavior.
                 if sTyp.find('str') > -1:
-                    setattr(self, sAttr, sValu)
+                    setattr(self, sAttr, sValu.strip())
                     continue
 
     ### A couple of wrappers follow to achieve common tasks. 
@@ -3905,6 +4000,8 @@ class FitNormEq(object):
 
     fitChoice = string, choice of fitting method
 
+    flipx = flip x-coords in the fit object?
+
     stdxi, stdeta, corrxieta = covariances in xi, eta specified as
              stddev in xi, stddev in eta, correlation coefficient
              between xi and eta.
@@ -3920,6 +4017,7 @@ class FitNormEq(object):
                      xRef=0., yRef=0., \
                      invertHessian=False, \
                      fitChoice='6term', \
+                     flipx=False, \
                      runOnInit=True, \
                      Verbose=False):
 
@@ -3935,6 +4033,7 @@ class FitNormEq(object):
         
         # Choice of fitter
         self.fitChoice = fitChoice[:]
+        self.flipx = flipx
         
         # Covariances in the target frame, if given
         self.covars = np.copy(covars)
@@ -3998,8 +4097,13 @@ class FitNormEq(object):
         """(Re-) initializes the Normal-Equations object for this Fit
         object"""
 
+        #scaleX = 1.
+        #if self.flipx:
+        #    scaleX = -1.
+
         self.NE = NormalEqs(self.x, self.y, self.xi, self.eta, W=self.W, \
                                 fitChoice=self.fitChoice, \
+                                flipx=self.flipx, \
                                 xref=self.xRef, yref=self.yRef)
 
     def performFit(self, reInit=True):

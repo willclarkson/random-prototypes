@@ -4,11 +4,13 @@
 # attribute_name value
 
 # True transformation
-simNpts 250
+# simNpts 250
+simNpts 100
 simSx 0.000400
 simSy 0.000400
 simRotDeg 30.000000
-simSkewDeg 3.000000
+# simSkewDeg 3.000000
+simSkewDeg 0.
 simXiRef 0.050000
 simEtaRef -0.060000
 
@@ -21,7 +23,7 @@ simXcen 0.000000
 simYcen 0.000000
 
 # Gaussian component params
-simMakeGauss 1
+simMakeGauss 0
 simGauMajor 100.000000
 simGauMinor 60.000000
 simGauTheta -15.000000
@@ -32,23 +34,29 @@ simAhi 0.002000
 simRotCov 30.000000
 
 # Stripe parameters
-genStripe 0
-stripeFrac 0.500000
+genStripe 1
+stripeFrac 0.750000
 stripeCovRatio 0.500000
 
 # Sort positionally?
 posnSortCol BLANK
 
 # Monte carlo settings
-nTrials 500
-resetPositions 0
+nTrials 5000
+resetPositions 1
 doFewWeightings 1
-doNonparam 1
+doNonparam 0
 fNonparam 0.5  # fraction nonparam
+paramUsesTrueTransf 0
+whichFittedTransf full
 
 # Settings for fit
 fitChoice 6term
-##fitChoice similarity 
+# fitChoice similarity 
+flipx 0
 
 # filename stem for corner plots
 stemCornerFil tmp_corner2
+stemSummStats tmp_sumstats
+tailSummStats .fits.gz # leading . added if missing
+
