@@ -17,6 +17,9 @@ import os
 import matplotlib.pylab as plt
 from matplotlib.collections import EllipseCollection, LineCollection
 
+# matplotlib.rc('text', usetex=True) This didn't work well with
+# corner... maybe send in as a plot argument to corner??
+
 # for the param plots
 import corner
 
@@ -2448,6 +2451,14 @@ class NormWithMonteCarlo(object):
 
     doNonparam = Bootstrap trials will be non-parametric if True
 
+    paramUsesTrueTransf = parametric monte carlo uses the ``true''
+                        transformation parameters when producing new
+                        position-sets. If False, will use the
+                        estimated parameters from the first round of
+                        fitting. Ignored if nonparametric bootstraps
+                        or if the parametric bootstraps do not reset
+                        the positions for each trial.
+
     --- Choices for the fitting ---
 
     fitChoice = string, choice of model fitting between the frames
@@ -2487,6 +2498,7 @@ class NormWithMonteCarlo(object):
                      fNonparam=1., \
                      fitChoice='6term', \
                      doNonparam=True, \
+                     paramUsesTrueTransf=True, \
                      Verbose=False, \
                      parFile=''):
 
@@ -2562,6 +2574,11 @@ class NormWithMonteCarlo(object):
 
         # Will the bootstrap trials be non-parametric?
         self.doNonparam = doNonparam
+        
+        # If doing parametric bootstraps, do we reset the positions
+        # using the true parameters, or using the parameters
+        # determined from the previous fit?
+        self.paramUsesTrueTransf = paramUsesTrueTransf
 
         # Fraction of sample size to draw if doing non-parametric
         # bootstraps
@@ -2596,7 +2613,6 @@ class NormWithMonteCarlo(object):
         self.FitSample = None
         
         self.FitResample = None  # for nonparametric resampling 
-
 
         # Covariance stack (will be used to draw perturbation samples
         # from the covariances if doing parametric monte carlo)
@@ -2642,6 +2658,13 @@ class NormWithMonteCarlo(object):
         # will be updated when doMonteCarlo is run.)
         self.bootsAreNonparam = True
 
+        # if doing parametric bootstrapping, use the following array
+        # to allow passing in a different transformation than the
+        # 'true' transformation (e.g. simulating the investigator
+        # doing parametric MC based on their first round of fitting)
+        self.parsForParamBoots = np.array([])
+        self.choiceForParamBoots = '6term'
+
         # refactored into StackTrials object
         # 
         #self.parsTrials = np.array([])
@@ -2662,6 +2685,11 @@ class NormWithMonteCarlo(object):
                               self.simRotDeg, self.simSkewDeg)
         self.simTheta = np.hstack(( self.simXiRef, Transf.A[0,0,:], \
                                         self.simEtaRef, Transf.A[0,1,:] ))
+
+        # Here we determine the parameters to be used for parametric
+        # monte carlo
+        self.parsForParamBoots = np.copy(self.simTheta)
+        self.choiceForParamBoots = '6term'
 
     def setSimRangesFromData(self):
 
@@ -2780,12 +2808,20 @@ class NormWithMonteCarlo(object):
         """Populates simulated Xi, Eta by transforming the unperturbed
         X, Y to the Xi, Eta system using the 'true' transformation"""
 
+        # The instance-variables "parsForParamBoots" and
+        # "choiceForParamBoots" determine the parameters to use and
+        # the fit choice.
+
         # Note that the true transformation will usually be 6-term
         # even if we are fitting with 4-term. So - don't pass the
         # fitChoice through to this object.
 
+        #parsTransf = np.copy(self.simTheta)
+        #transfChoice = '6term'
+
         PT = ptheta2d(self.xRaw-self.xRef, self.yRaw-self.yRef, \
-                          pars=self.simTheta)
+                          pars=self.parsForParamBoots, \
+                          fitChoice=self.choiceForParamBoots)
 
         aXiTrue = PT.evaluatePtheta()
 
@@ -3112,6 +3148,14 @@ class NormWithMonteCarlo(object):
         # Monte Carlo
         self.bootsAreNonparam = False
 
+        # determine what transformation we'll use for the monte
+        # carlo. Will be defaulted to the true parameters and 6term
+        # transformation.
+        if not self.paramUsesTrueTransf:
+            self.parsForParamBoots = np.copy(self.parsData)
+            self.choiceForParamBoots = self.fitChoice[:]
+        
+
         for iTrial in range(self.nTrials):
             
             # If we are resetting the positions as well, then we need
@@ -3162,7 +3206,8 @@ class NormWithMonteCarlo(object):
 
     def showCornerPlot(self, sStack='stackTrials', \
                            doAnnotations=True, \
-                           stackLabel=''):
+                           stackLabel='', \
+                           truthColor='#4682b4'):
 
         """Shows a corner plot of the monte carlo trials."""
 
@@ -3190,7 +3235,7 @@ class NormWithMonteCarlo(object):
         print("Plotting corner for %s..." % (sStack))
         corner.corner(stackArr, labels=labels, \
                           label_kwargs={'labelpad':50}, \
-                          truths=truths)
+                          truths=truths, truth_color=truthColor)
         fig = plt.gcf()
         fig.subplots_adjust(left=0.15, bottom=0.15)
         fig.set_size_inches(8.,6., forward=True)
@@ -3228,22 +3273,31 @@ class NormWithMonteCarlo(object):
             sNum = '%i %s datapoints' % (self.simNpts, sDist)
 
             lAnno = [stackLabel, sUncty, sChoice, sTyp, sNum]
-        
-            # Now also show the 6-term transformation actually used...
-            lAnno.append(' ')
-            lAnno.append('Simulated transformation:')
-            lAnno.append(r'a = %.3e' % (self.simTheta[0]))
-            lAnno.append(r'd = %.3e' % (self.simTheta[3]))
-            lAnno.append(r'$s_x$ = %.3e' % (self.simSx))
-            lAnno.append(r'$s_y$ = %.3e' % (self.simSy))
-            lAnno.append(r'$\theta = %.2f^{\circ}$' % (self.simRotDeg))
-            lAnno.append(r'$\beta = %.2f^{\circ}$' % (self.simSkewDeg))
-                         
+
             for iAnno in range(len(lAnno)):
+                yAnno = yFirst - iAnno*dyAnno
                 ax.annotate(lAnno[iAnno], \
-                                (0.95, yFirst - iAnno*dyAnno), \
+                                (0.95, yAnno), \
                                 xycoords='figure fraction', \
                                 va='top', ha='right', fontsize=fszAnno)
+
+            # Now also show the 6-term transformation actually used...
+            lSeco = [' ']
+            #lAnno.append(' ')
+            lSeco.append('Simulated transformation:')
+            lSeco.append(r'a = %.3e' % (self.simTheta[0]))
+            lSeco.append(r'd = %.3e' % (self.simTheta[3]))
+            lSeco.append(r'$s_x$ = %.3e' % (self.simSx))
+            lSeco.append(r'$s_y$ = %.3e' % (self.simSy))
+            lSeco.append(r'$\theta = %.2f^{\circ}$' % (self.simRotDeg))
+            lSeco.append(r'$\beta = %.2f^{\circ}$' % (self.simSkewDeg))
+                         
+            for iSeco in range(len(lSeco)):
+                ax.annotate(lSeco[iSeco], \
+                                (0.95, yAnno - (iSeco+1)*dyAnno), \
+                                xycoords='figure fraction', \
+                                va='top', ha='right', fontsize=fszAnno, \
+                                color=truthColor)
                           
     def plotCorners(self):
 
@@ -3394,7 +3448,7 @@ class NormWithMonteCarlo(object):
                           'genStripe', 'stripeFrac', 'stripeCovRatio', \
                           'posnSortCol', \
                           'nTrials', 'resetPositions', 'doFewWeightings', \
-                          'doNonparam', \
+                          'doNonparam', 'paramUsesTrueTransf', \
                           'fNonparam', \
                           'filParamsIn', 'filParamsOut', \
                           'fitChoice', \
@@ -3412,7 +3466,7 @@ class NormWithMonteCarlo(object):
             self.ddump[sInt]['dtype'] = 'int'
             
         for sBool in ['simMakeGauss', 'genStripe', 'doFewWeightings', \
-                          'doNonparam', \
+                          'doNonparam', 'paramUsesTrueTransf', \
                           'resetPositions']:
             self.ddump[sBool]['dtype'] = 'bool'
 
