@@ -3810,8 +3810,25 @@ class NormWithMonteCarlo(object):
         xMax = xCen + nSigRange*cov.stdx[iPlane]
         yMin = yCen - nSigRange*cov.stdy[iPlane]
         yMax = yCen + nSigRange*cov.stdy[iPlane]
-        ax.set_xlim(xMin, xMax)
-        ax.set_ylim(yMin, yMax)
+
+        # don't shrink either axis limit if already exists
+        if len(ax.patches) > 0:
+            xLimCurrent = np.copy(ax.get_xlim())
+            yLimCurrent = np.copy(ax.get_ylim())
+            if xMin < xLimCurrent[0]:
+                xLimCurrent[0] = xMin
+            if xMax > xLimCurrent[1]:
+                xLimCurrent[1] = xMax
+            if yMin < yLimCurrent[0]:
+                yLimCurrent[0] = yMin
+            if yMax > yLimCurrent[1]:
+                yLimCurrent[1] = yMax
+
+            ax.set_xlim(xLimCurrent)
+            ax.set_ylim(yLimCurrent)
+        else:
+            ax.set_xlim(xMin, xMax)
+            ax.set_ylim(yMin, yMax)
 
         # let's try that for an ellipse
         thisEll = Ellipse((xCen, yCen), width, height, theta, \
