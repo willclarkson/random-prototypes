@@ -3406,6 +3406,21 @@ class NormWithMonteCarlo(object):
                        fig=fig)
         fig.savefig(fignam, rasterized=True)
 
+    def populateTruthsForPlots(self):
+
+        """Utility - populates the 'truth' values for corner-type
+        plots"""
+
+        self.truthsPlot = [self.simTheta[0], self.simTheta[3], \
+                               self.simSx, self.simSy, \
+                               self.simRotDeg, self.simSkewDeg]
+
+        if self.fitChoice.find('similarity') > -1:
+            self.truthsPlot = \
+                [self.simTheta[0], self.simTheta[3], \
+                     0.5*(np.abs(self.simSx) + np.abs(self.simSy)), \
+                     self.simRotDeg]
+
     def showCornerPlot(self, sStack='stackTrials', \
                            doAnnotations=True, \
                            stackLabel='', \
@@ -3422,22 +3437,24 @@ class NormWithMonteCarlo(object):
         
         # truth values for the simulation (for corner)
         # self.simParsVec[0], self.simParsVec[1]
+        self.populateTruthsForPlots()
         
-        truths = [self.simTheta[0], self.simTheta[3], \
-                      self.simSx, self.simSy, \
-                      self.simRotDeg, self.simSkewDeg]
+        #truths = [self.simTheta[0], self.simTheta[3], \
+        #              self.simSx, self.simSy, \
+        #              self.simRotDeg, self.simSkewDeg]
 
-        if self.fitChoice.find('similarity') > -1:
-            truths = [self.simTheta[0], self.simTheta[3], \
-                          0.5*(np.abs(self.simSx) + np.abs(self.simSy)), \
-                          self.simRotDeg]
+        #if self.fitChoice.find('similarity') > -1:
+        #    truths = [self.simTheta[0], self.simTheta[3], \
+        #                  0.5*(np.abs(self.simSx) + np.abs(self.simSy)), \
+        #                  self.simRotDeg]
 
         # OK now try the corner plot. Passing in a blank figure
         # doesn't seem to work, so we just generate 
         print("Plotting corner for %s..." % (sStack))
         corner.corner(stackArr, labels=labels, \
                           label_kwargs={'labelpad':50}, \
-                          truths=truths, truth_color=truthColor)
+                          truths=self.truthsPlot, \
+                          truth_color=truthColor)
         fig = plt.gcf()
         fig.subplots_adjust(left=0.15, bottom=0.15)
         fig.set_size_inches(8.,6., forward=True)
@@ -3578,12 +3595,15 @@ class NormWithMonteCarlo(object):
         """Wrapper - plots covariance-pair visualizations"""
 
         self.setStackPlotInfo()
-        self.showCovarPairs(self.stackTrials, newFig=True, reportMarginals=True)
+        self.showCovarPairs(self.stackTrials, newFig=True, \
+                                reportMarginals=True, plotTruths=True)
         for stack in [self.stackTrialsDiag, self.stackTrialsUnif]:
             self.showCovarPairs(stack, newFig=False)
 
     def showCovarPairs(self, stackObj=None, figNum=2, newFig=True, \
-                           reportMarginals=False):
+                           reportMarginals=False, plotTruths=False, \
+                           truthColor='0.5', truthAlpha=0.5, \
+                           truthZorder=12):
 
         """Visualizes the covariance matrices of multiple sim stacks
         in the same Corner-like plot"""
@@ -3617,6 +3637,10 @@ class NormWithMonteCarlo(object):
         rows = covPairsFull.jParsPlot
         iMax = np.max(cols)
         jMax = np.max(rows)
+
+        # If we will be plotting the 'truths', ensure they are set
+        if plotTruths:
+            self.populateTruthsForPlots()
 
         # We'll also set up parameter midpoint arrays here, for
         # convenience of passing to the plot method later.
@@ -3682,6 +3706,27 @@ class NormWithMonteCarlo(object):
                 labl = stackShow.paramLabels[thisCol] # not sure why not working
                 sTitl=r'$\sigma$ = %.2e' % (stdx)
                 thisAx.set_title(sTitl, fontsize=7, color=stackShow.plotColor)
+
+            # Overplot truth values?
+            if plotTruths:                
+                xThis = self.truthsPlot[thisCol]
+                yLimCurrent = np.copy(thisAx.get_ylim())
+                yLimNew = yLimCurrent + \
+                    10.0 * (yLimCurrent - np.mean(yLimCurrent))
+                dum = thisAx.plot([xThis, xThis], yLimNew, \
+                                      alpha=truthAlpha, color=truthColor, \
+                                      zorder=truthZorder)
+                thisAx.set_ylim(yLimCurrent)
+
+                if thisCol != thisRow:
+                    yThis = self.truthsPlot[thisRow]
+                    xLimCurrent = np.copy(thisAx.get_xlim())
+                    xLimNew = xLimCurrent + \
+                        10.0 * (xLimCurrent - np.mean(xLimCurrent))
+                    dum = thisAx.plot(xLimNew, [yThis, yThis], \
+                                          zorder=truthZorder, \
+                                          alpha=truthAlpha, color=truthColor)
+                    thisAx.set_xlim(xLimCurrent)
 
             # labels - IF new figure!
             if newFig:
@@ -5420,5 +5465,5 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
 
 
     # 2020-07-20 remove this line for speed while developing
-    #MC.plotCorners()
+    # MC.plotCorners()
     
