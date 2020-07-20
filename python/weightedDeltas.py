@@ -16,6 +16,9 @@ import os
 # for plotting
 import matplotlib.pylab as plt
 from matplotlib.collections import EllipseCollection, LineCollection
+from matplotlib.patches import Ellipse
+import matplotlib.gridspec as gridspec
+import matplotlib.transforms as transforms
 
 # matplotlib.rc('text', usetex=True) This didn't work well with
 # corner... maybe send in as a plot argument to corner??
@@ -2385,6 +2388,99 @@ def unifAxisLengths(ax=None):
 
 #### Monte Carlo framework for NE Fitting comes here.
 
+class CovarsMxM(object):
+
+    """Handy methods for partitioning an MxM covariance matrix"""
+
+    # Requires CovarsNx2x2 class defined above.
+
+    # 2020-07-20 started out as a method within SimResultsStack, but I
+    # discovered this is going to be useful to package the
+    # covariance-pairs in the standard fit anyway.
+
+    def __init__(self, cov=np.array([]), labels=[], pairsOnInit=True):
+
+        # MxM covariance and labels per quantity
+        self.cov = cov
+        self.labels = labels[:]
+        self.nPars = np.shape(self.cov)[0]
+        self.ensureLabelsOK()
+
+        # CovarsNx2x2 object for the covariance pairs
+        self.covPairs = None
+
+        if pairsOnInit:
+            self.populateCovPairs()
+
+    def ensureLabelsOK(self):
+
+        """Ensures the labels have the same length as the dimension of
+        the covariance matrix"""
+
+        if np.size(self.cov) < 2:
+            return
+
+        self.nPars = np.shape(self.cov)[0]
+        if self.nPars != len(self.labels):
+            self.labels = ['s%i' % (i) for i in range(self.nPars)]
+
+    def populateCovPairs(self):
+
+        """Populates the covariance pairs"""
+
+        # We keep the array local and make the object the
+        # instance-level quantity.
+        
+        # Exit gracefully if the parameters are not yet set
+        nPars = np.shape(self.cov)[0]
+        if nPars < 1:
+            return
+
+        nPlanes = nPars*(nPars+1)/2
+        covnx2x2 = np.zeros((nPlanes, 2, 2))
+        keyPairs = []
+        
+        if np.size(covnx2x2) < 1:
+            self.initializeCovPairs()
+
+        # List of iPar, jPar created here because will be useful to
+        # construct the pair-plot later.
+        iPars = []
+        jPars = []
+
+        thisPlane = 0
+        for iPar in range(nPars):
+            for jPar in range(iPar, nPars):
+                sKey = r'%s_vs_%s' % \
+                    (self.labels[iPar], self.labels[jPar])
+                keyPairs.append(sKey)
+                
+                # Populate the appropriate plane
+                covnx2x2[thisPlane,0,0] = self.cov[iPar, iPar]
+                covnx2x2[thisPlane,1,1] = self.cov[jPar, jPar]
+                if iPar != jPar:
+                    covnx2x2[thisPlane,0,1] = self.cov[iPar, jPar]
+                    covnx2x2[thisPlane,1,0] = self.cov[jPar, iPar]
+
+                iPars.append(iPar)
+                jPars.append(jPar)
+
+                # increment the plane
+                thisPlane += 1
+
+        # Now that we've populated the Nx2x2 covariance array and the
+        # labels, create the covPairs Object
+        # Now generate the covariance stack
+        self.covPairs = CovarsNx2x2(covnx2x2)
+        self.covPairs.eigensFromCovars()
+
+        # attach the plane labels as an attribute to the stack object
+        self.covPairs.planeLabels = keyPairs      
+
+        # add a nonstandard pair of arguments to the object for plotting
+        self.covPairs.iParsPlot = iPars
+        self.covPairs.jParsPlot = jPars
+
 class NormWithMonteCarlo(object):
 
     """Performs a normal equations-based fit to data, whether supplied
@@ -2623,6 +2719,14 @@ class NormWithMonteCarlo(object):
         if self.fitChoice.find('6term') > -1:
             self.flipx = False
             
+        # latex-friendly labels for the terms. Used for plotting and
+        # possibly outputting to file.
+        self.paramLabels = [r'$a$', r'$d$', r'$s_x$', r'$s_y$', \
+                                r'$\theta$', r'$\beta$']
+
+        if self.fitChoice.lower().find('similarity') > -1:
+            self.paramLabels = [r'$a$', r'$d$', r'$s$', r'$\theta$']
+
         # There are three fitting objects. FitData holds the info and
         # fit for the actual data. FitUnperturbed holds the points,
         # covariances, etc. for the unperturbed samples. Finally,
@@ -2674,6 +2778,8 @@ class NormWithMonteCarlo(object):
         # use them in the monte carlo)
         self.parsDataDiag = np.array([])
         self.parsDataUnif = np.array([])
+        self.formalCovDataDiag = np.array([])
+        self.formalCovDataUnif = np.array([])
 
         # Set of fitted parameters from the monte carlo trials
         self.stackTrials = None
@@ -2704,6 +2810,11 @@ class NormWithMonteCarlo(object):
         self.xSign = 1.
         if self.flipx:
             self.xSign = -1.
+
+        # Some utility variables for plotting
+        self.LLaxes = []
+        self.axesCovarPairs = {}
+        self.figCovarPairs = None
 
         # refactored into StackTrials object
         # 
@@ -3087,8 +3198,12 @@ class NormWithMonteCarlo(object):
         self.FitDataDiag.performFit()
         self.FitDataUnif.performFit()
 
+        # Special objects for the fitted data with diagonal and
+        # uniform weightings
         self.parsDataDiag = self.FitDataDiag.NE.pars[:,0]
         self.parsDataUnif = self.FitDataDiag.NE.pars[:,0]
+        self.formalCovDataDiag = np.copy(self.FitDataDiag.NE.formalCov)
+        self.formalCovDataUnif = np.copy(self.FitDataUnif.NE.formalCov)
 
     def accumulateTrialParams(self):
 
@@ -3099,7 +3214,7 @@ class NormWithMonteCarlo(object):
         nFitted = np.size(self.FitSample.NE.gPlanes)
 
         # It seems like there should be a more efficient way to do
-        # this. This procedure will result in an Ntrials x 6 array
+        # this. This procedure will result in an Ntrials x nPars array
 
 #        # If this is the first...
         if np.size(self.parsTrials) < 1:
@@ -3125,7 +3240,7 @@ class NormWithMonteCarlo(object):
         self.stackTrials = SimResultsStack()
         self.stackTrialsDiag = SimResultsStack()
         self.stackTrialsUnif = SimResultsStack()
-
+        
     def setupForNonparam(self):
 
         """Sets up the various objects for nonparametric
@@ -3162,6 +3277,10 @@ class NormWithMonteCarlo(object):
             lSta = [self.stackTrials, \
                         self.stackTrialsDiag, \
                         self.stackTrialsUnif]
+
+            # 2020-07-20 WIC we may want to switch off inversion of
+            # the Hessian for the monte carlo objects since we're
+            # unlikely to use it
 
         # Set the instance status flag for which type of bootstrap
         # we're doing
@@ -3277,6 +3396,16 @@ class NormWithMonteCarlo(object):
         ##self.stackTrialsDiag.convertParsToGeom()
         ##self.stackTrialsUnif.convertParsToGeom()
 
+    def showPositions(self, fignam='tmp_deltas.jpg'):
+
+        """Plots the deltas"""
+
+        fig = plt.figure(1)
+        coverrplot(self.xiRaw, self.etaRaw, self.CF, \
+                       xLabel=r'$\xi$, deg', yLabel=r'$\eta$, deg', \
+                       fig=fig)
+        fig.savefig(fignam, rasterized=True)
+
     def showCornerPlot(self, sStack='stackTrials', \
                            doAnnotations=True, \
                            stackLabel='', \
@@ -3389,10 +3518,10 @@ class NormWithMonteCarlo(object):
                                 xycoords='figure fraction', \
                                 va='top', ha='right', fontsize=fszAnno, \
                                 color=truthColor)
-                          
+              
     def plotCorners(self):
 
-        """Does the corner plots for each of the pieces we simulated"""
+        """Does the corner plots for each of the fit-methods simulated"""
       
         # On my laptop, the matplotlib window holding the corner plot
         # sometimes triggeres a segfault if clicked on with the
@@ -3420,7 +3549,284 @@ class NormWithMonteCarlo(object):
 
             # free up the figure handle
             plt.close(thisFig)
-                
+            
+    def setStackPlotInfo(self):
+
+        """Utility - sets the plot information for the stacks"""
+    
+        # Set up some properties which will come in handy later
+        self.stackTrials.plotColor='k'
+        self.stackTrials.plotLabel = 'Full'
+        self.stackTrials.plotLS = '-'
+        self.stackTrials.plotLW = 1
+        self.stackTrials.plotZorder = 10
+
+        self.stackTrialsDiag.plotColor='b'
+        self.stackTrialsDiag.plotLabel = 'Diag'
+        self.stackTrialsDiag.plotLS = '--'
+        self.stackTrialsDiag.plotLW = 1
+        self.stackTrialsDiag.plotZorder = 8
+
+        self.stackTrialsUnif.plotColor='r'
+        self.stackTrialsUnif.plotLabel='Unif'
+        self.stackTrialsUnif.plotLS='-.'
+        self.stackTrialsUnif.plotLW=1
+        self.stackTrialsUnif.plotZorder = 6.
+
+    def plotCovarPairs(self):
+
+        """Wrapper - plots covariance-pair visualizations"""
+
+        self.setStackPlotInfo()
+        self.showCovarPairs(self.stackTrials, newFig=True, reportMarginals=True)
+        for stack in [self.stackTrialsDiag, self.stackTrialsUnif]:
+            self.showCovarPairs(stack, newFig=False)
+
+    def showCovarPairs(self, stackObj=None, figNum=2, newFig=True, \
+                           reportMarginals=False):
+
+        """Visualizes the covariance matrices of multiple sim stacks
+        in the same Corner-like plot"""
+
+        # 2020-07-20 - at the moment, the fit parameters are all in
+        # terms of a,b,c,d,e,f rather than the geometric
+        # parameters. For the moment, cross-compare the simulations
+        # since those are already in the format we want. So, start
+        # with that.
+        
+        # The formal prediction from the data with uncertainties
+        #covPairsData = CovarsMxM(self.formalCovData, self.paramLabels, \
+        #                             pairsOnInit=True)
+
+        if stackObj is None:
+            stackShow = self.stackTrials
+        else:
+            stackShow = stackObj
+
+        # at the moment this is just a renaming...
+        covPairsFull = stackShow.covPairs
+
+        # determine the figure object
+        self.figCovarPairs = plt.figure(figNum, constrained_layout=False)
+
+        nPars = np.shape(stackShow.paramCov)[0]
+
+        # Set up the axes plane-by-plane, using the special extra
+        # arrays we added to covPairs.
+        cols = covPairsFull.iParsPlot
+        rows = covPairsFull.jParsPlot
+        iMax = np.max(cols)
+        jMax = np.max(rows)
+
+        # We'll also set up parameter midpoint arrays here, for
+        # convenience of passing to the plot method later.
+        parsData = np.zeros((np.size(cols), 2))
+
+        # I think the "easiest" way to have objects as a grid is to
+        # set up a list of lists. So:
+        #LLaxes = [[None for i in range(nPars)] for j in range(nPars)]
+        #LLlabl = [[None for i in range(nPars)] for j in range(nPars)]
+
+        # set up the gridspec
+        # Dictionary of accessible axis objects, keyed by the pair
+        # label. Because this is interacting with the matplotlib state
+        # machine, we should be able to get away with reconstituting
+        # this each time.
+        if newFig:
+            self.figCovarPairs.clf()
+            self.figCovarPairs.subplots_adjust(\
+                hspace=0.05, wspace=0.05, left=0.2,bottom=0.2)
+
+            self.axesCovarPairs = {}
+            gs = gridspec.GridSpec(nrows=iMax+1, ncols=jMax+1) 
+
+            # Populates the LLaxes [[]] axes object
+            self.setupCovAxesWithSharing(nPars)
+
+            for iPlane in range(np.size(cols)):
+                thisLabel = covPairsFull.planeLabels[iPlane]
+                thisCol = cols[iPlane]
+                thisRow = rows[iPlane]
+            
+                self.axesCovarPairs[thisLabel] = self.LLaxes[thisRow][thisCol]
+
+        for iPlane in range(np.size(cols)):
+            thisLabel = covPairsFull.planeLabels[iPlane]
+            thisCol = cols[iPlane]  # note transposed in ax call.
+            thisRow = rows[iPlane]
+            
+            # slot in to the parsData object so we can easily plot
+            # below
+            parsData[iPlane,0] = stackShow.paramMed[thisCol]
+            parsData[iPlane,1] = stackShow.paramMed[thisRow]
+
+            # which axis are we using?
+            thisAx = self.axesCovarPairs[thisLabel]
+
+            # What we plot depends on whether this is a 2d or a 1d
+            # covariance... Start with the nice simple 1D case
+            # first...
+            self.addCovObjectToAxis(covPairsFull, iPlane,\
+                                        parsData, \
+                                        is2d=thisRow != thisCol, \
+                                        ax=thisAx, \
+                                        color=stackShow.plotColor, \
+                                        lw=stackShow.plotLW, \
+                                        ls=stackShow.plotLS, \
+                                        label=stackShow.plotLabel, \
+                                        zorder=stackShow.plotZorder)
+
+            # Annotate with marginals?
+            if reportMarginals and thisRow == thisCol:
+                stdx = covPairsFull.stdx[iPlane]
+                labl = stackShow.paramLabels[thisCol] # not sure why not working
+                sTitl=r'$\sigma$ = %.2e' % (stdx)
+                thisAx.set_title(sTitl, fontsize=7, color=stackShow.plotColor)
+
+            # labels - IF new figure!
+            if newFig:
+                if thisCol < 1:
+                    thisAx.set_ylabel(\
+                        stackShow.paramLabels[thisRow], \
+                            rotation=0)
+                    thisAx.tick_params(axis='y', labelsize=7)
+
+
+            # otherwise, hide the axis
+                else:
+                    thisAx.set_yticklabels([])
+
+                if thisRow == jMax:
+                    thisAx.set_xlabel(\
+                        stackShow.paramLabels[thisCol])
+                    thisAx.tick_params(axis='x', labelsize=7, \
+                                                    rotation=90)
+
+
+                # otherwise hide the labels
+                else:
+                    thisAx.set_xticklabels([])
+
+        # Despite our overthinking the share axis behavior, the
+        # lower-right panel doesn't have axes scaled with anything
+        # else yet. Start by matching it to the lower-left Y range.
+        axlr = self.LLaxes[nPars-1][nPars-1]
+        axll = self.LLaxes[nPars-1][0]
+        axlr.set_xlim(np.copy(axll.get_ylim()))
+
+    def addCovObjectToAxis(self, cov=None, iPlane=0, \
+                               centers=np.array([]), is2d=True, ax=None, \
+                               color='g', label='', ls='-', lw=1, \
+                               nFine=100, nSigRange=2., zorder=5):
+
+        """Adds a covariance slice to axis. cov = covarsNx2x2 object,
+        iPlane=plane in the covariance object"""
+
+        if cov is None:
+            return
+
+        if ax is None:
+            return
+
+        nSigRange = np.float(nSigRange)
+
+        # Median locatin
+        medn = centers[iPlane]
+
+        if not is2d:
+
+            # use a broader range for 1d
+            stdx = cov.stdx[iPlane]
+            medx = medn[0]
+            xFine = np.linspace(medx-3.0*nSigRange*stdx, \
+                                    medx+3.0*nSigRange*stdx, 
+                                nFine, endpoint=True)
+
+            #print("INFO:", np.min(xFine), np.max(xFine))
+
+            powr = 0.-0.5*((xFine - medx)/stdx)**2
+            norm = 1.0 / (np.sqrt(2.0*np.pi*stdx))
+
+            yFine = norm * np.exp(powr)
+            dum = ax.plot(xFine, yFine, color=color, label=label, \
+                              ls=ls, lw=lw, zorder=zorder)
+            return
+
+        # if the object IS two-dimensional, then we add the ellipse,
+        # centered on the midpoint. 
+        width = 2.0*cov.majors[iPlane]**0.5
+        height = 2.0*cov.minors[iPlane]**0.5
+        theta = cov.rotDegs[iPlane]
+        xCen = medn[0]
+        yCen = medn[1]
+
+        # Do we have to actually plot the corners for the ellipse to work?
+        xMin = xCen - nSigRange*cov.stdx[iPlane]
+        xMax = xCen + nSigRange*cov.stdx[iPlane]
+        yMin = yCen - nSigRange*cov.stdy[iPlane]
+        yMax = yCen + nSigRange*cov.stdy[iPlane]
+        ax.set_xlim(xMin, xMax)
+        ax.set_ylim(yMin, yMax)
+
+        # let's try that for an ellipse
+        thisEll = Ellipse((xCen, yCen), width, height, theta, \
+                              facecolor='none', edgecolor=color, \
+                              zorder=zorder, label=label, ls=ls, lw=lw)
+        fillEll = Ellipse((xCen, yCen), width, height, theta, \
+                              facecolor=color, edgecolor='none', \
+                              label=label, ls=ls, lw=lw, \
+                              alpha=0.3, zorder=np.max([zorder-1,1]) )
+
+
+        ax.add_patch(thisEll)
+        ax.add_patch(fillEll)
+        #ax.autoscale()
+
+    def setupCovAxesWithSharing(self, nPars=6):
+
+        """Sets up the axis list of lists required by showCovarPairs"""
+
+        # Needs a figure to work on
+        if self.figCovarPairs is None:
+            return 
+
+        LLaxes = [[None for i in range(nPars)] for j in range(nPars)]
+        gs = gridspec.GridSpec(nrows=nPars, ncols=nPars) 
+        
+        # set up the nPars x nPars grid of axes, lower-left + diagonal
+        for iCol in range(nPars):
+            for jRow in range(iCol, nPars):
+                LLaxes[jRow][iCol] = self.figCovarPairs.add_subplot(\
+                    gs[jRow, iCol])
+
+        # set all columns to share the bottom row x axis
+        for iCol in range(nPars-1):
+            refAxCol = LLaxes[nPars-1][iCol]
+            #refAxCol.set_title('%i, %i' % (jRow, iCol), color='b')
+            for jRow in range(nPars-1)[::-1]:
+                thisAxCol = LLaxes[jRow][iCol]
+                if thisAxCol is None:
+                    continue
+                #thisAxCol.set_title('%i, %i' % (jRow, iCol), color='r')
+                thisAxCol.get_shared_x_axes().join(thisAxCol, refAxCol)
+        
+        # Set all rows to share the left column y
+        for jRow in range(1, nPars):
+            refAxRow = LLaxes[jRow][0]
+            #refAxRow.set_title('REF', color='g')
+            for iCol in range(1,nPars-1):
+                thisAxRow = LLaxes[jRow][iCol]
+                if thisAxRow is None:
+                    continue
+
+                # Don't mess up the histograms
+                if iCol == jRow:
+                    continue
+
+                thisAxRow.get_shared_y_axes().join(thisAxRow, refAxRow)
+
+        self.LLaxes = LLaxes
+
     def writeSummaryStats(self):
 
         """Wrapper - dumps the summary statistics to disk"""
@@ -3794,6 +4200,13 @@ class SimResultsStack(object):
         self.tCovPairs = []
         self.filCovPairs = '' # output file for covariance pairs
 
+        # Some labels which will be of use when plotting
+        self.plotColor = 'g'
+        self.plotLabel = 'Full'
+        self.plotLS = '-'
+        self.plotLW = 1
+        self.plotZorder = 10
+
     def appendNewResults(self, NE=None):
 
         """Appends the results onto the stack"""
@@ -3913,50 +4326,10 @@ class SimResultsStack(object):
         if np.size(self.paramCov) < 1:
             return
 
-        # dictionary of pairwise covar objects
-        #self.covPairs = {}
-
-        nPars = np.shape(self.paramCov)[0]
-
-        # list of string labels for variables
-        if len(self.paramLabels) == nPars:
-            llabels = self.paramLabels[:]
-        else:
-            lLabels = ['%i' % (x) for x in range(nPars)]
-
-        # Initialize Nx2x2 covariance matrix for use in stack
-        nPlanes = nPars*(nPars+1)/2
-        thisPlane = 0
-        covnx2x2 = np.zeros((nPlanes, 2, 2))
-
-        # strings for output
-        lKeys = []
-
-        for iPar in range(nPars):
-            for jPar in range(iPar, nPars):
-                sKey = '%s_vs_%s' % (llabels[iPar], llabels[jPar])
-                
-                lKeys.append(sKey)
-                covnx2x2[thisPlane,0,0] = self.paramCov[iPar, iPar]
-                covnx2x2[thisPlane,1,1] = self.paramCov[jPar, jPar]
-
-                if iPar != jPar:
-                    covnx2x2[thisPlane,0,1] = self.paramCov[iPar, jPar]
-                    covnx2x2[thisPlane,1,0] = self.paramCov[jPar, iPar]
-
-                # increment the plane
-                thisPlane += 1
-
-        # Now generate the covariance stack
-        self.covPairs = CovarsNx2x2(covnx2x2)
-        self.covPairs.eigensFromCovars()
-
-        # attach the plane labels as an attribute to the stack object
-        self.covPairs.planeLabels = lKeys
-
-        # Diagnostic output
-        # print("CovStack INFO:", self.covPairs.rotDegs)
-        # print("CovStack INFO:", self.covPairs.planeLabels)
+        # 2020-07-20 refactored the syntax that follows into CovarsMxM
+        # class. Consider removing this enclosing method entirely.
+        CMM = CovarsMxM(self.paramCov, self.paramLabels, pairsOnInit=True)
+        self.covPairs = CMM.covPairs
     
     def tabulateCovarPairs(self):
 
@@ -4935,7 +5308,7 @@ def demoTranslatedGaussians(nPts=1000, skewDeg=20., stdx=6., stdy=2., \
     uvMajors = np.matmul(TRANSF.A, xyMajors.T)[0,:,:]
     uvMinors = np.matmul(TRANSF.A, xyMinors.T)[0,:,:]
 
-    print np.shape(uvMajors)
+    ## print np.shape(uvMajors)
 
     dumMajTransf = ax2.quiver(0., 0., uvMajors[0], uvMajors[1], zorder=7, \
                                   units='xy', angles='xy', scale_units='xy', \
@@ -5021,9 +5394,31 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
     # version of corner.py on my laptop):
     plt.close('all')
 
-    MC = NormWithMonteCarlo(parFile=parFile)
+    MC = NormWithMonteCarlo(parFile=parFile)    
+
+    if len(parFile) < 1:
+        print("fitAndBootstrap INFO - dumping parfile to disk")
+        MC.writeParfile()
+        return
+
     MC.setupAndFit()
     MC.setupAndBootstrap()
     MC.writeSummaryStats()
-    MC.plotCorners()
+
+    MC.showPositions()
+
+    MC.plotCovarPairs()
+
+    #MC.setStackPlotInfo()
+
+    # Try looping thru:
+    #clobberFig = True
+    #MC.showCovarPairs(MC.stackTrials, newFig=True)
+
+    #for sObj in [MC.stackTrialsDiag, MC.stackTrialsUnif]:
+    #    MC.showCovarPairs(sObj, newFig=False)
+
+
+    # 2020-07-20 remove this line for speed while developing
+    #MC.plotCorners()
     
