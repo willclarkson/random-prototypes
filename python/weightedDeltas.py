@@ -1682,6 +1682,7 @@ class CovarsNx2x2(object):
                      nPts=100, rotDeg=30., \
                      aLo=1.0, aHi=1.0, \
                      ratLo=0.1, ratHi=0.3, \
+                     # ratLo=1., ratHi=1., \
                      genStripe=True, \
                      stripeFrac=0.5, \
                      stripeCovRatio=1.):
@@ -4454,6 +4455,7 @@ class FitNormEq(object):
                      fitChoice='6term', \
                      flipx=False, \
                      runOnInit=True, \
+                     anglesInDegrees=False, \
                      Verbose=False):
 
         self.Verbose = Verbose
@@ -4482,6 +4484,14 @@ class FitNormEq(object):
         self.W = np.copy(W)        
         self.ensureWeightsPopulated()
 
+        # Jacobian for linear parameters to geometric parameters
+        self.jacLinToGeom = np.array([])
+
+        # Angular conversion factor for jacobian
+        self.angJacFac = 1.
+        if anglesInDegrees:
+            self.angJacFac = 180./np.pi
+
         # Normal equations object, formal covariance estimate (if
         # desired)
         self.NE = None
@@ -4493,6 +4503,8 @@ class FitNormEq(object):
             if invertHessian:
                 self.NE.invertHessian()
 
+                self.populateJacobian() 
+                self.propagateCovarianceToGeom()
 
     def ensureWeightsPopulated(self):
 
@@ -4526,6 +4538,78 @@ class FitNormEq(object):
         """Populates the weights given the covariances"""
 
         self.W = np.linalg.inv(self.covars)
+
+    def populateJacobian(self):
+
+        """Populates the Jacobian taking linear parameters to
+        geometric parameters"""
+
+        # Requires the fit values to be populated
+        if self.fitChoice.find('6term') > -1:
+            self.fillJacobian6term()
+            return
+
+        if self.fitChoice.lower().find('similarity') > -1:
+            self.fillJacobianSimilarity()
+            return
+
+    def fillJacobian6term(self):
+
+        """Fills in the values in the Jacobian for the 6-term
+        transformation"""
+            
+        #print("INFO:", np.shape(self.NE.pars))
+        a,b,c,d,e,f = self.NE.pars[:,0]
+
+        sx = np.sqrt(b**2 + e**2)
+        sy = np.sqrt(c**2 + f**2)
+
+        self.jacLinToGeom = np.zeros((6,6))
+        self.jacLinToGeom[0,0] = 1.
+        self.jacLinToGeom[1,3] = 1.
+        self.jacLinToGeom[2,1] = b/sx
+        self.jacLinToGeom[2,4] = e/sx
+        self.jacLinToGeom[3,2] = c/sy
+        self.jacLinToGeom[3,5] = f/sy
+        self.jacLinToGeom[4,1] =  e*self.angJacFac/(2.0*sx**2)
+        self.jacLinToGeom[4,2] =  f*self.angJacFac/(2.0*sy**2)
+        self.jacLinToGeom[4,4] = -b*self.angJacFac/(2.0*sx**2)
+        self.jacLinToGeom[4,5] = -c*self.angJacFac/(2.0*sy**2)
+        self.jacLinToGeom[5,1] = -e*self.angJacFac/sx**2
+        self.jacLinToGeom[5,2] =  f*self.angJacFac/sy**2
+        self.jacLinToGeom[5,4] =  b*self.angJacFac/sx**2
+        self.jacLinToGeom[5,5] = -c*self.angJacFac/sy**2
+
+    def fillJacobianSimilarity(self):
+
+        """Fills in the terms in the Jacobian for similarity
+        transform"""
+
+        a,b,c,d = self.NE.pars[:,0]
+
+        s = np.sqrt(b**2 + c**2)
+
+        self.jacLinToGeom = np.zeros((4,4))
+        self.jacLinToGeom[0,0] = 1.
+        self.jacLinToGeom[1,3] = 1.
+        self.jacLinToGeom[2,1] = b/s
+        self.jacLinToGeom[2,2] = c/s
+        self.jacLinToGeom[3,1] = -c*self.angJacFac/s**2
+        self.jacLinToGeom[3,2] =  b*self.angJacFac/s**2
+
+    def propagateCovarianceToGeom(self):
+
+        """Propagates the formal covariance estimate from linear to
+        geometric parameters"""
+
+        J = self.jacLinToGeom
+        V = self.NE.formalCov
+
+        JVJt = np.dot(J,np.dot(V, np.transpose(J)) )
+
+        # use this to populate the propagated uncertainty of the
+        # normal-equations object
+        self.NE.formalCovGeom = JVJt
 
     def initNE(self):
 
@@ -5464,8 +5548,16 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
         return
 
     MC.setupAndFit()
+    print("INFO - formal Hessian^{-1}:", MC.FitData.NE.formalCov)
+
+
     MC.setupAndBootstrap()
     MC.writeSummaryStats()
+
+    # Try a comparison in terms of the linear params
+    compCov = np.cov(MC.stackTrials.parsTrials, rowvar=False)
+    print("INFO:", np.shape(MC.stackTrials.parsTrials), np.shape(compCov))
+    print("INFO - recovered covariance:", compCov)
 
     MC.showPositions()
 
