@@ -3425,7 +3425,8 @@ class NormWithMonteCarlo(object):
     def showCornerPlot(self, sStack='stackTrials', \
                            doAnnotations=True, \
                            stackLabel='', \
-                           truthColor='#4682b4', fignum=2):
+                           truthColor='#4682b4', fignum=2, \
+                       tellVars=True):
 
         """Shows a corner plot of the monte carlo trials."""
 
@@ -3436,7 +3437,7 @@ class NormWithMonteCarlo(object):
         
         stackArr = getattr(stackSho, 'paramSet')
         labels = getattr(stackSho, 'paramLabels')
-        
+
         # truth values for the simulation (for corner)
         # self.simParsVec[0], self.simParsVec[1]
         self.populateTruthsForPlots()
@@ -3453,6 +3454,12 @@ class NormWithMonteCarlo(object):
         # OK now try the corner plot. Passing in a blank figure
         # doesn't seem to work, so we just generate 
         print("Plotting corner for %s..." % (sStack))
+
+        # Report std devs to screen if asked
+        if tellVars:
+            for iPar in range(stackArr.shape[-1]):
+                print("%s, %.2e" % (labels[iPar], np.std(stackArr[:,iPar])))
+
         corner.corner(stackArr, labels=labels, \
                           label_kwargs={'labelpad':50}, \
                           truths=self.truthsPlot, \
