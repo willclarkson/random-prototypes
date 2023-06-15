@@ -1094,7 +1094,7 @@ def AVAt(A=np.array([]), V=np.array([])):
 
     # If both have >1 plane, then the number of planes must be equal.
     if AA.shape[0] > 1 and VV.shape[0] > 1:
-        if AA.shape[0] <> VV.shape[0]:
+        if AA.shape[0] != VV.shape[0]:
             return np.array([])
 
     # Once we get here, the operation is straightforward:
@@ -2437,7 +2437,7 @@ class CovarsMxM(object):
         if nPars < 1:
             return
 
-        nPlanes = nPars*(nPars+1)/2
+        nPlanes = int(nPars*(nPars+1)/2)        
         covnx2x2 = np.zeros((nPlanes, 2, 2))
         keyPairs = []
         
@@ -3425,10 +3425,11 @@ class NormWithMonteCarlo(object):
     def showCornerPlot(self, sStack='stackTrials', \
                            doAnnotations=True, \
                            stackLabel='', \
-                           truthColor='#4682b4'):
+                           truthColor='#4682b4', fignum=2):
 
         """Shows a corner plot of the monte carlo trials."""
 
+        
         # for the moment let's hardcode one example just to see how
         # they look
         stackSho = getattr(self, sStack)
@@ -3455,7 +3456,8 @@ class NormWithMonteCarlo(object):
         corner.corner(stackArr, labels=labels, \
                           label_kwargs={'labelpad':50}, \
                           truths=self.truthsPlot, \
-                          truth_color=truthColor)
+                          truth_color=truthColor, \
+                      fig=plt.figure(fignum))
         fig = plt.gcf()
         fig.subplots_adjust(left=0.15, bottom=0.15)
         fig.set_size_inches(8.,6., forward=True)
@@ -5205,7 +5207,7 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
                   fitChoice='6term', \
                   simGauss=False, \
                   simSx = -5.0e-4, simSy=4.0e-4, \
-                  parFile=''):
+                  parFile='', errscaleplot=1.):
 
     """Tests fitting with the class NormWithMC"""
 
@@ -5239,6 +5241,7 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
     # show the points?
     if showPoints:
         coverrplot(NMC.xiRaw, NMC.etaRaw, NMC.CF, \
+                   errSF=errscaleplot, \
                        xLabel=r'$\xi$, deg', yLabel=r'$\eta$, deg')
 
     # The first time, we assume the perturbed fit object constitutes
@@ -5248,6 +5251,10 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
     NMC.copyPerturbedSimToData()
     NMC.fitData()
 
+    # 2023-06-15 were the uncertainties populated?
+    #print("First plane INFO:", NMC.FitData.covars.shape)
+    #print("First plane INFO:", NMC.FitData.W)
+    
     # dump the parameters to disk
     NMC.Verbose = True
 
@@ -5282,8 +5289,8 @@ def testFitOO(nPts=50, resetPositions=False, nTrials=3, skewDeg=5., \
 
         # show corner plot?
         ### print("INFO:", NMC.simTheta)
-        #NMC.showCornerPlot('stackTrials')
-        NMC.showCornerPlot('stackTrialsUnif')
+        NMC.showCornerPlot('stackTrials', fignum=2)
+        NMC.showCornerPlot('stackTrialsUnif', fignum=3)
         return
     
 
