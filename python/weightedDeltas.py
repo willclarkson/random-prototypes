@@ -2669,7 +2669,7 @@ class NormWithMonteCarlo(object):
         self.simXcen = float(np.copy(simXcen))
         self.simYcen = float(np.copy(simYcen))
 
-        # Paramaters for gaussian simulation (if we're doing that)
+        # Parameters for gaussian simulation (if we're doing that)
         self.simMakeGauss = simMakeGauss # True/False
         self.simGauMajor = simGauMajor
         self.simGauMinor = simGauMinor
@@ -4018,6 +4018,7 @@ class NormWithMonteCarlo(object):
         self.ldump = ['simNpts', 'simSx', 'simSy', 'simRotDeg', \
                           'simSkewDeg', 'simXiRef', 'simEtaRef', \
                           'simXmin', 'simXmax', 'simYmin', 'simYmax', \
+                      'xRef', 'yRef', \
                           'simXcen', 'simYcen', 'simMakeGauss', \
                           'simGauMajor', 'simGauMinor', 'simGauTheta', \
                           'simAlo', 'simAhi', 'simRotCov', \
@@ -4679,6 +4680,24 @@ class FitNormEq(object):
         
 #### Some routines that use this follow
 
+def sixtermToPars(b,c,e,f):
+
+    """Utility - given the scaling parameters in a 6-term linear
+relationship, interpret them as the parameters sx, sy, rotation,
+skew."""
+
+    Amat = np.zeros((b.size, 2, 2))
+    Amat[:,0,0] = b
+    Amat[:,0,1] = c
+    Amat[:,1,0] = e
+    Amat[:,1,1] = f
+
+    astack = Stack2x2(Amat)
+
+    return astack.sx, astack.sy, astack.rotDeg, astack.skewDeg
+    
+    
+    
 def testSet(nPts = 100, fBad=0.6, useWeights=True, unctyFac=10., \
                 nBoots=100, fResample=1., showFig=True):
 
@@ -5612,7 +5631,8 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
     # MC.plotCorners()
     
 
-def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32):
+def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
+             errscalefac=10.):
 
     """Sets up input and output datasets and uses MCMC"""
 
@@ -5648,10 +5668,15 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32):
                     MC.fitChoice, \
                     xSign = 1.0-MC.flipx)
 
+    print("MINMAX INFO:", MC.xRaw.min(), MC.xRaw.max(), MC.yRaw.min(), MC.yRaw.max(), MC.xRef, MC.yRef)
+    
     # Try evaluating loglike for a random set of parameters, just to
     # ensure the syntax works... For starters we use the true
     # parameters since we know that the deltas should then be small...
     parsTruth = MC.simTheta
+    parsTruthInp = np.array([MC.simXiRef, MC.simEtaRef, \
+                             MC.simSx, MC.simSy, MC.simRotDeg, MC.simSkewDeg])
+    
 
     # perturb parsTruth into an initial guess
     parsGuess = parsTruth * np.random.uniform(0.8, 1.2, parsTruth.size)
@@ -5677,10 +5702,33 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32):
 
     sampler.run_mcmc(pos, 5000, progress=True);
 
+    # Determine the autocorrelation time and get "flat" samples
+    tau = sampler.get_autocorr_time()
+    tauto = tau.max()
+    nThrow = int(tauto * 3)
+    nThin = int(tauto * 0.5)
+    flat_samples = sampler.get_chain(discard=nThrow, thin=nThin, flat=True)
+
+    # Now convert these samples into "human" parameters
+    sx, sy, theta, beta = \
+        sixtermToPars(flat_samples[:,1], flat_samples[:,2], \
+                      flat_samples[:,4], flat_samples[:,5])
+    #print("FLAT SAMPLES:", flat_samples.shape, sx.shape)
+
+    flat_human = np.column_stack(( flat_samples[:,0], flat_samples[:,3], \
+                                   sx, sy, theta, beta ))
+
+    print(flat_samples.shape, flat_human.shape, parsTruthInp.shape)
+    
+    labelsh = [r"$\Delta\xi$", r"$\Delta \eta$", r"$s_x$", r"$s_y$", \
+               r"$\theta$", r"$\beta$"]
+
+    # labelsh = ['dx', 'dy', 'sx', 'sy', 'theta', 'beta']
+    
     # Let's take a look at the samples...
     samples = sampler.get_chain()
     labels = ["a", "b", "c", "d", "e", "f"]
-
+    
     print(samples.shape)
 
     fig3, axes = plt.subplots(ndim, sharex=True, num=3)
@@ -5690,32 +5738,24 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32):
         dum = ax.plot(samples[:,:,iax], "k", alpha=0.2)
         ax.set_xlim(0, len(samples))
         ax.set_ylabel(labels[iax])
+        dum2 = ax.axvline(nThrow, color='g', ls='--', lw=2)
     axes[-1].set_xlabel("step number")
 
-    # What is the autocorrelation time?
-    tau = sampler.get_autocorr_time()
-
-    # Take the maximum value to set the "autocorrelation time" for
-    # this chain
-    tauto = tau.max()
-    nThrow = int(tauto * 3)
-    nThin = int(tauto * 0.5)
-
-    flat_samples = sampler.get_chain(discard=nThrow, thin=nThin, flat=True)
-    print(flat_samples.shape)
-    print(tau)
-
-    for ax in axes:
-        dum = ax.axvline(nThrow, color='g', ls='--')
 
     # Now do the corner plot with the "truth" values overplotted
-    fig4 = plt.figure(4)
+    fig4 = plt.figure(4, figsize=(9,7))
     fig4.clf()
 
-    dum = corner.corner(flat_samples, labels=labels, truths=parsTruth, \
+    # Parameters as abcdef
+    #dum = corner.corner(flat_samples, labels=labels, truths=parsTruth, \
+    #                    truth_color='b', fig=fig4,
+    #                    labelpad=0.7, use_math_test=True )
+
+    # parameters as [dxi, deta, sx, sy, theta, beta]
+    dum = corner.corner(flat_human, labels=labelsh, truths=parsTruthInp, \
                         truth_color='b', fig=fig4,
                         labelpad=0.7, use_math_test=True )
-
+    
     # some cosmetic adjusting
     fig4.subplots_adjust(left=0.2, bottom=0.2)
     
@@ -5733,9 +5773,12 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32):
     
     # Show the points, just to see if we have something sensible...
     if showPoints:
+        fig1 = plt.figure(1, figsize=(5,4))
+        ax1 = fig1.add_subplot(111)
         coverrplot(MC.xiRaw, MC.etaRaw, MC.CF, \
-                   errSF=10, \
+                   errSF=errscalefac, \
                    xLabel=r'$\xi$, deg', yLabel=r'$\eta$, deg', \
-                   figNum=1)
+                   ax=ax1, fig=fig1)
+        
 
-    
+        dum = ax1.set_title('Uncertainties x%.1f' % (errscalefac))
