@@ -2541,6 +2541,10 @@ class NormWithMonteCarlo(object):
     simRotCov = rotation angle (degrees, ccw) of canned covariance
                    major axis
 
+    simBAlo    =   minimum covariance axis ratio (minor:major)
+
+    simBAhi    =   maximum covariance axis ratio (minor:major)
+
     genStripe = flip the covariances for the back half of the samples
                 in the xi-axis
    
@@ -2552,6 +2556,12 @@ class NormWithMonteCarlo(object):
     posnSortCol = if nonzero length, the attribute on which positions
                   are to be sorted (Useful if preparing two
                   populations with differing covariance properties.)
+
+    --- Generating outliers -----
+
+    fOutly = fraction of objects to be outliers
+
+    covfacOutly = multiplier factor for the uncertainties for outliers
 
     --- Choices for the simulations -----
 
@@ -2610,11 +2620,13 @@ class NormWithMonteCarlo(object):
                      simMakeGauss = False, \
                      simGauMajor = 100., simGauMinor=60., \
                      simGauTheta = -15., \
-                     simAlo = 1.0e-4, simAhi=2.0e-3, simRotCov=30., \
+                     simAlo = 1.0e-4, simAhi=2.0e-3, \
+                 simBAlo = 0.1, simBAhi = 0.3, simRotCov=30., \
                      genStripe=True, \
                      stripeFrac=0.5, \
                      stripeCovRatio=1., \
                      posnSortCol='', \
+                 fOutly=0., covfacOutly=10., \
                      nTrials = 3, \
                      resetPositions=False, \
                      doFewWeightings=True, \
@@ -2679,7 +2691,9 @@ class NormWithMonteCarlo(object):
         self.simAlo = simAlo
         self.simAhi = simAhi
         self.simRotCov = simRotCov
-
+        self.simBAlo = simBAlo
+        self.simBAhi = simBAhi
+        
         # Variables to do with the special stripe (the back stripeFrac
         # of the samples)
         self.genStripe = genStripe
@@ -2687,6 +2701,10 @@ class NormWithMonteCarlo(object):
         self.stripeCovRatio = stripeCovRatio
         self.posnSortCol = posnSortCol[:] # column to sort positions
 
+        # Outlier generation
+        self.fOutly = fOutly
+        self.covfacOutly = covfacOutly
+        
         # Number of trials we will be using
         self.nTrials = np.copy(nTrials)
         self.resetPositions = resetPositions
@@ -2763,6 +2781,9 @@ class NormWithMonteCarlo(object):
         self.xiRaw = np.array([])
         self.etaRaw = np.array([])
 
+        # Will the object be an outlier?
+        self.isOutlier = np.array([])
+        
         # Internal variables: generated points (in practice I think
         # it'll be better to initialize the fit object and manipulate
         # it directly, but having the parameters here will keep things
@@ -2990,12 +3011,32 @@ class NormWithMonteCarlo(object):
         self.xiRaw = aXiTrue[:,0]
         self.etaRaw = aXiTrue[:,1]
 
+    def initOutliers(self):
+
+        """Initialises the array of outliers"""
+
+        if np.size(self.xiRaw) < 1:
+            return
+
+        self.isOutlier = np.zeros(self.xiRaw.size)
+
+    def assignOutliers(self):
+
+        """Assigns outliers"""
+
+        # draw random integers
+
+        # QQQ = 333
+
+        # 2023-06-19 at 4:50pm - come back to this!!
+        
     def populateCovarsFromSim(self):
 
         """Populates the covariances object with simulated parameters"""
 
         CN = CovarsNx2x2(nPts=self.simNpts, rotDeg=self.simRotCov, \
                              aLo=self.simAlo, aHi=self.simAhi, \
+                         ratLo=self.simBAlo, ratHi = self.simBAhi, \
                              genStripe=self.genStripe, \
                              stripeCovRatio=self.stripeCovRatio, \
                              stripeFrac=self.stripeFrac)
@@ -4022,6 +4063,8 @@ class NormWithMonteCarlo(object):
                           'simXcen', 'simYcen', 'simMakeGauss', \
                           'simGauMajor', 'simGauMinor', 'simGauTheta', \
                           'simAlo', 'simAhi', 'simRotCov', \
+                      'simBAlo', 'simBAhi', \
+                      'fOutly', 'covfacOutly', \
                           'genStripe', 'stripeFrac', 'stripeCovRatio', \
                           'posnSortCol', \
                           'nTrials', 'resetPositions', 'doFewWeightings', \
@@ -4062,6 +4105,7 @@ class NormWithMonteCarlo(object):
         self.ddump['simXmin']['comment'] = '# Focal plane field of view'
         self.ddump['simMakeGauss']['comment'] = '# Gaussian component params'
         self.ddump['simAlo']['comment'] = '# Simulated covariances parameters'
+        self.ddump['fOutly']['comment'] = '# Outlier generation'
         self.ddump['genStripe']['comment'] = '# Stripe parameters'
         self.ddump['posnSortCol']['comment'] = '# Sort positionally?'
         self.ddump['nTrials']['comment'] = '# Monte carlo settings'
@@ -5649,7 +5693,11 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
     MC.prepSimData()
 
+    # dump parameter file to disk (allowing some level of lookback
+    # when tinkering)
+    MC.writeParfile()
 
+    
     # invert the covariance matrix stack
     covinv = np.linalg.inv(MC.CF.covars)
 
@@ -5775,10 +5823,26 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     if showPoints:
         fig1 = plt.figure(1, figsize=(5,4))
         ax1 = fig1.add_subplot(111)
-        coverrplot(MC.xiRaw, MC.etaRaw, MC.CF, \
+        coverrplot(xiObs[:,0], xiObs[:,1], MC.CF, \
                    errSF=errscalefac, \
                    xLabel=r'$\xi$, deg', yLabel=r'$\eta$, deg', \
                    ax=ax1, fig=fig1)
-        
 
         dum = ax1.set_title('Uncertainties x%.1f' % (errscalefac))
+
+        # It's useful to do a vector point diagram so that we can test
+        # our outlier generation and recovery. Do that here.
+
+        # overplot the transformed xy positions
+        fig2, ax2 = plt.subplots(1, num=2, figsize=(5,4))
+
+        dxi  = xiObs[:,0] - MC.xiRaw
+        deta = xiObs[:,1] - MC.etaRaw
+
+        blah = ax2.scatter(dxi*3600., deta*3600., alpha=0.5, s=1)
+        ax2.set_xlabel(r'$\Delta \xi$, arcsec')
+        ax2.set_xlabel(r'$\Delta \eta$, arcsec')
+        ax2.set_title(r'Observed minus transformed w/truth params')
+        
+        
+        # dum2 = ax1.scatter(MC.xiRaw, MC.etaRaw, marker='o', zorder=25, s=2)
