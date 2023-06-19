@@ -35,6 +35,13 @@ from astropy.table import Table, Column
 # for estimating weights in the ''simpler'' approach
 from covstack import CovStack
 
+# For experimenting with MCMC
+import likesMCMC
+
+import emcee
+from scipy.optimize import minimize
+
+
 class CooSet(object):
 
     """Set of coordinates with optional weights"""
@@ -4143,6 +4150,19 @@ class NormWithMonteCarlo(object):
 
     ### A couple of wrappers follow to achieve common tasks. 
 
+    def prepSimData(self):
+
+        """Sets up the source and target data using sim parameters"""
+
+        self.transfParsAsVecs()
+        self.generateRawXY()
+        self.populateRawXiEta()
+        self.sortRawPositions()
+
+        self.populateCovarsFromSim()
+        self.populateUnperturbedFitObj()
+        
+        
     def setupAndFit(self):
 
         """Wrapper - Sets up the simulation, and does the fit. (The
@@ -4656,6 +4676,7 @@ class FitNormEq(object):
 
         self.NE.invertHessian()
 
+        
 #### Some routines that use this follow
 
 def testSet(nPts = 100, fBad=0.6, useWeights=True, unctyFac=10., \
@@ -5589,4 +5610,132 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
 
     # 2020-07-20 remove this line for speed while developing
     # MC.plotCorners()
+    
+
+def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32):
+
+    """Sets up input and output datasets and uses MCMC"""
+
+    # This follows the model fitting example in the emcee manual:
+    #
+    # https://emcee.readthedocs.io/en/stable/tutorials/line/
+    
+    # Close all open plot windows (I find this plays better with the
+    # version of corner.py on my laptop):
+    plt.close('all')
+    
+    # set up the datasets
+    MC = NormWithMonteCarlo(parFile=parFile)
+
+    MC.prepSimData()
+
+
+    # invert the covariance matrix stack
+    covinv = np.linalg.inv(MC.CF.covars)
+
+    # Abut the positions into [N,2] element arrays
+    xy = np.column_stack((MC.xRaw, MC.yRaw))
+    xieta = np.column_stack((MC.xiRaw, MC.etaRaw))
+
+    # Create perturbed xi, eta out of the uncertainties
+    MC.CF.generateSamples()
+    xiObs = xieta + MC.CF.deltaTransf.T
+    print("Perturbations:", MC.CF.deltaTransf.shape)
+
+    # Create the pattern matrix for the linear transformation
+    PATT = ptheta2d(MC.xRaw - MC.xRef, \
+                    MC.yRaw - MC.yRef, \
+                    MC.fitChoice, \
+                    xSign = 1.0-MC.flipx)
+
+    # Try evaluating loglike for a random set of parameters, just to
+    # ensure the syntax works... For starters we use the true
+    # parameters since we know that the deltas should then be small...
+    parsTruth = MC.simTheta
+
+    # perturb parsTruth into an initial guess
+    parsGuess = parsTruth * np.random.uniform(0.8, 1.2, parsTruth.size)
+
+    # Now we try finding the point estimate, pretending we don't know
+    # how to do this test case by linear algebra methods...
+    ufunc = lambda *args: -likesMCMC.loglike_linear(*args)
+    soln = minimize(ufunc, parsGuess, args=(PATT.pattern, xiObs, covinv))
+
+    print(soln.x)
+    print(parsTruth)
+
+    print("log(post): ", likesMCMC.logprob_linear_unif(parsGuess, PATT.pattern, xiObs, covinv))
+
+    # follow dfm's example of "initializing the walkers in a tiny
+    # Gaussian ball around the maximum likelihood result"
+    pos = soln.x + 1.0e-3 * np.random.randn(nchains, soln.x.size)
+    nwalkers, ndim = pos.shape
+
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, \
+                                    likesMCMC.logprob_linear_unif, \
+                                    args=(PATT.pattern, xiObs, covinv))
+
+    sampler.run_mcmc(pos, 5000, progress=True);
+
+    # Let's take a look at the samples...
+    samples = sampler.get_chain()
+    labels = ["a", "b", "c", "d", "e", "f"]
+
+    print(samples.shape)
+
+    fig3, axes = plt.subplots(ndim, sharex=True, num=3)
+    
+    for iax in range(ndim):
+        ax = axes[iax]
+        dum = ax.plot(samples[:,:,iax], "k", alpha=0.2)
+        ax.set_xlim(0, len(samples))
+        ax.set_ylabel(labels[iax])
+    axes[-1].set_xlabel("step number")
+
+    # What is the autocorrelation time?
+    tau = sampler.get_autocorr_time()
+
+    # Take the maximum value to set the "autocorrelation time" for
+    # this chain
+    tauto = tau.max()
+    nThrow = int(tauto * 3)
+    nThin = int(tauto * 0.5)
+
+    flat_samples = sampler.get_chain(discard=nThrow, thin=nThin, flat=True)
+    print(flat_samples.shape)
+    print(tau)
+
+    for ax in axes:
+        dum = ax.axvline(nThrow, color='g', ls='--')
+
+    # Now do the corner plot with the "truth" values overplotted
+    fig4 = plt.figure(4)
+    fig4.clf()
+
+    dum = corner.corner(flat_samples, labels=labels, truths=parsTruth, \
+                        truth_color='b', fig=fig4,
+                        labelpad=0.7, use_math_test=True )
+
+    # some cosmetic adjusting
+    fig4.subplots_adjust(left=0.2, bottom=0.2)
+    
+    #lnlike = likesMCMC.loglike_linear(parsTruth, PATT.pattern, xiObs, covinv)
+    #print(lnlike, likesMCMC.loglike_linear(parsGuess, PATT.pattern, xiObs, covinv))
+
+    
+    # Show a few array shapes to help understand what's going on here
+    #print("INFO:", np.shape(MC.xRaw), np.shape(MC.xGen), \
+    #      np.shape(MC.CF.covars), np.shape(covinv))
+
+    # Convert the xy positions into a pattern matrix for the
+    # MCMC. 
+    
+    
+    # Show the points, just to see if we have something sensible...
+    if showPoints:
+        coverrplot(MC.xiRaw, MC.etaRaw, MC.CF, \
+                   errSF=10, \
+                   xLabel=r'$\xi$, deg', yLabel=r'$\eta$, deg', \
+                   figNum=1)
+
     
