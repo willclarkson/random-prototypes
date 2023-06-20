@@ -2203,6 +2203,14 @@ def coverrplot(x=np.array([]), y=np.array([]), \
         covars.eigensFromCovars()
         covars.populateTransfsFromCovar()
 
+    # 2023-06-20 some condition-trapping depending on what was passed
+    # in. It may be better to explicitly do this by checking if the
+    # input covariance object is an instance of the covariance object,
+    # or instead is a numpy array.
+    if not hasattr(covars, 'axMajors'):
+        covars.eigensFromCovars()
+        # covars.populateTransfsFromCovar()
+        
     # Expects to be given an axis, but generates a new figure if none
     # is passed.
     if not fig:
@@ -5756,7 +5764,7 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
     
 
 def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
-             errscalefac=10.):
+             errscalefac=10., showDataTransf=True):
 
     """Sets up input and output datasets and uses MCMC"""
 
@@ -5777,7 +5785,20 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # when tinkering)
     MC.writeParfile()
 
-    # invert the covariance matrix stack
+    # Create covariance stack for measurement uncertainties in the XY
+    # plane. Later we'll want this to track in some sense the xieta
+    # uncertainties on the grounds that brighter objects would be
+    # better-measured in both catalogs. For now, we make them random.
+    CVD = CovarsNx2x2(nPts=MC.xRaw.size, aLo=1., aHi=2.0, \
+                      ratLo=0.7, ratHi=0.7, genStripe=False, rotDeg=0.)
+    CVD.generateCovarStack()
+
+    # Try transforming these into covariances in (xi, eta)
+    covsDataProj = likesMCMC.propagate_covars_abc(CVD.covars, MC.simTheta)
+
+    print("SIM PARS:", MC.simTheta)
+    
+    # invert the covariance matrix stack for convenient call in MCMC
     covinv = np.linalg.inv(MC.CF.covars)
 
     # Abut the positions into [N,2] element arrays
@@ -5798,6 +5819,38 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
                     MC.fitChoice, \
                     xSign = 1.0-MC.flipx)
 
+    # 2023-06-20 Transform the data points into xi, eta and do a debug
+    # plot showing the transformed datapoints and their uncertainties
+    xiDataProj = np.matmul(PATT.pattern, MC.simTheta)
+    if showDataTransf:
+        fig7 = plt.figure(7, figsize=(10,5))
+        fig7.clf()
+        ax7a = fig7.add_subplot(121)
+        ax7b = fig7.add_subplot(122)
+
+        coverrplot(MC.xRaw, MC.yRaw, CVD, errSF=errscalefac, \
+                   ax=ax7a, fig=fig7, showColorbarEllipse=False)
+
+        # Create a covars stack out of the covars array (really should
+        # streamline this within coverrplot!):
+        CVP = CovarsNx2x2(covsDataProj)
+        CVP.eigensFromCovars()
+        CVP.populateTransfsFromCovar()
+
+        # What are the eigenvalues of the transformed covariances? how
+        # do they compare to the xieta covariances?
+        print("TRANSFORMED:", np.linalg.eigvals(CVP.covars[0]))
+        print("GENERATED:", np.linalg.eigvals(MC.CF.covars[0]))
+        
+        dum = ax7b.scatter(xiDataProj[:,0], xiDataProj[:,1], s=3, zorder=25)
+        
+        coverrplot(xiDataProj[:,0], xiDataProj[:,1], CVP, \
+                   errSF=errscalefac,\
+                   ax=ax7b, fig=fig7, showColorbarEllipse=False)
+        
+        # Commented out the return so we'll have a VPD at the end for comparison
+        # return
+    
     print("MINMAX INFO:", MC.xRaw.min(), MC.xRaw.max(), MC.yRaw.min(), MC.yRaw.max(), MC.xRef, MC.yRef)
     
     # Try evaluating loglike for a random set of parameters, just to

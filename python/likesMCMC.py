@@ -30,7 +30,33 @@ with transformation specified as [a, b, c, d, e, f] array"""
 
     _, b, c, _, e, f = abc
 
+
     return propagate_covars_bcef(covars, b, c, e, f)
+
+def propagate_covars_vectorized(covars, b, c, e, f):
+
+    """Propagates [n,2,2] covariances by b,c,e,f, element by element"""
+    
+    # Mostly to ensure I'm not misunderstanding np.matmul's broadcast
+    # rules
+
+    j11, j12, j21, j22 = b,c,e,f # yes, I know...
+    
+    v11 = covars[:,0,0]
+    v12 = covars[:,0,1]
+    v22 = covars[:,1,1]
+
+    s11 = j11**2 * v11 + j12**2 * v22 + 2.0 * j11*j12*v12
+    s22 = j21**2 * v11 + j22**2 * v22 + 2.0 * j21*j22*v12
+    s12 = j11*j21* v11 + j12*j22 *v22 + (j11*j22 + j12*j21) * v22
+
+    covtran =  np.zeros((v11.size, 2, 2))
+    covtran[:,0,0] = s11
+    covtran[:,1,1] = s22
+    covtran[:,0,1] = s12
+    covtran[:,1,0] = s12
+
+    return covtran
     
 def propagate_covars_bcef(covars, b,c,e,f):
 
@@ -38,7 +64,7 @@ def propagate_covars_bcef(covars, b,c,e,f):
 transformation where the b, c, e, f transformation is specified"""
 
     # refactor params into 2x2 matrix
-    J = np.array[[b,c,e,f]]
+    J = np.array([[b,c],[e,f]])
 
     return np.matmul(J, np.matmul(covars, J.T))
     
