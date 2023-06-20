@@ -2561,7 +2561,9 @@ class NormWithMonteCarlo(object):
 
     fOutly = fraction of objects to be outliers
 
-    covfacOutly = multiplier factor for the uncertainties for outliers
+    rOutly_min_arcsec = minimum separation for outliers (arcsec, xi plane)
+
+    rOutly_max_arcsec = maximum separation for outliers (arcsec, xi plane)
 
     --- Choices for the simulations -----
 
@@ -2626,7 +2628,8 @@ class NormWithMonteCarlo(object):
                      stripeFrac=0.5, \
                      stripeCovRatio=1., \
                      posnSortCol='', \
-                 fOutly=0., covfacOutly=10., \
+                 fOutly=0., rOutly_min_arcsec=0., \
+                 rOutly_max_arcsec=1., \
                      nTrials = 3, \
                      resetPositions=False, \
                      doFewWeightings=True, \
@@ -2703,7 +2706,8 @@ class NormWithMonteCarlo(object):
 
         # Outlier generation
         self.fOutly = fOutly
-        self.covfacOutly = covfacOutly
+        self.rOutly_min_arcsec = rOutly_min_arcsec
+        self.rOutly_max_arcsec = rOutly_max_arcsec
         
         # Number of trials we will be using
         self.nTrials = np.copy(nTrials)
@@ -2782,7 +2786,8 @@ class NormWithMonteCarlo(object):
         self.etaRaw = np.array([])
 
         # Will the object be an outlier?
-        self.isOutlier = np.array([])
+        self.isOutlier = np.array([])  # identifier...
+        self.dxiOutlier = np.array([])
         
         # Internal variables: generated points (in practice I think
         # it'll be better to initialize the fit object and manipulate
@@ -3018,17 +3023,51 @@ class NormWithMonteCarlo(object):
         if np.size(self.xiRaw) < 1:
             return
 
-        self.isOutlier = np.zeros(self.xiRaw.size)
-
+        nraw = self.xiRaw.size
+        
+        self.isOutlier = np.repeat(False, nraw)
+        self.dxiOutlier = np.zeros((nraw, 2))
+        
     def assignOutliers(self):
 
         """Assigns outliers"""
+        
+        # How many outliers?
+        nOutly = int(self.xiRaw.size * self.fOutly)
+        if nOutly < 1:
+            return
+        
+        rng = np.random.default_rng()
+        badinds = rng.integers(0, self.xiRaw.size, nOutly)
+        self.isOutlier[badinds] = True
 
-        # draw random integers
+    def populateOutliers(self):
 
-        # QQQ = 333
+        """Populates outliers"""
 
-        # 2023-06-19 at 4:50pm - come back to this!!
+        # Nothing to do if there are no outliers
+        noutliers = np.int(np.sum(self.isOutlier))
+        if noutliers < 1:
+            return
+
+        # generate deltas for the outliers
+        outliers = Outliers2d(noutliers, \
+                              self.rOutly_max_arcsec/3600., \
+                              self.rOutly_min_arcsec/3600.)
+        dxi, deta = outliers.unifInDisk()
+
+        print("OUTLIERS INFO:", outliers.rInner, outliers.rOuter, outliers.nOutliers, dxi.min(), dxi.max() )
+        
+        self.dxiOutlier[self.isOutlier,0] = dxi
+        self.dxiOutlier[self.isOutlier,1] = deta
+
+    def setupOutliers(self):
+
+        """One-liner to set up the outliers"""
+
+        self.initOutliers()
+        self.assignOutliers()
+        self.populateOutliers()
         
     def populateCovarsFromSim(self):
 
@@ -4064,7 +4103,7 @@ class NormWithMonteCarlo(object):
                           'simGauMajor', 'simGauMinor', 'simGauTheta', \
                           'simAlo', 'simAhi', 'simRotCov', \
                       'simBAlo', 'simBAhi', \
-                      'fOutly', 'covfacOutly', \
+                      'fOutly', 'rOutly_min_arcsec', 'rOutly_max_arcsec', \
                           'genStripe', 'stripeFrac', 'stripeCovRatio', \
                           'posnSortCol', \
                           'nTrials', 'resetPositions', 'doFewWeightings', \
@@ -4205,6 +4244,15 @@ class NormWithMonteCarlo(object):
         self.sortRawPositions()
 
         self.populateCovarsFromSim()
+
+        # Populate the outlier deltas, but don't add them to
+        # self.xiRaw and self.etaRaw (so that we can choose at what
+        # stage to apply them, in the calling methods).
+        self.setupOutliers()
+
+        # 2023-06-20 WIC - commenting this out. This method is used in
+        # an MCMC sense anyway, when we don't use the unperturbed fit
+        # object.
         self.populateUnperturbedFitObj()
         
         
@@ -4721,6 +4769,38 @@ class FitNormEq(object):
 
         self.NE.invertHessian()
 
+class Outliers2d(object):
+
+    """Convenience methods for computing dx, dy for outliers"""
+
+    def __init__(self, nOutliers=10, rOuter=0.1, rInner=0.):
+
+        self.nOutliers = nOutliers
+
+        # Enforce rmax > rmin, otherwise strange things happen...
+        self.rInner = np.min([rInner, rOuter])
+        self.rOuter = np.max([rInner, rOuter])
+        
+    def unifInDisk(self):
+        
+        """
+
+        Generates uniformly-distributed random xy points within the disk,
+        between radii rInner and rOuter
+        
+        """
+
+        # radii, uniform in sqrt(r)
+        rng = np.random.default_rng()
+        runif = np.sqrt(rng.uniform(size=self.nOutliers))
+        
+        r = self.rInner + (self.rOuter - self.rInner)*runif
+        theta = rng.uniform(size=self.nOutliers) * 2.0 * np.pi
+        
+        dx = r * np.cos(theta)
+        dy = r * np.sin(theta)
+
+        return dx, dy
         
 #### Some routines that use this follow
 
@@ -5692,12 +5772,11 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     MC = NormWithMonteCarlo(parFile=parFile)
 
     MC.prepSimData()
-
+    
     # dump parameter file to disk (allowing some level of lookback
     # when tinkering)
     MC.writeParfile()
 
-    
     # invert the covariance matrix stack
     covinv = np.linalg.inv(MC.CF.covars)
 
@@ -5708,8 +5787,11 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # Create perturbed xi, eta out of the uncertainties
     MC.CF.generateSamples()
     xiObs = xieta + MC.CF.deltaTransf.T
-    print("Perturbations:", MC.CF.deltaTransf.shape)
+    #print("Perturbations:", MC.CF.deltaTransf.shape)
 
+    # NOW apply outliers
+    xiObs += MC.dxiOutlier
+    
     # Create the pattern matrix for the linear transformation
     PATT = ptheta2d(MC.xRaw - MC.xRef, \
                     MC.yRaw - MC.yRef, \
@@ -5839,10 +5921,35 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         dxi  = xiObs[:,0] - MC.xiRaw
         deta = xiObs[:,1] - MC.etaRaw
 
-        blah = ax2.scatter(dxi*3600., deta*3600., alpha=0.5, s=1)
+        # Color for outliers
+        coutly = np.asarray(MC.isOutlier,'float')
+        if np.sum(MC.isOutlier) < 1:
+            coutly = 'k'
+        
+        blah = ax2.scatter(dxi*3600., deta*3600., alpha=0.5, s=3, c=coutly, \
+                           cmap='RdBu')
         ax2.set_xlabel(r'$\Delta \xi$, arcsec')
         ax2.set_xlabel(r'$\Delta \eta$, arcsec')
-        ax2.set_title(r'Observed minus transformed w/truth params')
+        ax2.set_title(r'Observed minus "Truth"')
         
-        
+        cbar = fig2.colorbar(blah, ax=ax2)
         # dum2 = ax1.scatter(MC.xiRaw, MC.etaRaw, marker='o', zorder=25, s=2)
+
+
+def testRandomDisk(n=100, rmax=1., rmin=0.):
+
+    """Test the method for uniform random xy points generation within an
+annulus
+
+    """
+
+    OU = Outliers2d(n, rmax, rmin)
+    dx, dy = OU.unifInDisk()
+
+    fig6 = plt.figure(6, figsize=(4,4))
+    fig6.clf()
+    ax6 = fig6.add_subplot(111)
+    
+    dum = ax6.scatter(dx, dy, alpha=0.5, s=2, c='g')
+    ax6.set_xlabel('dx')
+    ax6.set_ylabel('dy')
