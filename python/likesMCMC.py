@@ -67,7 +67,38 @@ linear transformation"""
     f =  sy * np.cos(radY)
 
     return b,c,e,f
+
+# The following utilities accept the 6-term [a,b,c,d,e,f] vector and
+# return various things we may want
+
+def abcToPars(abc):
+
+    """Utility - produces [dxi, deta, sx, sy, rotDeg, skewDeg] from
+[a,b,c,d,e,f]"""
+
+    a,b,c,d,e,f = abc
+
+    sx, sy, rotDeg, skewDeg = bcefToPars(b,c,e,f)
+
+    return np.array([a, d, sx, sy, rotDeg, skewDeg])
+
+def parsToAbc(pars):
+
+    """Utility - produces [a,b,c,d,e,f] from [a,d,sx,sy,rot,skew]"""
+
+    a, d, sx, sy, rotDeg, skewDeg = pars
+
+    b, c, e, f = parsToBcef(sx, sy, rotDeg, skewDeg)
+
+    return np.array([a,b,c,d,e,f])
     
+def abcToJ(abc):
+
+    """Utility: produces Jacobian from 6-term [a,b,c,d,e,f] array"""
+
+    _,b,c,_,e,f = abc
+
+    return np.array([[b,c], [e,f]])
     
 def loglike_linear(pars, xypattern, xi, invcovars):
 
