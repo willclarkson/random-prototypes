@@ -23,6 +23,25 @@ def uTVu(u, V):
     Vu = np.einsum('ijk,ik -> ij', V, u)
     return np.einsum('ij,ji -> j', u.T, Vu)
 
+def propagate_covars_abc(covars, abc):
+
+    """Propagates [n,2,2] covariances through 6-term linear transformation
+with transformation specified as [a, b, c, d, e, f] array"""
+
+    _, b, c, _, e, f = abc
+
+    return propagate_covars_bcef(covars, b, c, e, f)
+    
+def propagate_covars_bcef(covars, b,c,e,f):
+
+    """Propagates [n,2,2] covariances through 6-term linear
+transformation where the b, c, e, f transformation is specified"""
+
+    # refactor params into 2x2 matrix
+    J = np.array[[b,c,e,f]]
+
+    return np.matmul(J, np.matmul(covars, J.T))
+    
 def bcefToPars(b,c,e,f):
 
     """Converts b,c,e,f (from xi = a + bx + cy, eta = d + ex + fy) to the
@@ -99,7 +118,9 @@ def abcToJ(abc):
     _,b,c,_,e,f = abc
 
     return np.array([[b,c], [e,f]])
-    
+
+################ log-likelihood and priors follow #################
+
 def loglike_linear(pars, xypattern, xi, invcovars):
 
         """Returns the log-likelihood for the M-term (6-term linear or 4-term
@@ -152,3 +173,8 @@ def logprob_linear_unif(pars, xypattern, xi, invcovars):
         return -np.inf
 
     return lp + loglike_linear(pars, xypattern, xi, invcovars)
+
+### Uncertainties in both source and destiation coordinates
+
+# (Will need a routine to project the uncertainties into the target
+# frame. Do that next.)
