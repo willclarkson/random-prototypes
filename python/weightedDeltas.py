@@ -5931,8 +5931,9 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         ax2.set_xlabel(r'$\Delta \xi$, arcsec')
         ax2.set_xlabel(r'$\Delta \eta$, arcsec')
         ax2.set_title(r'Observed minus "Truth"')
-        
-        cbar = fig2.colorbar(blah, ax=ax2)
+
+        if MC.isOutlier.sum() > 0:
+            cbar = fig2.colorbar(blah, ax=ax2)
         # dum2 = ax1.scatter(MC.xiRaw, MC.etaRaw, marker='o', zorder=25, s=2)
 
 

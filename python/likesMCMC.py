@@ -23,6 +23,52 @@ def uTVu(u, V):
     Vu = np.einsum('ijk,ik -> ij', V, u)
     return np.einsum('ij,ji -> j', u.T, Vu)
 
+def bcefToPars(b,c,e,f):
+
+    """Converts b,c,e,f (from xi = a + bx + cy, eta = d + ex + fy) to the
+sx, sy, rotDeg,skewDeg parameters. 
+
+    Returns sx, sy, rotDeg, skewDeg"""
+
+    # Implementation note: in this module, b,c,e,f are SCALARS. 
+    
+    sx = np.sqrt(b**2 + e**2)
+    sy = np.sqrt(c**2 + f**2)
+
+    arctanCF = np.arctan2(c,f)
+    arctanEB = np.arctan2(e,b)
+    rotDeg = 0.5*np.degrees(arctanCF - arctanEB)
+    skewDeg =    np.degrees(arctanCF + arctanEB)
+    
+    # enforce convention on sx, beta (don't want beta > 45 deg)
+    if skewDeg > 90.:
+        skewDeg -= 180.
+        rotDeg += 90.
+        sx  *= -1.
+
+    if skewDeg < -90.:
+        skewDeg += 180.
+        rotDeg -= 90.
+        sx *= -1.
+
+    return sx, sy, rotDeg, skewDeg
+
+def parsToBcef(sx, sy, rotDeg, skewDeg):
+
+    """Coverts (sx, sy, rotdeg, skewdeg) to the b,c,e,f in the 6-term
+linear transformation"""
+
+    radX = np.radians(rotDeg - 0.5*skewDeg)
+    radY = np.radians(rotDeg + 0.5*skewDeg)
+
+    b =  sx * np.cos(radX)
+    c =  sy * np.sin(radY)
+    e = -sx * np.sin(radX)
+    f =  sy * np.cos(radY)
+
+    return b,c,e,f
+    
+    
 def loglike_linear(pars, xypattern, xi, invcovars):
 
         """Returns the log-likelihood for the M-term (6-term linear or 4-term
