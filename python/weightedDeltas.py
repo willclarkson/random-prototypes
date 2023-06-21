@@ -6035,7 +6035,8 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         # Show the deltas between the bestfit transformed xy and the
         # observations
         xyproj = np.matmul(PATT.pattern, soln.x)
-        dxy_p = xiObs - xyproj
+        dx_p = MC.xiRaw - xyproj[:,0]
+        dy_p = MC.etaRaw - xyproj[:,1]
         
         
         # Color for outliers
@@ -6055,16 +6056,16 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
         # Show similar figure but for transformed at "best fit"
         bOut = MC.isOutlier
-        dum2 = ax2b.scatter(dxy_p[~bOut,0]*3600., \
-                            dxy_p[~bOut,1]*3600., \
+        dum2 = ax2b.scatter(dx_p[~bOut]*3600., \
+                            dy_p[~bOut]*3600., \
                             s=2, marker='o', c='k')
-        dum2o = ax2b.scatter(dxy_p[bOut,0]*3600., \
-                            dxy_p[bOut,1]*3600., \
+        dum2o = ax2b.scatter(dx_p[bOut]*3600., \
+                            dy_p[bOut]*3600., \
                              s=4, marker='s', c='r', edgecolor='k')
 
         ax2b.set_xlabel(r'$\Delta \xi$, arcsec')
         ax2b.set_ylabel(r'$\Delta \eta$, arcsec')
-        ax2b.set_title(r'Observed minus transf')
+        ax2b.set_title(r'transf minus truth')
 
         
 
