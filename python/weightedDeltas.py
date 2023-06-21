@@ -5772,7 +5772,7 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
     
 
 def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
-             errscalefac=10., showDataTransf=True, chainlen=5000):
+             errscalefac=10., showDataTransf=True, chainlen=5000, ntau=3):
 
     """Sets up input and output datasets and uses MCMC"""
 
@@ -5939,7 +5939,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     except:
         print("WATCHOUT - long autocorrelation time")
         tauto = 100.
-    nThrow = int(tauto * 3)
+    nThrow = int(tauto * ntau)
     nThin = int(tauto * 0.5)
     flat_samples = sampler.get_chain(discard=nThrow, thin=nThin, flat=True)
 
@@ -6024,26 +6024,49 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         # our outlier generation and recovery. Do that here.
 
         # overplot the transformed xy positions
-        fig2, ax2 = plt.subplots(1, num=2, figsize=(5,4))
+        fig2 = plt.figure(2, figsize=(9,4))
+        ax2  = fig2.add_subplot(121)
+        ax2b = fig2.add_subplot(122)
 
+        # Show only the perturbation in the observed frame...
         dxi  = xiObs[:,0] - MC.xiRaw
         deta = xiObs[:,1] - MC.etaRaw
 
+        # Show the deltas between the bestfit transformed xy and the
+        # observations
+        xyproj = np.matmul(PATT.pattern, soln.x)
+        dxy_p = xiObs - xyproj
+        
+        
         # Color for outliers
         coutly = np.asarray(MC.isOutlier,'float')
         if np.sum(MC.isOutlier) < 1:
             coutly = 'k'
         
         blah = ax2.scatter(dxi*3600., deta*3600., alpha=0.5, s=3, c=coutly, \
-                           cmap='RdBu')
+                           cmap='RdBu_r')
         ax2.set_xlabel(r'$\Delta \xi$, arcsec')
-        ax2.set_xlabel(r'$\Delta \eta$, arcsec')
+        ax2.set_ylabel(r'$\Delta \eta$, arcsec')
         ax2.set_title(r'Observed minus "Truth"')
-
+        
         if MC.isOutlier.sum() > 0:
             cbar = fig2.colorbar(blah, ax=ax2)
         # dum2 = ax1.scatter(MC.xiRaw, MC.etaRaw, marker='o', zorder=25, s=2)
 
+        # Show similar figure but for transformed at "best fit"
+        bOut = MC.isOutlier
+        dum2 = ax2b.scatter(dxy_p[~bOut,0]*3600., \
+                            dxy_p[~bOut,1]*3600., \
+                            s=2, marker='o', c='k')
+        dum2o = ax2b.scatter(dxy_p[bOut,0]*3600., \
+                            dxy_p[bOut,1]*3600., \
+                             s=4, marker='s', c='r', edgecolor='k')
+
+        ax2b.set_xlabel(r'$\Delta \xi$, arcsec')
+        ax2b.set_ylabel(r'$\Delta \eta$, arcsec')
+        ax2b.set_title(r'Observed minus transf')
+
+        
 
 def testRandomDisk(n=100, rmax=1., rmin=0.):
 
