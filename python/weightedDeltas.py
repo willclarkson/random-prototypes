@@ -2224,11 +2224,15 @@ def coverrplot(x=np.array([]), y=np.array([]), \
     # major eigenvector of each plane of the covariance stack,
     # covars.majors are the major eigenvalues. Similar for the minor
     # axes.)
-    xMajors = covars.axMajors[:,0]*errSF*covars.majors
-    yMajors = covars.axMajors[:,1]*errSF*covars.majors
 
-    xMinors = covars.axMinors[:,0]*errSF*covars.minors
-    yMinors = covars.axMinors[:,1]*errSF*covars.minors
+    # 2023-06-20 take the sqrt() of the covars.majors and
+    # covars.minors when used to plot. Remember those are variances.
+    
+    xMajors = covars.axMajors[:,0]*errSF*covars.majors**0.5
+    yMajors = covars.axMajors[:,1]*errSF*covars.majors**0.5
+
+    xMinors = covars.axMinors[:,0]*errSF*covars.minors**0.5
+    yMinors = covars.axMinors[:,1]*errSF*covars.minors**0.5
 
     # For the moment, we use the covariance-stacks to plot. Later we
     # will give this method the ability to do its own covar
@@ -2282,8 +2286,8 @@ def coverrplot(x=np.array([]), y=np.array([]), \
         # (EllipseCollection wants the full widths not the half widths)
         xy = np.column_stack(( x, y ))
 
-        ec = EllipseCollection(covars.majors*errSF*2., \
-                                   covars.minors*errSF*2., \
+        ec = EllipseCollection(covars.majors**0.5*errSF*2., \
+                                   covars.minors**0.5*errSF*2., \
                                    covars.rotDegs, \
                                    units='xy', offsets=xy, \
                                    transOffset=ax.transData, \
@@ -5846,19 +5850,33 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         #CVD.eigensFromCovars()
         #CVD.populateTransfsFromCovar()
         #print("POST:", CVD.majors.min(), CVD.majors.max())
-        
-        ##CVP.eigensFromCovars()
-        ##CVP.populateTransfsFromCovar()
+
+        CVP.eigensFromCovars()
+        CVP.populateTransfsFromCovar()
 
         # What are the eigenvalues of the transformed covariances? how
         # do they compare to the xieta covariances?
+        print("RAW:", np.linalg.eigvals(CVD.covars[0])**0.5)
         print("TRANSFORMED:", np.linalg.eigvals(CVP.covars[0])**0.5)
         print("GENERATED:", np.linalg.eigvals(MC.CF.covars[0])**0.5)
 
+        # major, minor axes are indeed the sf**2
+        print("RAW majors:", CVD.majors.max(), CVD.majors.min() )
+        print("TRANSFORMED majors:", CVP.majors.max(), CVP.majors.min() )
+        
         print("abcdef", MC.simTheta)
         print("pars", MC.simXiRef, MC.simEtaRef, MC.simSx, MC.simSy, MC.simRotDeg, MC.simSkewDeg)
         
         dum = ax7b.scatter(xiDataProj[:,0], xiDataProj[:,1], s=3, zorder=25)
+
+        # MC.simSx appears to be being applied twice - as squared not
+        # as factor. Dividing errSF by the simSx (for symmetric scale
+        # factors) makes the error ellipses scale correctly in the
+        # plot of the transformed coordinates. So the relative
+        # positions are being scaled correctly, the covariances
+        # aren't.
+
+        print(CVP.stdx.max(), CVP.stdx.min())
         
         coverrplot(xiDataProj[:,0], xiDataProj[:,1], CVP, \
                    errSF=errscalefac,\
