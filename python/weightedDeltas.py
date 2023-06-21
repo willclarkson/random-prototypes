@@ -5772,7 +5772,7 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
     
 
 def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
-             errscalefac=10., showDataTransf=True):
+             errscalefac=10., showDataTransf=True, chainlen=5000):
 
     """Sets up input and output datasets and uses MCMC"""
 
@@ -5929,11 +5929,16 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
                                     likesMCMC.logprob_linear_unif, \
                                     args=(PATT.pattern, xiObs, covinv))
 
-    sampler.run_mcmc(pos, 5000, progress=True);
+    sampler.run_mcmc(pos, chainlen, progress=True);
 
-    # Determine the autocorrelation time and get "flat" samples
-    tau = sampler.get_autocorr_time()
-    tauto = tau.max()
+    # Determine the autocorrelation time and get "flat" samples. Allow
+    # trying of too-short chains to see what that does...
+    try:
+        tau = sampler.get_autocorr_time()
+        tauto = tau.max()
+    except:
+        print("WATCHOUT - long autocorrelation time")
+        tauto = 100.
     nThrow = int(tauto * 3)
     nThin = int(tauto * 0.5)
     flat_samples = sampler.get_chain(discard=nThrow, thin=nThin, flat=True)
@@ -5973,12 +5978,15 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
     # Now do the corner plot with the "truth" values overplotted
     fig4 = plt.figure(4, figsize=(9,7))
+    fig5 = plt.figure(5, figsize=(9,7))
+
     fig4.clf()
+    fig5.clf()
 
     # Parameters as abcdef
-    #dum = corner.corner(flat_samples, labels=labels, truths=parsTruth, \
-    #                    truth_color='b', fig=fig4,
-    #                    labelpad=0.7, use_math_test=True )
+    dum2 = corner.corner(flat_samples, labels=labels, truths=parsTruth, \
+                        truth_color='b', fig=fig5,
+                        labelpad=0.7, use_math_test=True )
 
     # parameters as [dxi, deta, sx, sy, theta, beta]
     dum = corner.corner(flat_human, labels=labelsh, truths=parsTruthInp, \
@@ -5986,7 +5994,8 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
                         labelpad=0.7, use_math_test=True )
     
     # some cosmetic adjusting
-    fig4.subplots_adjust(left=0.2, bottom=0.2)
+    for fig in [fig4, fig5]:
+        fig.subplots_adjust(left=0.2, bottom=0.2)
     
     #lnlike = likesMCMC.loglike_linear(parsTruth, PATT.pattern, xiObs, covinv)
     #print(lnlike, likesMCMC.loglike_linear(parsGuess, PATT.pattern, xiObs, covinv))
