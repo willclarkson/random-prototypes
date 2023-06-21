@@ -66,6 +66,8 @@ transformation where the b, c, e, f transformation is specified"""
     # refactor params into 2x2 matrix
     J = np.array([[b,c],[e,f]])
 
+    print("PROPAG INFO:", J)
+    
     return np.matmul(J, np.matmul(covars, J.T))
     
 def bcefToPars(b,c,e,f):

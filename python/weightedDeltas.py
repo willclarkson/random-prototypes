@@ -5789,7 +5789,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # plane. Later we'll want this to track in some sense the xieta
     # uncertainties on the grounds that brighter objects would be
     # better-measured in both catalogs. For now, we make them random.
-    CVD = CovarsNx2x2(nPts=MC.xRaw.size, aLo=1., aHi=2.0, \
+    CVD = CovarsNx2x2(nPts=MC.xRaw.size, aLo=1., aHi=5.0, \
                       ratLo=0.7, ratHi=0.7, genStripe=False, rotDeg=0.)
     CVD.generateCovarStack()
 
@@ -5834,13 +5834,29 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         # Create a covars stack out of the covars array (really should
         # streamline this within coverrplot!):
         CVP = CovarsNx2x2(covsDataProj)
-        CVP.eigensFromCovars()
-        CVP.populateTransfsFromCovar()
+        w, v = np.linalg.eigh(CVP.covars)
+        print("INFO:", w[:,1].min(), w[:,1].max())
+        #CVP.eigensFromCovars()
+        #print("INFO:", CVP.majors.min(), CVP.majors.max(), MC.CF.majors.max())
+
+        ## try eigens before and after eigensFromCovars
+        #w, v = np.linalg.eigh(CVD.covars)
+        #print("PRE: ", w[:,1].min(), w[1,:].max())
+        #print("PRE: ", CVD.majors.min(), CVD.majors.max())
+        #CVD.eigensFromCovars()
+        #CVD.populateTransfsFromCovar()
+        #print("POST:", CVD.majors.min(), CVD.majors.max())
+        
+        ##CVP.eigensFromCovars()
+        ##CVP.populateTransfsFromCovar()
 
         # What are the eigenvalues of the transformed covariances? how
         # do they compare to the xieta covariances?
-        print("TRANSFORMED:", np.linalg.eigvals(CVP.covars[0]))
-        print("GENERATED:", np.linalg.eigvals(MC.CF.covars[0]))
+        print("TRANSFORMED:", np.linalg.eigvals(CVP.covars[0])**0.5)
+        print("GENERATED:", np.linalg.eigvals(MC.CF.covars[0])**0.5)
+
+        print("abcdef", MC.simTheta)
+        print("pars", MC.simXiRef, MC.simEtaRef, MC.simSx, MC.simSy, MC.simRotDeg, MC.simSkewDeg)
         
         dum = ax7b.scatter(xiDataProj[:,0], xiDataProj[:,1], s=3, zorder=25)
         
@@ -5849,7 +5865,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
                    ax=ax7b, fig=fig7, showColorbarEllipse=False)
         
         # Commented out the return so we'll have a VPD at the end for comparison
-        # return
+        return
     
     print("MINMAX INFO:", MC.xRaw.min(), MC.xRaw.max(), MC.yRaw.min(), MC.yRaw.max(), MC.xRef, MC.yRef)
     
