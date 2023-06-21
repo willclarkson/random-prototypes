@@ -1929,7 +1929,11 @@ class CovarsNx2x2(object):
         """Populates the transformation matrix by doing RR.VV
         plane-by-plane"""
 
-        self.TT = np.matmul(self.RR, self.VV)
+        # 2023-06-21 this should be sqrt(self.VV) when interpreting
+        # the covariance matrix as a geometric transformation of
+        # vectors. Apply.
+        
+        self.TT = np.matmul(self.RR, self.VV**0.5)
 
     def asVector(self, x=np.array([])):
 
@@ -5812,8 +5816,16 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # Create perturbed xi, eta out of the uncertainties
     MC.CF.generateSamples()
     xiObs = xieta + MC.CF.deltaTransf.T
-    #print("Perturbations:", MC.CF.deltaTransf.shape)
 
+    evv = np.linalg.eigvals(MC.CF.covars)
+    print(evv.shape, MC.CF.deltaTransf.shape)
+    print("TRANSF DEBUG:", MC.CF.deltaTransf.max()*3600.,  \
+          MC.CF.deltaTransf.min()*3600., \
+          np.sqrt(evv[:,0].max())*3600., np.sqrt(evv[:,0].min()*3600.))
+    print("sqrt(abs(Delta covariances)):", np.sqrt(np.abs(np.cov(MC.CF.deltaTransf)))*3600.)
+    #print(MC.CF.majors**0.5*3600.)
+    #return
+    
     # NOW apply outliers
     xiObs += MC.dxiOutlier
     
