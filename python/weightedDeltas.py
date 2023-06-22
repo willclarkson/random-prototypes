@@ -5773,7 +5773,7 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
 
 def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
              errscalefac=10., showDataTransf=True, chainlen=5000, ntau=3, \
-             perturbXY=False):
+             perturbXY=False, mcmcUnctyXY=False):
 
     """Sets up input and output datasets and uses MCMC"""
 
@@ -5927,25 +5927,60 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # perturb parsTruth into an initial guess
     parsGuess = parsTruth * np.random.uniform(0.8, 1.2, parsTruth.size)
 
-    # Now we try finding the point estimate, pretending we don't know
-    # how to do this test case by linear algebra methods...
-    ufunc = lambda *args: -likesMCMC.loglike_linear(*args)
-    soln = minimize(ufunc, parsGuess, args=(PATT.pattern, xiObs, covinv))
+    # Include XY uncertainty in the minimization and MCMC?
+    if mcmcUnctyXY:
 
+        args = (PATT.pattern, xiObs, CVD.covars, MC.CF.covars)
+        
+        ufunc = lambda *args: -likesMCMC.loglike_linear_unctyproj(*args)
+        #soln = minimize(ufunc, parsGuess, args=(PATT.pattern, xiObs, \
+        #                                        MC.CF.covars, CVD.covars))
+        
+    else:
+        # Now we try finding the point estimate, pretending we don't
+        # know how to do this test case by linear algebra methods...
+
+        args = (PATT.pattern, xiObs, covinv)
+        
+        ufunc = lambda *args: -likesMCMC.loglike_linear(*args)
+        #soln = minimize(ufunc, parsGuess, args=(PATT.pattern, xiObs, covinv))
+
+        #print("log(post): ", likesMCMC.logprob_linear_unif(parsGuess, PATT.pattern, xiObs, covinv))
+
+    # whichever option we chose, the solution should still work
+    soln = minimize(ufunc, parsGuess, args=args)
+
+    # print("log(post): ", likesMCMC.logprob_linear_unif(parsGuess, *args))
+
+    # Now we use the ufunc (the minus sign is there because minimize)
+    print("log(post): ", 0. -ufunc(parsGuess, *args))
+    
     print(soln.x)
     print(parsTruth)
 
-    print("log(post): ", likesMCMC.logprob_linear_unif(parsGuess, PATT.pattern, xiObs, covinv))
-
+    # while checking the output of the logprob, return here
+    # return
+    
     # follow dfm's example of "initializing the walkers in a tiny
     # Gaussian ball around the maximum likelihood result"
     pos = soln.x + 1.0e-3 * np.random.randn(nchains, soln.x.size)
     nwalkers, ndim = pos.shape
 
-    sampler = emcee.EnsembleSampler(nwalkers, ndim, \
-                                    likesMCMC.logprob_linear_unif, \
-                                    args=(PATT.pattern, xiObs, covinv))
+    # Which posterior function are we using?
+    methpost = likesMCMC.logprob_linear_unif
+    if mcmcUnctyXY:
+        methpost = likesMCMC.logprob_linear_unctyproj_unif
+    
+    #sampler = emcee.EnsembleSampler(nwalkers, ndim, \
+    #                                likesMCMC.logprob_linear_unif, \
+    #                                args=args)
 
+
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, \
+                                    methpost, \
+                                    args=args)
+
+    
     sampler.run_mcmc(pos, chainlen, progress=True);
 
     # Determine the autocorrelation time and get "flat" samples. Allow
@@ -6047,6 +6082,10 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
                    edgecolorEllipse='k', \
                    cmapEllipse='gist_gray', \
                    showColorbarEllipse=False)
+
+        # Show the unperturbed raw positions on the same plot
+        dum3 = ax1.scatter(MC.xiRaw, MC.etaRaw, c='b', marker='o', s=2, \
+                           zorder=25)
         
         # It's useful to do a vector point diagram so that we can test
         # our outlier generation and recovery. Do that here.

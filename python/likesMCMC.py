@@ -202,5 +202,54 @@ def logprob_linear_unif(pars, xypattern, xi, invcovars):
 
 ### Uncertainties in both source and destiation coordinates
 
-# (Will need a routine to project the uncertainties into the target
-# frame. Do that next.)
+def loglike_linear_unctyproj(pars, xypattern, xi, xycovars, xicovars):
+
+    """Returns the log-likelihood for 6-term plane mapping, when both the (x,y) and (xi, eta) positions have uncertainty covariances. Inputs:
+
+    pars   -    [6] - parameter array
+
+    xypattern = [N,2,6] - element pattern array in xy
+    
+    xi = [N,2] - N-element target positions (xi, eta)
+
+    xycovars  -  [N,2,2] stack of covariance matrices in (x,y)
+
+    xicovars -   [N,2,2] stack of covariance matrices in (xi, eta)
+
+"""
+
+    # Project xy into the xi, eta plane and compute deltas
+    deltas = xi - np.matmul(xypattern, pars)
+
+    # Project the (x,y) covariances into the (xi, eta) plane
+    covxy_proj = propagate_covars_abc(xycovars, pars)
+
+    # Total covariance including (xi, eta) and projected (x,y)
+    covars = xicovars + covxy_proj
+
+    # Now for the two covariance terms in the likelihood. We need the
+    # determinant and the inverse
+    invcovars = np.linalg.inv(covars)
+    expon = uTVu(deltas, invcovars)
+    term_expon = -0.5 * np.sum(expon)
+    
+    lndets = np.log(np.abs(np.linalg.det(covars)))
+    term_dets = -0.5 * np.sum(lndets)
+
+    return term_expon + term_dets
+    
+def logprob_linear_unctyproj_unif(pars, xypattern, xi, xycovars, xicovars):
+
+    """Returns the log posterior (to within a constant) for 6-term plane
+mapping when both the (x,y) and (xi, eta) positions have uncertainty
+covariances. Assumes uniform prior on the parameters.
+
+    """
+
+    lp = logprior_unif(pars)
+    if not np.isfinite(lp):
+        return -np.inf
+
+    return lp + loglike_linear_unctyproj(pars, xypattern, xi, \
+                                         xycovars, xicovars)
+    
