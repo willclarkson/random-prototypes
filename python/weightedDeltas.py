@@ -5772,7 +5772,8 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
     
 
 def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
-             errscalefac=10., showDataTransf=True, chainlen=5000, ntau=3):
+             errscalefac=10., showDataTransf=True, chainlen=5000, ntau=3, \
+             perturbXY=False):
 
     """Sets up input and output datasets and uses MCMC"""
 
@@ -5797,14 +5798,29 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # plane. Later we'll want this to track in some sense the xieta
     # uncertainties on the grounds that brighter objects would be
     # better-measured in both catalogs. For now, we make them random.
-    CVD = CovarsNx2x2(nPts=MC.xRaw.size, aLo=1., aHi=5.0, \
+    CVD = CovarsNx2x2(nPts=MC.xRaw.size, aLo=0.05, aHi=0.2, \
                       ratLo=0.7, ratHi=0.7, genStripe=False, rotDeg=0.)
     CVD.generateCovarStack()
+    CVD.eigensFromCovars()
+    CVD.populateTransfsFromCovar()
 
+    # Perturb the XY datapoints?
+    if perturbXY:
+        CVD.generateSamples()
+        MC.xRaw += CVD.deltaTransf[0]
+        MC.yRaw += CVD.deltaTransf[1]
+    
     # Try transforming these into covariances in (xi, eta)
     covsDataProj = likesMCMC.propagate_covars_abc(CVD.covars, MC.simTheta)
 
+    # Create the covsnx2x2 stack for the projected uncertainties
+    CVP = CovarsNx2x2(covsDataProj)
+    CVP.eigensFromCovars()
+    CVP.populateTransfsFromCovar()
+    
     print("SIM PARS:", MC.simTheta)
+
+    ### Now we run the MCMC.
     
     # invert the covariance matrix stack for convenient call in MCMC
     covinv = np.linalg.inv(MC.CF.covars)
@@ -5817,14 +5833,15 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     MC.CF.generateSamples()
     xiObs = xieta + MC.CF.deltaTransf.T
 
-    evv = np.linalg.eigvals(MC.CF.covars)
-    print(evv.shape, MC.CF.deltaTransf.shape)
-    print("TRANSF DEBUG:", MC.CF.deltaTransf.max()*3600.,  \
-          MC.CF.deltaTransf.min()*3600., \
-          np.sqrt(evv[:,0].max())*3600., np.sqrt(evv[:,0].min()*3600.))
-    print("sqrt(abs(Delta covariances)):", np.sqrt(np.abs(np.cov(MC.CF.deltaTransf)))*3600.)
-    #print(MC.CF.majors**0.5*3600.)
-    #return
+    # consistency checking for eigenvals
+    #evv = np.linalg.eigvals(MC.CF.covars)
+    #print(evv.shape, MC.CF.deltaTransf.shape)
+    #print("TRANSF DEBUG:", MC.CF.deltaTransf.max()*3600.,  \
+    #      MC.CF.deltaTransf.min()*3600., \
+    #      np.sqrt(evv[:,0].max())*3600., np.sqrt(evv[:,0].min()*3600.))
+    #print("sqrt(abs(Delta covariances)):", np.sqrt(np.abs(np.cov(MC.CF.deltaTransf)))*3600.)
+    ##print(MC.CF.majors**0.5*3600.)
+    ##return
     
     # NOW apply outliers
     xiObs += MC.dxiOutlier
@@ -5849,7 +5866,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
         # Create a covars stack out of the covars array (really should
         # streamline this within coverrplot!):
-        CVP = CovarsNx2x2(covsDataProj)
+        #CVP = CovarsNx2x2(covsDataProj)
         w, v = np.linalg.eigh(CVP.covars)
         print("INFO:", w[:,1].min(), w[:,1].max())
         #CVP.eigensFromCovars()
@@ -5863,8 +5880,8 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         #CVD.populateTransfsFromCovar()
         #print("POST:", CVD.majors.min(), CVD.majors.max())
 
-        CVP.eigensFromCovars()
-        CVP.populateTransfsFromCovar()
+        #CVP.eigensFromCovars()
+        #CVP.populateTransfsFromCovar()
 
         # What are the eigenvalues of the transformed covariances? how
         # do they compare to the xieta covariances?
@@ -6020,6 +6037,17 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
         dum = ax1.set_title('Uncertainties x%.1f' % (errscalefac))
 
+        # Try showing the transformed xy uncertainties on the same plot
+        coverrplot(xiDataProj[:,0], xiDataProj[:,1], CVP, \
+                   errSF=errscalefac, \
+                   xLabel=r'$\xi$, deg', yLabel=r'$\eta$, deg', \
+                   ax=ax1, fig=fig1, \
+                   shadeEllipses=False, \
+                   colorMajors = 'k', colorMinors='k', \
+                   edgecolorEllipse='k', \
+                   cmapEllipse='gist_gray', \
+                   showColorbarEllipse=False)
+        
         # It's useful to do a vector point diagram so that we can test
         # our outlier generation and recovery. Do that here.
 
@@ -6037,7 +6065,6 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         xyproj = np.matmul(PATT.pattern, soln.x)
         dx_p = MC.xiRaw - xyproj[:,0]
         dy_p = MC.etaRaw - xyproj[:,1]
-        
         
         # Color for outliers
         coutly = np.asarray(MC.isOutlier,'float')
@@ -6061,7 +6088,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
                             s=2, marker='o', c='k')
         dum2o = ax2b.scatter(dx_p[bOut]*3600., \
                             dy_p[bOut]*3600., \
-                             s=4, marker='s', c='r', edgecolor='k')
+                             s=9, marker='s', c='w', edgecolor='r')
 
         ax2b.set_xlabel(r'$\Delta \xi$, arcsec')
         ax2b.set_ylabel(r'$\Delta \eta$, arcsec')
