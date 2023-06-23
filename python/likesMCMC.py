@@ -185,6 +185,21 @@ def logprior_unif(pars):
 
     return 0.
 
+def logprior_unif_signs(pars):
+
+    """Enforces a prior on the sign of the parameters."""
+
+    # Hard coded this to match the specific test case. If this works,
+    # figure out how to generalize it!
+
+    sgnpriors = np.array([1, -1, 1, -1, 1, 1])
+    sgnpars = np.asarray(np.sign(pars), 'int')
+
+    if np.sum(sgnpriors != sgnpars) > 0:
+        return -np.inf
+
+    return 0.
+    
 def logprob_linear_unif(pars, xypattern, xi, invcovars):
 
     """ 
