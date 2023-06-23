@@ -233,7 +233,7 @@ def loglike_linear_unctyproj(pars, xypattern, xi, xycovars, xicovars):
     expon = uTVu(deltas, invcovars)
     term_expon = -0.5 * np.sum(expon)
     
-    lndets = np.log(np.abs(np.linalg.det(covars)))
+    lndets = np.log(np.linalg.det(covars))
     term_dets = -0.5 * np.sum(lndets)
 
     return term_expon + term_dets
