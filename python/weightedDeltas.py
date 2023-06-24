@@ -5925,7 +5925,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     
 
     # perturb parsTruth into an initial guess
-    parsGuess = parsTruth * np.random.uniform(0.8, 1.2, parsTruth.size)
+    parsGuess = parsTruth * np.random.uniform(0.90, 1.10, parsTruth.size)
 
     # Include XY uncertainty in the minimization and MCMC?
     if mcmcUnctyXY:
@@ -5962,9 +5962,18 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # return
     
     # follow dfm's example of "initializing the walkers in a tiny
-    # Gaussian ball around the maximum likelihood result"
-    pos = soln.x + 1.0e-3 * np.random.randn(nchains, soln.x.size)
+    # Gaussian ball around the maximum likelihood result," scaled to
+    # be ~1% of the actual value (to preserve the signs) 
+    pertn = np.random.randn(nchains, soln.x.size)
+    magn = 0.01 * soln.x
+    pos = soln.x + pertn * magn[np.newaxis,:]
+    
+    # pos = soln.x + 1.0e-3 * np.random.randn(nchains, soln.x.size)
     nwalkers, ndim = pos.shape
+
+    #print("Initial guess:", pos.shape)
+    
+    #return
 
     # Which posterior function are we using?
     methpost = likesMCMC.logprob_linear_unif
