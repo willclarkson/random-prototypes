@@ -4,8 +4,12 @@
 
 # WIC 2023-06-19 -- collection of loglikes and priors for use in MCMC
 # explorations.
+#
+# The log-likelihoods return N-dimensional arrays, which then the
+# log-posteriors sum over N. This is so that logsumexp will work where needed.
 
 import numpy as np
+from scipy.special import logsumexp
 
 def uTVu(u, V):
 
@@ -145,34 +149,69 @@ def abcToJ(abc):
 
     return np.array([[b,c], [e,f]])
 
-def prepInvcovForOutliers(covars, scalefac=10):
+def prepCovForOutliers(covars, scalefac=10, nrows=1):
 
-    """Utility: given a [N,2,2] set of covariances, prepare the inverse of
-the scaled covariance as a [2,2] output."""
+    """Utility: given a [N,2,2] set of covariances, prepare the scaled
+median covariance as a [2,2] output. If 2-dimensional input, we need
+to supply the number of planes in the output stack.
+
+    """
 
     # covars must be 2 or 3 dimensional
     ndimen = covars.ndim
     if not (1 < ndimen < 4):
-        print("prepInvcovForOutliers FATAL - covars must be 2D or 3D.")
+        print("prepCovForOutliers FATAL - covars must be 2D or 3D.")
         return np.array([])
 
     # if [N,2,2] take the median and scale, otherwise just use the input
     if ndimen == 3:
         covscal = np.median(covars,axis=0)*scalefac
+        nrows = covars.shape[0]
     else:
         covscal = covars * scalefac
 
-    return np.linalg.inv(covscal)
-        
-        
+    # Now construct the [N,2,2] inverse covariance matrix
+    output = np.zeros((nrows,2,2))
+    output[:] = covscal
+
+    return output
+
+def lognormal(deltas, covars):
+
+    """Returns the log(normal) parameterized by deltas and
+covariances. Includes covariance matrix inversion. DOES NOT SUM along
+the datapoints.
+
+    """
+
+    # Invert the covariance matrix and evaluate the exponential term
+    invcovars = np.linalg.inv(covars)
+    expon = uTVu(deltas, invcovars)
+    term_expon = -0.5 * expon
+
+    # Evaluate the determinants term
+    lndets = np.log(np.linalg.det(covars))
+    term_dets = -0.5 * lndets
+
+    # keep both terms so we can check them separately
+    return term_expon, term_dets
+
+def lognormalsum(deltas, covars):
+
+    """Computes the sum along N of the log normal distribution, keeping the terms separate so that we can examine them downstream"""
+
+    term_expon, term_dets = lognormal(deltas, covars)
+
+    return np.sum(term_expon), np.sum(term_dets)
+    
 ################ log-likelihood and priors follow #################
 
-def loglike_linear(pars, xypattern, xi, invcovars):
+def loglike_linear_fast(pars, xypattern, xi, invcovars):
 
         """Returns the log-likelihood for the M-term (6-term linear or 4-term
 similarity) plane mapping. Covariances are in the (xi, eta) plane and
 are assumed independent of the model parameters (i.e. assume x,y
-covariances are unimportant).
+covariances are unimportant). DOES NOT SUM OVER N.
 
         pars = [M] - parameter array 
 
@@ -198,7 +237,36 @@ covariances are unimportant).
 
         # ... and use this to evaluate the sum
         return -0.5 * np.sum(expon)
-        
+
+def loglike_linear(pars, xypattern, xi, covars):
+
+    """Returns the log-likelihood for the M-term (6-term linear or 4-term
+similarity) plane mapping. Covariances are in the (xi, eta) plane and
+are assumed independent of the model parameters (i.e. assume x,y
+covariances are unimportant) 
+
+DOES NOT SUM OVER N because we'll need this in logsumexp.
+
+        pars = [M] - parameter array 
+
+        xypattern = [N,2,M] - element pattern array in xy
+
+        xi = [N,2] - N-element target positions (xi, eta)
+
+        covars = [N,2,2] stack of covariances in the (eta, xi)
+        plane. NOT the inverse covariances!
+
+    """
+
+    # Project the positions into the xi, eta plane using the
+    # current parameters
+    proj = np.matmul(xypattern, pars)
+    deltas = xi - proj
+
+    term_expon, term_dets = lognormal(deltas, covars)
+
+    return term_expon + term_dets
+    
 def logprior_unif(pars):
 
     """Uniform prior. Takes arguments for consistency with other calls"""
@@ -219,8 +287,17 @@ def logprior_unif_signs(pars):
         return -np.inf
 
     return 0.
+
+def logprior_unif_mixture(pars):
+
+    """Returns uniform prior with conditions on ln(mixture fraction), which is assumed to be the final parameter in pars."""
+
+    if pars[-1] > 0.:
+        return -np.inf
+
+    return 0.
     
-def logprob_linear_unif(pars, xypattern, xi, invcovars):
+def logprob_linear_unif_fast(pars, xypattern, xi, invcovars):
 
     """ 
     Computes log posterior (to within a constant) for the linear mapping, with a uniform prior on the parameters
@@ -233,13 +310,31 @@ def logprob_linear_unif(pars, xypattern, xi, invcovars):
     if not np.isfinite(lp):
         return -np.inf
 
-    return lp + loglike_linear(pars, xypattern, xi, invcovars)
+    return lp + np.sum(loglike_linear_fast(pars, xypattern, xi, invcovars))
+
+def logprob_linear_unif(pars, xypattern, xi, covars):
+
+    """ 
+    Computes log posterior (to within a constant) for the linear mapping, with a uniform prior on the parameters
+
+"""
+
+    # Thought: we probably could pass the methods in to this object?
+    
+    lp = logprior_unif(pars)
+    if not np.isfinite(lp):
+        return -np.inf
+
+    return lp + np.sum(loglike_linear(pars, xypattern, xi, covars))
+
 
 ### Uncertainties in both source and destiation coordinates
 
 def loglike_linear_unctyproj(pars, xypattern, xi, xycovars, xicovars):
 
-    """Returns the log-likelihood for 6-term plane mapping, when both the (x,y) and (xi, eta) positions have uncertainty covariances. Inputs:
+    """Returns the log-likelihood for 6-term plane mapping, when both the
+(x,y) and (xi, eta) positions have uncertainty covariances. DOES NOT
+SUM OVER N. Inputs:
 
     pars   -    [6] - parameter array
 
@@ -251,7 +346,7 @@ def loglike_linear_unctyproj(pars, xypattern, xi, xycovars, xicovars):
 
     xicovars -   [N,2,2] stack of covariance matrices in (xi, eta)
 
-"""
+    """
 
     # Project xy into the xi, eta plane and compute deltas
     deltas = xi - np.matmul(xypattern, pars)
@@ -262,26 +357,29 @@ def loglike_linear_unctyproj(pars, xypattern, xi, xycovars, xicovars):
     # Total covariance including (xi, eta) and projected (x,y)
     covars = xicovars + covxy_proj
 
-    # Now for the two covariance terms in the likelihood. We need the
-    # determinant and the inverse
-    invcovars = np.linalg.inv(covars)
-    expon = uTVu(deltas, invcovars)
-    term_expon = -0.5 * np.sum(expon)
+    # REFACTORED into method lognormal()
+    ## Now for the two covariance terms in the likelihood. We need the
+    ## determinant and the inverse
+    #invcovars = np.linalg.inv(covars)
+    #expon = uTVu(deltas, invcovars)
+    #term_expon = -0.5 * np.sum(expon)
     
-    lndets = np.log(np.linalg.det(covars))
-    term_dets = -0.5 * np.sum(lndets)
+    #lndets = np.log(np.linalg.det(covars))
+    #term_dets = -0.5 * np.sum(lndets)
 
+    term_expon, term_dets = lognormal(deltas, covars)
+    
     return term_expon + term_dets
 
 ### log-likelihood for mixture model for outliers
 
 def loglike_linear_unctyproj_outliers(pars, xypattern, xi, \
                                       xycovars, xicovars, \
-                                      covOutliers=np.eye(2)):
+                                      covout=np.eye(2)):
 
     """Returns the log-likelihood for 6-term plane mapping, when both
 (x,y) and (xi,eta) have uncertainty covariances, and we use a mixture
-model to account for outliers. Inputs:
+model to account for outliers. DOES NOT SUM ALONG N. Inputs:
 
     pars - [7] - parameter array, outlier fraction at the end
 
@@ -293,11 +391,33 @@ model to account for outliers. Inputs:
 
     xicovars -   [N,2,2] stack of covariance matrices in (xi, eta)
     
-    covOutliers - [2,2] fixed covariance for the outlier points
+    covout - [N, 2,2] fixed covariance for the outlier points
 
     """
 
+    # Separate out the pars from the mixture fraction
+    parsmod = pars[0:-1]
+    lnfout = pars[-1]
+
+    fout = np.exp(lnfout)
     
+    # Now compute the inlier and outlier likelihoods
+    inliers = loglike_linear_unctyproj(parsmod, xypattern, xi, \
+                                       xycovars, xicovars)
+    outliers = loglike_linear(parsmod, xypattern, xi, \
+                              covout)
+    
+    # prepare the mixture for logsumexp. Should be [k,N]
+    b = np.ones( (2,xypattern.shape[0]) )
+    b[0] = 1.0 - fout
+    b[1] = fout
+
+    loglikemix = logsumexp( np.vstack((inliers, outliers)), b=b, axis=0 )
+
+    # print("LL INFO:", parsmod, lnfout, inliers.shape, outliers.shape, loglikemix.shape)
+    
+    
+    return loglikemix
     
 def logprob_linear_unctyproj_unif(pars, xypattern, xi, xycovars, xicovars):
 
@@ -311,7 +431,23 @@ covariances. Assumes uniform prior on the parameters.
     if not np.isfinite(lp):
         return -np.inf
 
-    return lp + loglike_linear_unctyproj(pars, xypattern, xi, \
-                                         xycovars, xicovars)
+    return lp + np.sum(loglike_linear_unctyproj(pars, xypattern, xi, \
+                                         xycovars, xicovars) )
     
 
+def logprob_linear_unctyproj_outliers_unif(pars, xypattern, xi, \
+                                           xycovars, xicovars, \
+                                           covout):
+
+    """Returns ln(posterior) for 6-term mapping plus mixture fraction,
+with uniform prior on the 6 parameters."""
+
+    lp = logprior_unif_mixture(pars)
+    if not np.isfinite(lp):
+        return -np.inf
+
+    
+    ll =  loglike_linear_unctyproj_outliers(pars, xypattern, xi, \
+                                            xycovars, xicovars, covout)
+
+    return lp + np.sum(ll)

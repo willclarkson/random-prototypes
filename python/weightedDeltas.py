@@ -5773,7 +5773,8 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
 
 def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
              errscalefac=10., showDataTransf=True, chainlen=5000, ntau=3, \
-             perturbXY=False, mcmcUnctyXY=False):
+             perturbXY=False, mcmcUnctyXY=False, \
+             mixmodOutliers=False, sfOutliers=1000.):
 
     """Sets up input and output datasets and uses MCMC"""
 
@@ -5794,6 +5795,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # when tinkering)
     MC.writeParfile()
 
+    
     # Create covariance stack for measurement uncertainties in the XY
     # plane. Later we'll want this to track in some sense the xieta
     # uncertainties on the grounds that brighter objects would be
@@ -5932,17 +5934,40 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
         args = (PATT.pattern, xiObs, CVD.covars, MC.CF.covars)
         
-        ufunc = lambda *args: -likesMCMC.loglike_linear_unctyproj(*args)
+        ufunc = lambda *args: -np.sum(likesMCMC.loglike_linear_unctyproj(*args))
         #soln = minimize(ufunc, parsGuess, args=(PATT.pattern, xiObs, \
         #                                        MC.CF.covars, CVD.covars))
-        
+
+        # If we are exploring a mixture-model to outliers, set up
+        # appropriately here.
+        if mixmodOutliers:
+            # prepare the inverse covariance for the outliers
+            covout = likesMCMC.prepCovForOutliers(MC.CF.covars, \
+                                                  sfOutliers)
+
+            args = (PATT.pattern, xiObs, CVD.covars, MC.CF.covars, covout)
+
+            ## WATCHOUT - THE SIGN BEFORE LIKESMCMC
+            ufunc = lambda *args: \
+                -np.sum(likesMCMC.loglike_linear_unctyproj_outliers(*args))
+            
+            # add a guess for the mixmod fraction onto the
+            # parsGuess. Note that the parameter is ln(fout) to ensure
+            # positivity.
+            parsGuess = np.hstack(( parsGuess, -3. ))
+
     else:
         # Now we try finding the point estimate, pretending we don't
         # know how to do this test case by linear algebra methods...
 
-        args = (PATT.pattern, xiObs, covinv)
+        args = (PATT.pattern, xiObs, covinv)        
+        ufunc = lambda *args: -np.sum(likesMCMC.loglike_linear_fast(*args))
+
+        ### 2023-07-17 try with the full loglike_linear to test the method
+        ### args = (PATT.pattern, xiObs, MC.CF.covars)        
+        ### ufunc = lambda *args: -np.sum(likesMCMC.loglike_linear(*args))
         
-        ufunc = lambda *args: -likesMCMC.loglike_linear(*args)
+
         #soln = minimize(ufunc, parsGuess, args=(PATT.pattern, xiObs, covinv))
 
         #print("log(post): ", likesMCMC.logprob_linear_unif(parsGuess, PATT.pattern, xiObs, covinv))
@@ -5956,8 +5981,13 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     print("log(post): ", 0. -ufunc(parsGuess, *args))
     
     print(soln.x)
-    print(parsTruth)
-
+    print(parsTruth)    
+    
+    # Return for debug - where is this breaking??
+    #if mixmodOutliers:
+    #    print("HERE")
+    #    # return
+    
     # while checking the output of the logprob, return here
     # return
     
@@ -5967,19 +5997,40 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     pertn = np.random.randn(nchains, soln.x.size)
     magn = 0.01 * soln.x
     pos = soln.x + pertn * magn[np.newaxis,:]
+
+    if mixmodOutliers:
+        print("HERE:")
+
+        # 2023-07-17 the scipy minimize doesn't work with the mixture
+        # model, so we try a simpler approach. For the moment, try
+        # perturbing the TRUTH parameters:
+        pars7 = np.hstack(( parsTruth, -3. ))
+        pertn = np.random.randn(nchains, pars7.size)
+        magn = 0.03 * pars7
+        pos = pars7 + pertn * magn[np.newaxis,:]
+        
+        #print(pos[0])
+        #print(pos[1])
+        #return
     
-    # pos = soln.x + 1.0e-3 * np.random.randn(nchains, soln.x.size)
+    ### pos = soln.x + 1.0e-3 * np.random.randn(nchains, soln.x.size)
     nwalkers, ndim = pos.shape
 
-    #print("Initial guess:", pos.shape)
-    
-    #return
-
+    # print("Initial guess:", pos.shape)
+    # return
+        
     # Which posterior function are we using?
-    methpost = likesMCMC.logprob_linear_unif
+    methpost = likesMCMC.logprob_linear_unif_fast
+
+    ### 2023-07-17 try the full (not fast) version
+    ### methpost = likesMCMC.logprob_linear_unif
+    
     if mcmcUnctyXY:
         methpost = likesMCMC.logprob_linear_unctyproj_unif
-    
+
+        if mixmodOutliers:
+            methpost = likesMCMC.logprob_linear_unctyproj_outliers_unif
+        
     #sampler = emcee.EnsembleSampler(nwalkers, ndim, \
     #                                likesMCMC.logprob_linear_unif, \
     #                                args=args)
@@ -6023,8 +6074,20 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # Let's take a look at the samples...
     samples = sampler.get_chain()
     labels = ["a", "b", "c", "d", "e", "f"]
+
+    ### 2023-07-17 - fudge for the mixture fraction being a parameter
+    if mixmodOutliers:
+        labels = labels + ["ln(fout)"]
+        labelsh = labelsh + ["ln(fout)"]
+        parsTruth = np.hstack(( parsTruth, np.log(MC.fOutly) ))
+        parsTruthInp = np.hstack(( parsTruthInp, np.log(MC.fOutly) ))
+
+        flat_human = np.column_stack(( flat_human, flat_samples[:,-1] ))
+        
+        print("TEST:", flat_samples.shape, len(labels), parsTruth.shape)
+        print("TEST:", flat_human.shape, len(labelsh), parsTruthInp.shape)
     
-    print(samples.shape)
+    print(samples.shape, ndim)
 
     fig3, axes = plt.subplots(ndim, sharex=True, num=3)
     
@@ -6110,7 +6173,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
         # Show the deltas between the bestfit transformed xy and the
         # observations
-        xyproj = np.matmul(PATT.pattern, soln.x)
+        xyproj = np.matmul(PATT.pattern, soln.x[0:6])
         dx_p = MC.xiRaw - xyproj[:,0]
         dy_p = MC.etaRaw - xyproj[:,1]
         
