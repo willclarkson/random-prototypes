@@ -145,6 +145,26 @@ def abcToJ(abc):
 
     return np.array([[b,c], [e,f]])
 
+def prepInvcovForOutliers(covars, scalefac=10):
+
+    """Utility: given a [N,2,2] set of covariances, prepare the inverse of
+the scaled covariance as a [2,2] output."""
+
+    # covars must be 2 or 3 dimensional
+    ndimen = covars.ndim
+    if not (1 < ndimen < 4):
+        print("prepInvcovForOutliers FATAL - covars must be 2D or 3D.")
+        return np.array([])
+
+    # if [N,2,2] take the median and scale, otherwise just use the input
+    if ndimen == 3:
+        covscal = np.median(covars,axis=0)*scalefac
+    else:
+        covscal = covars * scalefac
+
+    return np.linalg.inv(covscal)
+        
+        
 ################ log-likelihood and priors follow #################
 
 def loglike_linear(pars, xypattern, xi, invcovars):
@@ -252,6 +272,32 @@ def loglike_linear_unctyproj(pars, xypattern, xi, xycovars, xicovars):
     term_dets = -0.5 * np.sum(lndets)
 
     return term_expon + term_dets
+
+### log-likelihood for mixture model for outliers
+
+def loglike_linear_unctyproj_outliers(pars, xypattern, xi, \
+                                      xycovars, xicovars, \
+                                      covOutliers=np.eye(2)):
+
+    """Returns the log-likelihood for 6-term plane mapping, when both
+(x,y) and (xi,eta) have uncertainty covariances, and we use a mixture
+model to account for outliers. Inputs:
+
+    pars - [7] - parameter array, outlier fraction at the end
+
+    xypattern = [N,2,6] - element pattern array in xy
+    
+    xi = [N,2] - N-element target positions (xi, eta)
+
+    xycovars  -  [N,2,2] stack of covariance matrices in (x,y)
+
+    xicovars -   [N,2,2] stack of covariance matrices in (xi, eta)
+    
+    covOutliers - [2,2] fixed covariance for the outlier points
+
+    """
+
+    
     
 def logprob_linear_unctyproj_unif(pars, xypattern, xi, xycovars, xicovars):
 
@@ -268,3 +314,4 @@ covariances. Assumes uniform prior on the parameters.
     return lp + loglike_linear_unctyproj(pars, xypattern, xi, \
                                          xycovars, xicovars)
     
+
