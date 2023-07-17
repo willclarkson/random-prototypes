@@ -5969,21 +5969,24 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
         # If we are exploring a mixture-model to outliers, set up
         # appropriately here.
-        if mixmodOutliers:
-            # prepare the inverse covariance for the outliers
-            covout = likesMCMC.prepCovForOutliers(MC.CF.covars, \
-                                                  sfOutliers)
+        #
+        # 2023-07-17 THIS DOESN'T WORK FOR MIXMOD - comment out for
+        # the moment
+        #if mixmodOutliers:
+        #    # prepare the inverse covariance for the outliers
+        #    covout = likesMCMC.prepCovForOutliers(MC.CF.covars, \
+        #                                          sfOutliers)
 
-            args = (PATT.pattern, xiObs, CVD.covars, MC.CF.covars, covout)
+        #    args = (PATT.pattern, xiObs, CVD.covars, MC.CF.covars, covout)
 
-            ## WATCHOUT - THE SIGN BEFORE LIKESMCMC
-            ufunc = lambda *args: \
-                -np.sum(likesMCMC.loglike_linear_unctyproj_outliers(*args))
+        #    ## WATCHOUT - THE SIGN BEFORE LIKESMCMC
+        #    ufunc = lambda *args: \
+        #        -np.sum(likesMCMC.loglike_linear_unctyproj_outliers(*args))
             
-            # add a guess for the mixmod fraction onto the
-            # parsGuess. Note that the parameter is ln(fout) to ensure
-            # positivity.
-            parsGuess = np.hstack(( parsGuess, -3. ))
+        #    # add a guess for the mixmod fraction onto the
+        #    # parsGuess. Note that the parameter is ln(fout) to ensure
+        #    # positivity.
+        #    parsGuess = np.hstack(( parsGuess, -3. ))
 
     else:
         # Now we try finding the point estimate, pretending we don't
@@ -6028,12 +6031,13 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     pos = soln.x + pertn * magn[np.newaxis,:]
 
     if mixmodOutliers:
-        print("HERE:")
+        print("HERE:", soln.x.shape)
 
         # 2023-07-17 the scipy minimize doesn't work with the mixture
-        # model, so we try a simpler approach. For the moment, try
-        # perturbing the TRUTH parameters:
-        pars7 = np.hstack(( parsTruth, -3. ))
+        # model, so we try a simpler approach... we fit the guess
+        # without the mixture model, and use the one-component as our
+        # input guess.
+        pars7 = np.hstack(( soln.x, -3. ))
         pertn = np.random.randn(nchains, pars7.size)
         magn = 0.03 * pars7
         pos = pars7 + pertn * magn[np.newaxis,:]
@@ -6059,7 +6063,11 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
         if mixmodOutliers:
             methpost = likesMCMC.logprob_linear_unctyproj_outliers_unif
-        
+
+            # We have to ensure the args are correct for THIS method:
+            covout = likesMCMC.prepCovForOutliers(MC.CF.covars, sfOutliers)
+            args = (PATT.pattern, xiObs, CVD.covars, MC.CF.covars, covout)
+            
     #sampler = emcee.EnsembleSampler(nwalkers, ndim, \
     #                                likesMCMC.logprob_linear_unif, \
     #                                args=args)
@@ -6162,13 +6170,11 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     cornerAxes5 = np.array(fig5.axes).reshape((ndim, ndim))
 
     for iax in range(ndim):
-        ax4 = cornerAxes4[iax, iax]
-        ax4.axvline(maximaLinear[iax], color='g', alpha=0.5, ls='--')
-
-        print(maximaLinear[iax], maximaHuman[iax])
-        
         ax5 = cornerAxes5[iax, iax]
-        ax5.axvline(maximaHuman[iax], color='g', alpha=0.5, ls='--')
+        ax5.axvline(maximaLinear[iax], color='g', alpha=0.5, ls='--')
+
+        ax4 = cornerAxes4[iax, iax]
+        ax4.axvline(maximaHuman[iax], color='g', alpha=0.5, ls='--')
 
         
     #lnlike = likesMCMC.loglike_linear(parsTruth, PATT.pattern, xiObs, covinv)

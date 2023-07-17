@@ -1,0 +1,99 @@
+# Pars for NormWithMonteCarlo
+# 2023-06-16 09:35:33.888994
+#
+# attribute_name value
+
+# True transformation
+# simNpts 15
+# simNpts 4
+# simNpts 50
+## simNpts 200
+simNpts 100
+# simNpts 1000
+simSx -0.000500
+simSy 0.000400
+simRotDeg 60.000000
+simSkewDeg 5.000000
+simXiRef 0.050000
+simEtaRef -0.060000
+
+
+
+# Focal plane field of view
+simXmin 0.000000
+simXmax 500.000000
+simYmin 0.000000
+simYmax 500.000000
+simXcen 0.
+simYcen 0.
+xRef 250.
+yRef 250.
+
+# Gaussian component params
+simMakeGauss 0
+simGauMajor 100.000000
+simGauMinor 60.000000
+simGauTheta -15.000000
+
+# Simulated covariances parameters
+#
+# remember, simAlo and simAhi are VARIANCES!
+simAlo 0.000000200
+simAhi 0.000002000
+#simAlo 0.0000100
+#simAhi 0.0002000
+# simRotCov 30.000000
+simRotCov 30.
+# This ratio is COVARIANCES not STDDEVS
+simBAlo 0.01
+simBAhi 0.09
+
+# Outlier generation
+fOutly 0.1
+rOutly_min_arcsec 3.
+rOutly_max_arcsec 20.
+
+# try small outliers
+#fOutly 0.2
+#rOutly_min_arcsec 1.
+#rOutly_max_arcsec 10.
+
+
+#fOutly 0.05
+#rOutly_min_arcsec 10.
+#rOutly_max_arcsec 50.
+
+
+# Try huge outliers
+# fOutly 0.05
+# rOutly_min_arcsec 30.0
+# rOutly_max_arcsec 200.
+
+
+# Stripe parameters
+genStripe 1
+stripeFrac 0.500000
+stripeCovRatio 1.000000
+
+# Sort positionally?
+posnSortCol xiRaw
+
+# Monte carlo settings
+nTrials 10000
+resetPositions 0
+doFewWeightings 1
+doNonparam 1
+paramUsesTrueTransf 1
+whichFittedTransf full
+fNonparam 1.000000
+filParamsIn BLANK
+filParamsOut tmp_mcparams.txt
+
+# Settings for fit
+fitChoice 6term
+flipx 0
+
+# summary statistics settings
+stemCornerFil tmp_corner
+stemSummStats tmp_summ
+tailSummStats .csv
