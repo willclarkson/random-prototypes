@@ -41,6 +41,9 @@ import likesMCMC
 import emcee
 from scipy.optimize import minimize
 
+# for finding marginal maxima
+from scipy.stats import gaussian_kde
+
 
 class CooSet(object):
 
@@ -4836,7 +4839,33 @@ skew."""
 
     return astack.sx, astack.sy, astack.rotDeg, astack.skewDeg
     
+
+##### Utility - find marginal maxima
+
+def kdemax(x=np.array([]) ):
+
+    """Utility - find the maximum-density for input array"""
+
+    if np.size(x) < 1:
+        return np.nan
+
+    # Set up the kernel using gaussian kde with default settings
+    kernel = gaussian_kde(x)
+    imax = np.argmax(kernel.pdf(x))
+    return x[imax]
+
+def marginalMaxima(samples):
+
+    """Utility - finds the maximum marginal densities for samples"""
+
+    ncols = samples.shape[-1]
+    maxima = np.zeros(ncols)
+    for icol in range(ncols):
+        maxima[icol] = kdemax(samples[:,icol])
+
+    return maxima
     
+###### TEST METHODS
     
 def testSet(nPts = 100, fBad=0.6, useWeights=True, unctyFac=10., \
                 nBoots=100, fResample=1., showFig=True):
@@ -6086,7 +6115,14 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         
         print("TEST:", flat_samples.shape, len(labels), parsTruth.shape)
         print("TEST:", flat_human.shape, len(labelsh), parsTruthInp.shape)
-    
+
+    # Find the marginal maxima
+    maximaLinear = marginalMaxima(flat_samples)
+    maximaHuman  = marginalMaxima(flat_human)
+        
+    # write the samples to disk
+    # np.savetxt('TEST_samples.txt', flat_samples)
+        
     print(samples.shape, ndim)
 
     fig3, axes = plt.subplots(ndim, sharex=True, num=3)
@@ -6120,7 +6156,21 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # some cosmetic adjusting
     for fig in [fig4, fig5]:
         fig.subplots_adjust(left=0.2, bottom=0.2)
-    
+
+    # try showing the modes
+    cornerAxes4 = np.array(fig4.axes).reshape((ndim, ndim))
+    cornerAxes5 = np.array(fig5.axes).reshape((ndim, ndim))
+
+    for iax in range(ndim):
+        ax4 = cornerAxes4[iax, iax]
+        ax4.axvline(maximaLinear[iax], color='g', alpha=0.5, ls='--')
+
+        print(maximaLinear[iax], maximaHuman[iax])
+        
+        ax5 = cornerAxes5[iax, iax]
+        ax5.axvline(maximaHuman[iax], color='g', alpha=0.5, ls='--')
+
+        
     #lnlike = likesMCMC.loglike_linear(parsTruth, PATT.pattern, xiObs, covinv)
     #print(lnlike, likesMCMC.loglike_linear(parsGuess, PATT.pattern, xiObs, covinv))
 
@@ -6173,7 +6223,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
         # Show the deltas between the bestfit transformed xy and the
         # observations
-        xyproj = np.matmul(PATT.pattern, soln.x[0:6])
+        xyproj = np.matmul(PATT.pattern, maximaLinear[0:6])
         dx_p = MC.xiRaw - xyproj[:,0]
         dy_p = MC.etaRaw - xyproj[:,1]
         
@@ -6224,3 +6274,8 @@ annulus
     dum = ax6.scatter(dx, dy, alpha=0.5, s=2, c='g')
     ax6.set_xlabel('dx')
     ax6.set_ylabel('dy')
+
+
+
+
+    
