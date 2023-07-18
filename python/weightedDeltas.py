@@ -6127,6 +6127,16 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # Find the marginal maxima
     maximaLinear = marginalMaxima(flat_samples)
     maximaHuman  = marginalMaxima(flat_human)
+
+    # Calculate the log responsibilities if mixture model
+    logresp_ou = np.array([])
+    if mixmodOutliers:
+        logresp_in, logresp_ou = \
+            likesMCMC.loglike_linear_unctyproj_outliers(maximaLinear, \
+                                                        *args, calcResps=True)
+
+        # take a look at the logresp_ou values
+        print("mixmodOutliers INFO", logresp_in.shape, logresp_ou.shape, logresp_ou.min(), logresp_ou.max() ) 
         
     # write the samples to disk
     # np.savetxt('TEST_samples.txt', flat_samples)
@@ -6237,7 +6247,11 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         coutly = np.asarray(MC.isOutlier,'float')
         if np.sum(MC.isOutlier) < 1:
             coutly = 'k'
-        
+
+        if np.size(logresp_ou) > 0:
+            print("INFO - coloring ax2 by fitted outlier responsibility")
+            coutly = np.exp(logresp_ou)
+            
         blah = ax2.scatter(dxi*3600., deta*3600., alpha=0.5, s=3, c=coutly, \
                            cmap='RdBu_r')
         ax2.set_xlabel(r'$\Delta \xi$, arcsec')
