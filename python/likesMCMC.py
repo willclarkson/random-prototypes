@@ -375,7 +375,8 @@ SUM OVER N. Inputs:
 
 def loglike_linear_unctyproj_outliers(pars, xypattern, xi, \
                                       xycovars, xicovars, \
-                                      covout=np.eye(2)):
+                                      covout=np.eye(2), \
+                                      calcResps=False):
 
     """Returns the log-likelihood for 6-term plane mapping, when both
 (x,y) and (xi,eta) have uncertainty covariances, and we use a mixture
@@ -392,6 +393,8 @@ model to account for outliers. DOES NOT SUM ALONG N. Inputs:
     xicovars -   [N,2,2] stack of covariance matrices in (xi, eta)
     
     covout - [N, 2,2] fixed covariance for the outlier points
+
+    calcResps - if true, returns the log responsibilities for every object
 
     """
 
@@ -414,9 +417,10 @@ model to account for outliers. DOES NOT SUM ALONG N. Inputs:
 
     loglikemix = logsumexp( np.vstack((inliers, outliers)), b=b, axis=0 )
 
-    # print("LL INFO:", parsmod, lnfout, inliers.shape, outliers.shape, loglikemix.shape)
-    
-    
+    if calcResps:
+        logResp_inlier = np.log(1.0-fout) + inliers - loglikemix
+        return logResp_inlier, np.log(1.0-np.exp(logResp_inlier))    
+   
     return loglikemix
     
 def logprob_linear_unctyproj_unif(pars, xypattern, xi, xycovars, xicovars):
