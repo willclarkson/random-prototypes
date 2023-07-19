@@ -273,6 +273,23 @@ def logprior_unif(pars):
 
     return 0.
 
+def logprior_unif_scalenobias(pars):
+
+    """Enforces uniform prior including the jacobian det correction factor for the scale factor product"""
+
+    # These are absolute values (we are not enforcing the conditions
+    # to include the flipping in sf)
+    
+    sx = np.sqrt(pars[1]**2 + pars[4]**2)
+    sy = np.sqrt(pars[2]**2 + pars[5]**2)
+
+    lp = 0.-np.log10(sx)-np.log10(sy)
+
+    if not np.isfinite(lp):
+        return -np.inf
+    
+    return lp
+    
 def logprior_unif_signs(pars):
 
     """Enforces a prior on the sign of the parameters."""
@@ -295,6 +312,9 @@ def logprior_unif_mixture(pars):
     if pars[-1] > 0.:
         return -np.inf
 
+    # ugh - this is starting to get nested...
+    lp = logprior_unif_scalenobias(pars[0:6])
+    
     return 0.
     
 def logprob_linear_unif_fast(pars, xypattern, xi, invcovars):
@@ -321,7 +341,8 @@ def logprob_linear_unif(pars, xypattern, xi, covars):
 
     # Thought: we probably could pass the methods in to this object?
     
-    lp = logprior_unif(pars)
+    # lp = logprior_unif(pars)
+    lp = logprior_unif_scalenobias(pars)
     if not np.isfinite(lp):
         return -np.inf
 

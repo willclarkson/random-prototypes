@@ -6313,7 +6313,7 @@ def loopSimpleTests(ntrials=10):
                                          errscalefac=1., \
                                          showDataTransf=False, \
                                          chainlen=5000, \
-                                         ntau=10, perturbXY=True, \
+                                         ntau=10, perturbXY=False, \
                                          mcmcUnctyXY=False, \
                                          nchains=32, testingBias=True)
 
