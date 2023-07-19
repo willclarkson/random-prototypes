@@ -277,13 +277,17 @@ def logprior_unif_scalenobias(pars):
 
     """Enforces uniform prior including the jacobian det correction factor for the scale factor product"""
 
-    # These are absolute values (we are not enforcing the conditions
-    # to include the flipping in sf)
+    # The jacobian determinant is 1/(sxsy). So if there is a uniform
+    # prior in the parameters (a,d,sx,sy,theta,beta) then the jac det
+    # correction on prior(a,b,c,d,e,f) is 1/(sxsy), or on log(prior)
+    # it is 0. - log(sx) - log(sy). Since sx = sqrt(b^2 + e^2) and sy
+    # = sqrt(c^2 + f^2), we thus have log(prior on sx) - 0.5log(b^2 +
+    # e^2) and similar for sy. So:
     
-    sx = np.sqrt(pars[1]**2 + pars[4]**2)
-    sy = np.sqrt(pars[2]**2 + pars[5]**2)
+    sx2 = pars[1]**2 + pars[4]**2
+    sy2 = pars[2]**2 + pars[5]**2
 
-    lp = 0.-np.log10(sx)-np.log10(sy)
+    lp = 0.-0.5*np.log10(sx2)-0.5*np.log10(sy2)
 
     if not np.isfinite(lp):
         return -np.inf
