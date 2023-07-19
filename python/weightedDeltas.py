@@ -5803,7 +5803,8 @@ def fitAndBootstrap(parFile='inp_mcparams.txt'):
 def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
              errscalefac=10., showDataTransf=True, chainlen=5000, ntau=3, \
              perturbXY=False, mcmcUnctyXY=False, \
-             mixmodOutliers=False, sfOutliers=1000.):
+             mixmodOutliers=False, sfOutliers=1000., \
+             testingBias=False):
 
     """Sets up input and output datasets and uses MCMC"""
 
@@ -6140,7 +6141,26 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         
     # write the samples to disk
     # np.savetxt('TEST_samples.txt', flat_samples)
+
+    # Compare the MAP parameters with the truth parameters. Include
+    # the product sxsy.
+    if testingBias:
+        sxsy = flat_human[:,2] * flat_human[:,3]
+        pars2test = np.column_stack(( flat_human, sxsy))
+       
+        maximaRatio = marginalMaxima(pars2test)
+        maximaStd = np.std(pars2test, axis=0)
+        sxsyTruth = parsTruthInp[2]*parsTruthInp[3]
+        truthTest = np.hstack(( parsTruthInp, sxsyTruth ))
+
+        # now return so that we can see the trials
+        return maximaRatio, maximaStd, truthTest
         
+        print(np.size(maximaRatio), np.size(maximaStd))
+        print(truthTest)
+        
+    ###### FIGURES FOLLOW BELOW ########
+    
     print(samples.shape, ndim)
 
     fig3, axes = plt.subplots(ndim, sharex=True, num=3)
@@ -6275,8 +6295,56 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         ax2b.set_ylabel(r'$\Delta \eta$, arcsec')
         ax2b.set_title(r'transf minus truth')
 
-        
+def loopSimpleTests(ntrials=10):
 
+    """Performs a number of simulations + MCMCs, returning the MAP, std(MAP) and truth values in each. The point is to look for bias when simulating over a number of realizations"""
+
+    peaks  = np.array([])
+    widths = np.array([])
+    truth = np.array([])
+
+    for itrial in range(ntrials):
+
+        # We DO perturb by xy but don't include that in the fit. This
+        # is to make the data a bit more agnostic on the true values
+        # to increase the opportunity for the prior to make a
+        # difference.
+        maxima, stdds, truths = testMCMC('simple_mcparams.txt',\
+                                         errscalefac=1., \
+                                         showDataTransf=False, \
+                                         chainlen=5000, \
+                                         ntau=10, perturbXY=True, \
+                                         mcmcUnctyXY=False, \
+                                         nchains=32, testingBias=True)
+
+        if np.size(peaks) < 1:
+            peaks = np.copy(maxima)
+            widths = np.copy(stdds)
+            truths = np.copy(truths)
+
+        else:
+            peaks = np.vstack(( peaks, maxima ))
+            widths = np.vstack(( widths, stdds ))
+
+    # now show a quick plot
+    labels = [r"$\Delta\xi$", r"$\Delta \eta$", r"$s_x$", r"$s_y$", \
+              r"$\theta$", r"$\beta$", r"$s_X s_Y$"]
+
+    ncols = peaks.shape[-1]
+    xtrial = np.arange(peaks.shape[0])
+    fig1, axes = plt.subplots(ncols, sharex=True, num=1)
+    for iax in range(ncols):
+        axes[iax].errorbar(xtrial, peaks[:,iax], widths[:,iax], ls='None', \
+                           fmt='ko', ms=2)
+        axes[iax].axhline(truths[iax], color='b')
+        axes[iax].set_ylabel(labels[iax])
+
+    axes[iax].set_xlabel('Trial number')
+
+    # save trials to disk (transposed for 7xN)
+    np.savetxt('TEST_peaks.txt', peaks.T)
+    np.savetxt('TEST_widths.txt', widths.T)
+        
 def testRandomDisk(n=100, rmax=1., rmin=0.):
 
     """Test the method for uniform random xy points generation within an
