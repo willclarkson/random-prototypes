@@ -124,7 +124,7 @@ def testfov(arcminx=10., arcminy=10., alpha0deg = 0., delta0deg=0., \
 
 
      fig.subplots_adjust(hspace=0.3, wspace=0.3)
-     ssuptitle=r'$\Delta \alpha_0 = %.2f mas, \Delta \delta_0=%.2f mas$' \
+     ssuptitle=r'$(\Delta \alpha_0, \Delta \delta_0) = (%.1f, %.1f)$ mas' \
          % (damas, ddmas)
 
      fig.suptitle(ssuptitle)
