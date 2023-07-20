@@ -8,7 +8,7 @@
 import numpy as np
 import matplotlib.pylab as plt
 
-def buildfov(arcminx=10., arcminy=10., nx=101, ny=101):
+def buildfov(arcminx=10., arcminy=10., nx=101, ny=101, posdeg=0.):
 
     """Builds a grid of focal plane coordinates in radians"""
 
@@ -22,6 +22,19 @@ def buildfov(arcminx=10., arcminy=10., nx=101, ny=101):
 
     return xg, yg
 
+def rotatefov(x,y,posdeg=0):
+
+    """Rotates the focal plane by posdeg degrees"""
+
+    posrad = np.radians(posdeg)
+    cc = np.cos(posrad)
+    ss = np.sin(posrad)
+
+    xr = x * cc - y*ss
+    yr = x * ss + y*cc
+
+    return xr, yr
+    
 def fov2radec(x,y, ra0deg=0., dec0deg=0.):
 
     """Converts focal plane coordinates to ra, dec specified in degrees"""
@@ -57,16 +70,17 @@ delta0). All the inputs are in radians. Returns the four components of the jacob
 
     gamma_xi = np.cos(dde) - np.cos(delta)*np.cos(delta0)*(1.-np.cos(dra))
 
-    J_x_a0 = np.cos(delta)/gamma_xi**2 * \
+    J_x_a0 = 0. -(np.cos(delta)/gamma_xi**2) * \
         (np.cos(dde) - np.sin(delta)*np.sin(delta0)*(1.0-np.cos(dra)) )
 
-    J_x_d0 = np.cos(delta)/gamma_xi**2 * \
-        (np.sin(dra) + np.sin(delta0)*np.cos(delta)*(1.-np.cos(dra)) )
+    J_x_d0 = (np.cos(delta)/gamma_xi**2) * \
+        (np.sin(dde) + np.sin(delta0)*np.cos(delta)*(1.-np.cos(dra)) ) \
+        * np.sin(dra)
 
-    J_y_a0 = -0.5 * np.sin(2.*delta)/gamma_xi**2 * \
+    J_y_a0 = -(0.5 * np.sin(2.*delta)/gamma_xi**2) * \
         np.sin(dra)
 
-    J_y_d0 = -1.0/gamma_xi**2 * \
+    J_y_d0 = -(1.0/gamma_xi**2) * \
         (1.-np.cos(delta)**2 * (1.-np.cos(dra)**2) )
 
     return J_x_a0, J_x_d0, J_y_a0, J_y_d0
@@ -75,15 +89,13 @@ delta0). All the inputs are in radians. Returns the four components of the jacob
 
 
 def testfov(arcminx=10., arcminy=10., alpha0deg = 0., delta0deg=0., \
-            damas=1000., ddmas=1000.):
+            damas=1000., ddmas=1000., posdeg=0.):
 
      """End-to-end test"""
 
      xg, yg = buildfov(arcminx, arcminy)
-
-     # Add rotation here?
-     
-     ra, dec = fov2radec(xg, yg, alpha0deg, delta0deg)
+     xr, yr = rotatefov(xg, yg, posdeg)
+     ra, dec = fov2radec(xr, yr, alpha0deg, delta0deg)
      
      J_xa, J_xd, J_ya, J_yd = jacobianpointing(ra, dec, alpha0deg, delta0deg)
 
@@ -102,19 +114,22 @@ def testfov(arcminx=10., arcminy=10., alpha0deg = 0., delta0deg=0., \
 
      # Correction factor for projection
      cosdec0 = np.cos(np.radians(delta0deg))
-     
-     cols = [J_xa/cosdec0, J_xd, J_ya, J_yd]
-     labels = [r'$\partial x/(\cos{\delta_0} \partial \alpha_0)$', \
-               r'$\partial x/\partial \delta_0$', \
-               r'$\partial y/\partial \alpha_0$', \
-               r'$\partial y/\partial \delta_0$']
+     # cosdec0 = np.cos(dec)
 
-     deltas = [damas, ddmas, damas, ddmas]
+     # correct the cols and deltas for cos(dec_0)
+     
+     cols = [J_xa, J_xd, J_ya, J_yd]
+     labels = [r'$(\partial x/\partial \alpha_0) \Delta \alpha_0$', \
+               r'$(\partial x/\partial \delta_0) \Delta \delta_0$', \
+               r'$(\partial y/\partial \alpha_0) \Delta \alpha_0$', \
+               r'$(\partial y/\partial \delta_0) \Delta \delta_0$']
+
+     deltas = [damas/cosdec0, ddmas, damas/cosdec0, ddmas]
      
      for iax in range(len(axes)):
          ax = axes[iax]
          dum = ax.scatter(xgarcmin, ygarcmin, c=cols[iax]*deltas[iax])
-         ax.set_title(labels[iax])
+         ax.set_title('%s , mas' % (labels[iax]))
 
          ax.set_xlabel('x (arcmin)')
          ax.set_ylabel('y (arcmin)')
@@ -124,7 +139,11 @@ def testfov(arcminx=10., arcminy=10., alpha0deg = 0., delta0deg=0., \
 
 
      fig.subplots_adjust(hspace=0.3, wspace=0.3)
-     ssuptitle=r'$(\Delta \alpha_0, \Delta \delta_0) = (%.1f, %.1f)$ mas' \
-         % (damas, ddmas)
+     ssuptitle=r'$(\cos{\delta_0} \Delta \alpha_0, \Delta \delta_0) = (%.1f$",$ %.1f$"$)$' \
+         % (damas/1000., ddmas/1000.)
 
+     # add the pointing
+     ssuptitle = r'%s , ($\alpha_0, \delta_0, \phi) = (%.1f, %.1f, %.2f)$' \
+         % (ssuptitle, alpha0deg, delta0deg, posdeg)
+     
      fig.suptitle(ssuptitle)
