@@ -55,8 +55,25 @@ def fov2radec(x,y, ra0deg=0., dec0deg=0.):
 
     return alpha, delta
 
+def radec2fov(ra, dec, alpha0deg, delta0deg):
 
+    """Converts ra, dec to focal plane x, y. RA, DEC in radians,
+alpha0deg, dec0deg in degrees."""
 
+    dec0rad = np.radians(delta0deg)
+    ra0rad = np.radians(alpha0deg)
+
+    dra = ra - ra0rad
+    ddec = dec - dec0rad
+
+    denom = np.cos(ddec) - np.cos(dec0rad)*np.cos(dec)*(1.0-np.cos(dra))
+
+    xrad = np.cos(dec)*np.sin(dra) / denom
+    yrad = (np.sin(ddec)+np.sin(dec0rad)*np.cos(dec)*(1.0-np.cos(dra))) / denom
+
+    return xrad, yrad
+    
+    
 def jacobianpointing(alpha, delta, alpha0deg=0., delta0deg=0.):
 
     """Computes the terms in the jacobian delta(x,y)/delta(alpha0,
@@ -89,14 +106,35 @@ delta0). All the inputs are in radians. Returns the four components of the jacob
 
 
 def testfov(arcminx=10., arcminy=10., alpha0deg = 0., delta0deg=0., \
-            damas=1000., ddmas=1000., posdeg=0.):
+            damas=1000., ddmas=1000., posdeg=0., xoffax=0., yoffax=0.):
 
      """End-to-end test"""
 
      xg, yg = buildfov(arcminx, arcminy)
      xr, yr = rotatefov(xg, yg, posdeg)
-     ra, dec = fov2radec(xr, yr, alpha0deg, delta0deg)
+
+     # Now allow an off-axis offset in arcmin
+     dxax = np.radians(xoffax/60.)
+     dyax = np.radians(yoffax/60.)
      
+     ra, dec = fov2radec(xr+dxax, yr+dyax, alpha0deg, delta0deg)
+
+     # Compute the reprojected positions directly.
+     cosdec0 = np.cos(np.radians(delta0deg))
+
+     alpha1deg = alpha0deg + damas/(3.6e6 * cosdec0)
+     delta1deg = delta0deg + ddmas/3.6e6
+
+     # Now we undo the transformations one by one
+     xf1, yf1 = radec2fov(ra, dec, alpha1deg, delta1deg)
+     xr1 = xf1 - dxax
+     yr1 = yf1 - dyax
+
+     print("POSDEG", posdeg)
+     
+     x1, y1 = rotatefov(xr1, yr1, -posdeg)
+     
+     # Compute the jacobian
      J_xa, J_xd, J_ya, J_yd = jacobianpointing(ra, dec, alpha0deg, delta0deg)
 
      # Convert the focal plane coordinates to arcmin for plotting
@@ -147,3 +185,8 @@ def testfov(arcminx=10., arcminy=10., alpha0deg = 0., delta0deg=0., \
          % (ssuptitle, alpha0deg, delta0deg, posdeg)
      
      fig.suptitle(ssuptitle)
+
+     ## FOr the moment, repurpose the top right figure
+     ax2.cla()
+     dum99 = ax2.scatter(xgarcmin, ygarcmin, c=np.degrees(xr1-xr)*3.6e6)
+     cbar99 = fig.colorbar(dum99, ax=ax2)
