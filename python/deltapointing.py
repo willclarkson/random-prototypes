@@ -187,6 +187,6 @@ def testfov(arcminx=10., arcminy=10., alpha0deg = 0., delta0deg=0., \
      fig.suptitle(ssuptitle)
 
      ## FOr the moment, repurpose the top right figure
-     ax2.cla()
-     dum99 = ax2.scatter(xgarcmin, ygarcmin, c=np.degrees(xr1-xr)*3.6e6)
-     cbar99 = fig.colorbar(dum99, ax=ax2)
+     #ax2.cla()
+     #dum99 = ax2.scatter(xgarcmin, ygarcmin, c=np.degrees(xr1-xr)*3.6e6)
+     #cbar99 = fig.colorbar(dum99, ax=ax2)

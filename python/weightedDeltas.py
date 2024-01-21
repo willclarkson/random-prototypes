@@ -3065,7 +3065,7 @@ class NormWithMonteCarlo(object):
         """Populates outliers"""
 
         # Nothing to do if there are no outliers
-        noutliers = np.int(np.sum(self.isOutlier))
+        noutliers = int(np.sum(self.isOutlier))
         if noutliers < 1:
             return
 
