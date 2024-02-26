@@ -309,11 +309,11 @@ def logprior_unif_signs(pars):
 
     return 0.
 
-def logprior_unif_mixture(pars):
+def logprior_unif_mixture(pars, imix=-1):
 
-    """Returns uniform prior with conditions on ln(mixture fraction), which is assumed to be the final parameter in pars."""
+    """Returns uniform prior with conditions on ln(mixture fraction). That index is assumed the last one in pars unless changed with the argument imix."""
 
-    if pars[-1] > 0.:
+    if pars[imix] > 0.:
         return -np.inf
 
     # ugh - this is starting to get nested...
@@ -355,7 +355,8 @@ def logprob_linear_unif(pars, xypattern, xi, covars):
 
 ### Uncertainties in both source and destiation coordinates
 
-def loglike_linear_unctyproj(pars, xypattern, xi, xycovars, xicovars):
+def loglike_linear_unctyproj(pars, xypattern, xi, xycovars, xicovars, \
+                             covintrinsic=np.zeros((2,2))):
 
     """Returns the log-likelihood for 6-term plane mapping, when both the
 (x,y) and (xi, eta) positions have uncertainty covariances. DOES NOT
@@ -371,6 +372,8 @@ SUM OVER N. Inputs:
 
     xicovars -   [N,2,2] stack of covariance matrices in (xi, eta)
 
+    covintrinsic - [2,2] intrinsic covariance array (in xi, eta)
+
     """
 
     # Project xy into the xi, eta plane and compute deltas
@@ -380,7 +383,11 @@ SUM OVER N. Inputs:
     covxy_proj = propagate_covars_abc(xycovars, pars)
 
     # Total covariance including (xi, eta) and projected (x,y)
-    covars = xicovars + covxy_proj
+    covars = xicovars + covxy_proj + covintrinsic
+
+    # (Note: in the above line, we take advantage of numpy's broadcast
+    # rules to handle the addition of the [2,2] intrinsic covariances
+    # to every plane of the covars array (which are [N,2,2]).
 
     # REFACTORED into method lognormal()
     ## Now for the two covariance terms in the likelihood. We need the
