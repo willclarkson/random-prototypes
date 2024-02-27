@@ -1898,7 +1898,7 @@ class CovarsNx2x2(object):
             self.VV[:,1,1] = self.asVector(self.minors)
         else:
             self.VV[:,1,1] = self.VV[:,0,0]
-
+            
     def populateRotationMatrix(self, rotateAxes=False):
 
         """Populates rotation matrix stack using rotations.
@@ -2576,6 +2576,16 @@ class NormWithMonteCarlo(object):
                   are to be sorted (Useful if preparing two
                   populations with differing covariance properties.)
 
+    --- Parameters for extra intrinsic variance ---
+
+    simAext = major axis (variance) for extra intrinsic variance in the
+              target plane
+
+    simBext = minor axis (variance) for extra intrinsic variance
+
+    simText = position angle for extra covariance
+
+
     --- Generating outliers -----
 
     fOutly = fraction of objects to be outliers
@@ -2643,6 +2653,7 @@ class NormWithMonteCarlo(object):
                      simGauTheta = -15., \
                      simAlo = 1.0e-4, simAhi=2.0e-3, \
                  simBAlo = 0.1, simBAhi = 0.3, simRotCov=30., \
+                 simAext = 0., simBext = 0., simText=0., \
                      genStripe=True, \
                      stripeFrac=0.5, \
                      stripeCovRatio=1., \
@@ -2715,6 +2726,11 @@ class NormWithMonteCarlo(object):
         self.simRotCov = simRotCov
         self.simBAlo = simBAlo
         self.simBAhi = simBAhi
+
+        # Extra intrinsic covariance
+        self.simAext = simAext
+        self.simBext = simBext
+        self.simText = simText
         
         # Variables to do with the special stripe (the back stripeFrac
         # of the samples)
@@ -4121,6 +4137,7 @@ class NormWithMonteCarlo(object):
                           'simXcen', 'simYcen', 'simMakeGauss', \
                           'simGauMajor', 'simGauMinor', 'simGauTheta', \
                           'simAlo', 'simAhi', 'simRotCov', \
+                      'simAext', 'simBext', 'simText',\
                       'simBAlo', 'simBAhi', \
                       'fOutly', 'rOutly_min_arcsec', 'rOutly_max_arcsec', \
                           'genStripe', 'stripeFrac', 'stripeCovRatio', \
@@ -5804,7 +5821,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
              errscalefac=10., showDataTransf=True, chainlen=5000, ntau=3, \
              perturbXY=False, mcmcUnctyXY=False, \
              mixmodOutliers=False, sfOutliers=1000., \
-             testingBias=False):
+             testingBias=False, testingIntrinsic=True):
 
     """Sets up input and output datasets and uses MCMC"""
 
@@ -5820,7 +5837,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     MC = NormWithMonteCarlo(parFile=parFile)
 
     MC.prepSimData()
-    
+
     # dump parameter file to disk (allowing some level of lookback
     # when tinkering)
     MC.writeParfile()
@@ -5836,6 +5853,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     CVD.eigensFromCovars()
     CVD.populateTransfsFromCovar()
 
+    
     # Perturb the XY datapoints?
     if perturbXY:
         CVD.generateSamples()
@@ -5849,6 +5867,9 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     CVP = CovarsNx2x2(covsDataProj)
     CVP.eigensFromCovars()
     CVP.populateTransfsFromCovar()
+
+    
+
     
     print("SIM PARS:", MC.simTheta)
 
@@ -5865,6 +5886,35 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     MC.CF.generateSamples()
     xiObs = xieta + MC.CF.deltaTransf.T
 
+    # 2024-02-26 now add intrinsic variation not captured by the
+    # uncertainty estimates. Keep track of the parameters
+    # corresponding to the intrinsic covariance so we can drop them in
+    # downstream.
+    parsCovInt = np.array([])
+    if testingIntrinsic:
+
+        # We use the full machinery of our Nx2x2 covariance
+        # object. This means we replicate the covariance parameters
+        vMaj = np.repeat(MC.simAext, MC.xRaw.size)
+        vMin = np.repeat(MC.simBext, MC.xRaw.size)
+        vRot = np.repeat(MC.simText, MC.xRaw.size)
+        
+        CVE = CovarsNx2x2(nPts=MC.xRaw.size, \
+                          genStripe=False, \
+                          majors=vMaj, minors=vMin, rotDegs=vRot)
+
+        # Now sample some perturbations and add them to the
+        # observation chain. We recalculate rather than use += in case
+        # additional lines appear between this and the original
+        # definition of xiObs...
+        CVE.generateSamples()
+        xiObs = xieta + MC.CF.deltaTransf.T + CVE.deltaTransf.T
+
+        # We get the linear parameters for the intrinsic variance for
+        # "free." 
+        covExtra = CVE.covars[0]
+        parsCovInt = np.array([covExtra[0,0], covExtra[1,1], covExtra[0,1]])
+        
     # consistency checking for eigenvals
     #evv = np.linalg.eigvals(MC.CF.covars)
     #print(evv.shape, MC.CF.deltaTransf.shape)
@@ -5951,10 +6001,15 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # Try evaluating loglike for a random set of parameters, just to
     # ensure the syntax works... For starters we use the true
     # parameters since we know that the deltas should then be small...
-    parsTruth = MC.simTheta
+    parsTruth = np.copy(MC.simTheta)
     parsTruthInp = np.array([MC.simXiRef, MC.simEtaRef, \
                              MC.simSx, MC.simSy, MC.simRotDeg, MC.simSkewDeg])
     
+
+    # 2024-02-26 This is where we extend the parameter array if we are
+    # including intrinsic variance as model parameter. COME BACK TO THIS
+    parsTruth = np.hstack(( parsTruth, parsCovInt))
+    parsTruthInp = np.hstack(( parsTruthInp, parsCovInt))
 
     # perturb parsTruth into an initial guess
     parsGuess = parsTruth * np.random.uniform(0.90, 1.10, parsTruth.size)
@@ -5962,9 +6017,16 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # Include XY uncertainty in the minimization and MCMC?
     if mcmcUnctyXY:
 
-        args = (PATT.pattern, xiObs, CVD.covars, MC.CF.covars)
-        
+        args = (PATT.pattern, xiObs, CVD.covars, MC.CF.covars)            
         ufunc = lambda *args: -np.sum(likesMCMC.loglike_linear_unctyproj(*args))
+
+        # if we're also testing intrinsic variation, we need to call a
+        # different method for loglike. Same arguments, slightly
+        # different treatment of the parameters.
+        if testingIntrinsic:
+            ufunc = lambda *args: -np.sum(likesMCMC.ll_linr_unctyproj_intrns(*args))
+
+
         #soln = minimize(ufunc, parsGuess, args=(PATT.pattern, xiObs, \
         #                                        MC.CF.covars, CVD.covars))
 
@@ -6062,6 +6124,9 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     if mcmcUnctyXY:
         methpost = likesMCMC.logprob_linear_unctyproj_unif
 
+        if testingIntrinsic:
+            methpost = likesMCMC.logprob_linr_unctyproj_intrns
+        
         if mixmodOutliers:
             methpost = likesMCMC.logprob_linear_unctyproj_outliers_unif
 
@@ -6113,6 +6178,32 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     samples = sampler.get_chain()
     labels = ["a", "b", "c", "d", "e", "f"]
 
+    # 2024-02-26 fudge for labels if testing intrinsic
+    if testingIntrinsic:
+        labelsCov = ["xx", "yy", "xy"]
+        labels = labels + labelsCov
+
+        # translate the intrinsic covariance parameters into major,
+        # minor and rotdeg
+        covsh = np.zeros((flat_human.shape[0],2,2 ))
+        covsh[:,0,0] = flat_samples[:,-3]
+        covsh[:,1,1] = flat_samples[:,-2]
+        covsh[:,0,1] = flat_samples[:,-3]
+        covsh[:,1,0] = flat_samples[:,-3]
+        CVH = CovarsNx2x2(covsh)
+        CVH.eigensFromCovars()
+
+        # 2024-02-26: the truth parameters for the covariance also
+        # need to be updated to human-readable for the plots (so that
+        # the "truth" in these plots is meaningful)
+        
+        flat_human = np.column_stack(( flat_human, \
+                                       CVH.majors, \
+                                       CVH.minors, \
+                                       CVH.rotDegs))
+        labelshCov = ['aa', 'bb', 'phi']
+        labelsh = labelsh + labelshCov
+        
     ### 2023-07-17 - fudge for the mixture fraction being a parameter
     if mixmodOutliers:
         labels = labels + ["ln(fout)"]

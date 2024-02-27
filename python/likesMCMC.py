@@ -203,6 +203,39 @@ def lognormalsum(deltas, covars):
     term_expon, term_dets = lognormal(deltas, covars)
 
     return np.sum(term_expon), np.sum(term_dets)
+
+def parseParsAndCovars(pars):
+
+    """Utility method - separates the parameters array into intrinsic
+covariances and everything else.
+
+    INPUT:
+
+    pars -- [m] array of parameters
+
+    OUTPUT:
+
+    pars[0:-3] -- [m-3] model parameters (transformation, mixture)
+    
+    covint -- [2,2] intrinsic covariance array.
+
+    By convention, the intrinsic covariances take up the last three
+    entries of the parameters array, in the strict order
+    [xx,yy,xy]. Any interpretation of the three unique covariance
+    entries (as major, minor, position angle, for example) is deferred
+    to other routines.
+
+    """
+
+    # Used because the calling syntax for lnprior must have the
+    # parameters as a 1D array, but what we *do* with these model
+    # parameters depends on which are transformation parameters and
+    # which are intrinsic covariances that get added to every plane of
+    # the [N,2,2] covariance matrix).
+    
+    covint = np.array( [[pars[-3], pars[-1]], [pars[-1], pars[-2]] ]) 
+
+    return pars[0:-3], covint
     
 ################ log-likelihood and priors follow #################
 
@@ -457,6 +490,7 @@ model to account for outliers. DOES NOT SUM ALONG N. Inputs:
     
 def logprob_linear_unctyproj_unif(pars, xypattern, xi, xycovars, xicovars):
 
+
     """Returns the log posterior (to within a constant) for 6-term plane
 mapping when both the (x,y) and (xi, eta) positions have uncertainty
 covariances. Assumes uniform prior on the parameters.
@@ -470,6 +504,33 @@ covariances. Assumes uniform prior on the parameters.
     return lp + np.sum(loglike_linear_unctyproj(pars, xypattern, xi, \
                                          xycovars, xicovars) )
     
+
+def logprob_linr_unctyproj_intrns(pars, xypattern, xi, xycovars, xicovars):
+
+
+    """Returns the log posterior (to within a constant) for 6-term plane
+mapping when both the (x,y) and (xi, eta) positions have uncertainty
+covariances, *and* the parameters include intrinsic variance to be
+explored. Assumes uniform prior on the parameters.
+
+    """
+
+    # Comment 2024-02-26 - this may seem really inefficient to write
+    # given that the method directly above is identical apart from the
+    # method called. BUT: (i) I don't know if specifying the method as
+    # an argument from a calling routine slows this down, and (ii) I
+    # suspect we're going to want to use priors for the intrinsic
+    # variance case anyway. For the moment, let's just get this to
+    # work.
+    
+    lp = logprior_unif(pars)
+    if not np.isfinite(lp):
+        return -np.inf
+
+    return lp + np.sum(ll_linr_unctyproj_intrns(pars, xypattern, xi, \
+                                                xycovars, xicovars) )
+    
+
 
 def logprob_linear_unctyproj_outliers_unif(pars, xypattern, xi, \
                                            xycovars, xicovars, \
@@ -487,3 +548,49 @@ with uniform prior on the 6 parameters."""
                                             xycovars, xicovars, covout)
 
     return lp + np.sum(ll)
+
+
+## 2024-02-26 - I'm not convinced it *is* possible to send in
+## intrinsic covariances as a keyword argument to the same loglike
+## routine that expects the parameters, since the intrinsic
+## covariances come out of the parameters. For the moment, implement a
+## separate method in each case (sigh):
+
+def ll_linr_unctyproj_intrns(parsIn, xypattern, xi, xycovars, xicovars):
+
+    """Like loglike_linear_unctyproj but with the last three of the
+parameters being the intrinsic variance entries. Inputs as with loglke_linear_unctyproj except parsIn is extended by three elements."""
+
+    pars, covInt = parseParsAndCovars(parsIn)
+
+    return loglike_linear_unctyproj(pars, xypattern, xi, xycovars, xicovars, \
+                                    covintrinsic=covInt)
+    
+    
+def loglike_with_intrinsic(parsIn, argsIn, kwargs={}, \
+                           methLike=loglike_linear_unctyproj):
+
+    """Determine log-likelihood with intrinsic covariances as input model
+parameters. Inputs:
+
+    parsIn --  [m+3] - array of model parameters, including intrinsic covar
+
+    argsIn -- arguments to be sent to the likelihood method
+
+    kwargs -- any existing keyword arguments to send to the
+    likelihood method (this method will add one keyword argument)
+
+    methlike -- method used to determine the log-likelihood
+
+    """
+
+    # split the parameters into parameters, intrinsic covariances
+    pars, covint = parseParsAndCovars(parsIn)
+
+    # can we access the arguments?
+    kwargs['covIntrinsic'] = covint
+
+    
+    
+
+    
