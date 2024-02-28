@@ -648,6 +648,22 @@ reparameterization (alpha, beta, ln(r)). Returns phi in degrees.
 
         return xx, yy, xy
 
+    def alpha2prior(self, alpha, beta, lnr):
+
+        """Converts alpha, beta, ln(r) into the parameterization in which we usually have a prior (a, theta, ln(r)
+
+        """
+
+        # This is in some sense redundant with alpha2ab, except that
+        # in practice we may want to just call this when evaluating
+        # the ln(prior) for this parameterization.
+        
+        a = np.sqrt(alpha**2 + beta**2)
+        phideg = np.degrees(np.arctan2(beta, alpha))
+        
+        return a, phideg, lnr
+        
+        
     def ab2alpha(self, a, b, phideg):
 
         """Converts ellipse parameters (a,b,phi) to reparameterization (alpha,
