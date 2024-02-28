@@ -592,5 +592,217 @@ parameters. Inputs:
 
     
     
+class IntrinsicCovar(object):
+
+    """A collection of methods for reparameterization of intrinsic variance
+described by Gaussian. Gathered into a class for notational
+convenience. By convention, an aligned covariance matrix would have
+entries [[a^2, 0], [0, b^2]], i.e. the diagonal entries are
+VARIANCES. The position angle is entered and returned as degrees in
+each case, converted internally to/from radians within each method.
+
+    """
 
     
+    def __init__(self, \
+                 a=np.array([]), b=np.array([]), phideg=np.array([])):
+
+        # The ellipse parameters: a, b, phi in degrees
+        self.a = np.copy(a)
+        self.b = np.copy(b)
+        self.phi = np.copy(phideg)
+                
+        # The reparameterization: alpha, beta, ln(r)
+        self.alpha = np.array([])
+        self.beta = np.array([])
+        self.lnr = np.array([])
+        
+        # The entries of the [(N,) 2,2] covariance matrix
+        self.xx = np.array([])
+        self.yy = np.array([])
+        self.xy = np.array([])
+
+    def alpha2ab(self, alpha, beta, lnr):
+
+        """Computes covariance ellipse parameters (a, b, phi) from
+reparameterization (alpha, beta, ln(r)). Returns phi in degrees.
+
+        """
+
+        a = np.sqrt(alpha**2 + beta**2)
+        b = a * np.exp(lnr)
+        phi = np.arctan2(beta, alpha)
+
+        return a, b, np.degrees(phi)
+
+    def alpha2xy(self, alpha, beta, lnr):
+
+        """Computes covariance matrix entries from alpha, beta, ln(r)
+
+        """
+
+        r = np.exp(lnr)
+        xx = alpha**2 + r**2 * beta**2
+        yy = beta**2 + r**2 * alpha**2
+        xy = alpha * beta * (1. - r**2)
+
+        return xx, yy, xy
+
+    def ab2alpha(self, a, b, phideg):
+
+        """Converts ellipse parameters (a,b,phi) to reparameterization (alpha,
+        beta, ln(r)). Expects phi in degrees.
+
+        """
+
+        # Convert phi to radians
+        phi = np.radians(phideg)
+        
+        alpha = a * np.cos(phi)
+        beta =  a * np.sin(phi)
+        lnr = np.log(b/a)
+
+        return alpha, beta, lnr
+
+    def ab2xy(self, a, b, phideg):
+
+        """Converts ellipse parameters (a,b,phi) to covariance matrix entries
+(xx, yy, xy). Expects phi in degrees ccw from the x-axis.
+
+"""
+
+        # convert phi in degrees to radians
+        phi = np.radians(phideg)
+        
+        # Might consider rewriting as fewer trig operations?
+        xx = (a * np.cos(phi))**2 + (b * np.sin(phi))**2
+        yy = (b * np.cos(phi))**2 + (a * np.sin(phi))**2
+        xy = (a**2 - b**2) * np.cos(phi) * np.sin(phi)
+
+        return xx, yy, xy
+
+    def xy2ab(self, xxIn, yyIn, xyIn):
+
+        """ 
+        Converts covariance matrix entries (xx, yy, xy) to geometric ellipse parameters (a,b,phi)
+
+        """
+
+        # This does in an element-wise fashion the eigenvalue and
+        # eigenvector computation for the (Nx)2x2 matrix formed from
+        # xx, yy, xy. It might actually be faster to use the build-in
+        # eigh, at the cost of programming effort rearranging the input into
+        # (Nx)2x2. For the moment, just use the element-wise approach.
+
+        # Ensure scalars --> arrays so we can treat special cases on a
+        # uniform basis.
+        xx = np.atleast_1d(xxIn)
+        yy = np.atleast_1d(yyIn)
+        xy = np.atleast_1d(xyIn)
+
+        # Convert this into an [Nx2x2] stack so that we can use the
+        # linalg methods we trust. This transposition is NOT a bug,
+        # but shuffles the output so that we have our [N,2,2] that we
+        # need.
+        covar = np.array([[xx, xy],[xy, yy]]).T
+        
+        # OK now we extract the eigenvalues and eigenvectors of this
+        # matrix stack. Input matrix is (by definition) symmetric, so
+        # we can use eigh. Notes: 1. eigh returns the eigenvalues in
+        # ASCENDING order, and 2. the eigenvalues are the VARIANCES,
+        # so we need to take the sqrt to produce the a, b values we
+        # want.
+        evals, evecs = np.linalg.eigh(covar)
+        
+        # In each case, the position angle is just that of the
+        # eigenvector corresponding to the major axis
+        vecsMaj = evecs[:,:,-1]
+        phideg = np.degrees(np.arctan2(vecsMaj[:,-1], vecsMaj[:,0]))
+
+        # The major and minor axis lengths are the square roots of the
+        # major eigenvalues in each case.
+        a = np.sqrt(evals[:,-1])
+        b = np.sqrt(evals[:,0])
+
+        # We explicitly test whether input xx was a scalar so that we
+        # can preserve any input [1] element inputs
+        if np.isscalar(xxIn):
+            a = a[0]
+            b = b[0]
+            phideg = phideg[0]
+
+        return a, b, phideg
+
+    def xy2alpha(self, xx, yy, xy):
+
+        """Converts covariance matrix entries (xx, yy ,xy) to reparameterization (alpha, beta, ln(r). Calls xy2ab to convert to ellipse parameters first."""
+
+        a, b, phideg = self.xy2ab(xx, yy, xy)
+        alpha, beta, lnr = self.ab2alpha(a, b, phideg)
+
+        return alpha, beta, lnr
+
+    def populatefrom_ab(self, a, b, phideg):
+
+        """ 
+        Populates instance variables when given a, b, phideg. Useful when converting samples all at once after running a simulation.
+        """
+
+        self.a = np.copy(a)
+        self.b = np.copy(b)
+        self.phi = np.copy(phideg)
+
+        # Populate the alpha, beta, ln r
+        self.alpha, self.beta, self.lnr = \
+            self.ab2alpha(self.a, self.b, self.phi)
+
+        # populate the xx, yy, xy
+        self.xx, self.yy, self.xy = \
+            self.ab2xy(self.a, self.b, self.phi)
+
+    def populatefrom_alpha(self, alpha, beta, lnr):
+
+        """ 
+        Populates covar parameters given alpha, beta, ln r parameterization
+        """
+
+        self.alpha = np.copy(alpha)
+        self.beta = np.copy(beta)
+        self.lnr = np.copy(lnr)
+
+        self.a, self.b, self.phi = \
+            self.alpha2ab(self.alpha, self.beta, self.lnr)
+
+        self.xx, self.yy, self.xy = \
+            self.alpha2xy(self.alpha, self.beta, self.lnr)
+
+    def populatefrom_xy(self, xx, yy, xy):
+
+        """Populates covar stack from covariance matrix entries"""
+
+        self.xx = np.copy(xx)
+        self.yy = np.copy(yy)
+        self.xy = np.copy(xy)
+        
+        self.a, self.b, self.phi = \
+            self.xy2ab(self.xx, self.yy, self.xy)
+
+        self.alpha, self.beta, self.lnr = \
+            self.ab2alpha(self.a, self.b, self.phi)
+
+    def xy_as_x2(self, xx, yy, xy):
+
+        """Convenience method to return individual covariance XY parameters
+        as a(n Nx)2x2 array """
+
+        return np.array([[xx, xy],[xy,yy]]).T
+
+    def x2_as_xy(self, covar):
+
+        """Convenience method - returns (Nx)2x2 as three separate vectors (or scalars if covar is a 2x2 matrix)"""
+
+        if np.ndim(covar) < 3:
+            return covar[0,0], covar[1,1], covar[0,1]
+
+        return covar[:,0,0], covar[:,1,1], covar[:,0,1]
+        
