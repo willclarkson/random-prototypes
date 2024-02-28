@@ -793,13 +793,13 @@ reparameterization (alpha, beta, ln(r)). Returns phi in degrees.
     def xy_as_x2(self, xx, yy, xy):
 
         """Convenience method to return individual covariance XY parameters
-        as a(n Nx)2x2 array """
+        as a(n Nx)2x2 array. Input order xx, yy, xy."""
 
         return np.array([[xx, xy],[xy,yy]]).T
 
     def x2_as_xy(self, covar):
 
-        """Convenience method - returns (Nx)2x2 as three separate vectors (or scalars if covar is a 2x2 matrix)"""
+        """Convenience method - returns (Nx)2x2 as three separate vectors (or scalars if given a 2x2 matrix). Output order xx, yy, xy"""
 
         if np.ndim(covar) < 3:
             return covar[0,0], covar[1,1], covar[0,1]
