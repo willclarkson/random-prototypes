@@ -220,10 +220,8 @@ covariances and everything else.
     covint -- [2,2] intrinsic covariance array.
 
     By convention, the intrinsic covariances take up the last three
-    entries of the parameters array, in the strict order
-    [xx,yy,xy]. Any interpretation of the three unique covariance
-    entries (as major, minor, position angle, for example) is deferred
-    to other routines.
+    entries of the parameters array, in the strict order [alpha, beta,
+    ln(r)]. 
 
     """
 
@@ -232,8 +230,14 @@ covariances and everything else.
     # parameters depends on which are transformation parameters and
     # which are intrinsic covariances that get added to every plane of
     # the [N,2,2] covariance matrix).
+
+    # handle the reparameterization from [alpha, beta, ln(r)] to
+    # [xx,yy,xy]
+    incov = IntrinsicCovar()
+    xx, yy, xy = incov.alpha2xy(pars[-3], pars[-2], pars[-1])
+    covint = np.array([ [xx,xy], [xy,yy]])
     
-    covint = np.array( [[pars[-3], pars[-1]], [pars[-1], pars[-2]] ]) 
+    # covint = np.array( [[pars[-3], pars[-1]], [pars[-1], pars[-2]] ]) 
 
     return pars[0:-3], covint
     
@@ -505,13 +509,20 @@ covariances. Assumes uniform prior on the parameters.
                                          xycovars, xicovars) )
     
 
-def logprob_linr_unctyproj_intrns(pars, xypattern, xi, xycovars, xicovars):
+def logprob_linr_unctyproj_intrns(pars, xypattern, xi, xycovars, xicovars, \
+                                  ialpha=-3, ibeta=-2, ilnr=-1):
 
 
     """Returns the log posterior (to within a constant) for 6-term plane
 mapping when both the (x,y) and (xi, eta) positions have uncertainty
 covariances, *and* the parameters include intrinsic variance to be
 explored. Assumes uniform prior on the parameters.
+
+Under the reparameterization of the intrinsic covariance, we need to
+include the 1/sqrt(alpha^2 + beta^2) term. The arguments ialpha, ibeta
+specify which entries in the 1D pars array corresponds to those
+factors. We also enforce ln(r) = ln(b/a) < 0 to avoid identification
+issues with the major and minor axes.
 
     """
 
@@ -527,6 +538,21 @@ explored. Assumes uniform prior on the parameters.
     if not np.isfinite(lp):
         return -np.inf
 
+    # 2024-02-29 - Using the reparameterization, ln(r) cannot be
+    # positive (if it is, then the identifications of the major and
+    # minor axis switch. We could handle this in post, but I think
+    # it's better to simply forbid b to ever be > a. We enforce this
+    # through the prior.
+    if pars[ilnr] > 0:
+        return -np.inf
+    
+    # 2024-02-29 - using our reparameterization, the prior (in xx, yy,
+    # xy) is propertional to 1/a, where a=sqrt(alpha**2 +
+    # beta**2). Implement that here.
+    alpha = pars[ialpha]
+    beta = pars[ibeta]
+    lp -= 0.5*np.log(alpha**2 + beta**2)
+    
     return lp + np.sum(ll_linr_unctyproj_intrns(pars, xypattern, xi, \
                                                 xycovars, xicovars) )
     
@@ -625,13 +651,13 @@ each case, converted internally to/from radians within each method.
     def alpha2ab(self, alpha, beta, lnr):
 
         """Computes covariance ellipse parameters (a, b, phi) from
-reparameterization (alpha, beta, ln(r)). Returns phi in degrees.
+reparameterization (alpha, beta, ln(r)). Returns phi in degrees, in the range 9-90 < phi < +90].
 
         """
-
+        
         a = np.sqrt(alpha**2 + beta**2)
         b = a * np.exp(lnr)
-        phi = np.arctan2(beta, alpha)
+        phi = np.arctan(beta/alpha) # NOT arctan2.
 
         return a, b, np.degrees(phi)
 
@@ -659,7 +685,7 @@ reparameterization (alpha, beta, ln(r)). Returns phi in degrees.
         # the ln(prior) for this parameterization.
         
         a = np.sqrt(alpha**2 + beta**2)
-        phideg = np.degrees(np.arctan2(beta, alpha))
+        phideg = np.degrees(np.arctan(beta/alpha)) ## NOT arctan2
         
         return a, phideg, lnr
         

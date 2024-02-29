@@ -38,6 +38,9 @@ from covstack import CovStack
 # For experimenting with MCMC
 import likesMCMC
 
+# For the reparameterization of the intrinsic variance gaussian
+from likesMCMC import IntrinsicCovar
+
 import emcee
 from scipy.optimize import minimize
 
@@ -5891,6 +5894,8 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     # corresponding to the intrinsic covariance so we can drop them in
     # downstream.
     parsCovInt = np.array([])
+    covTruth = IntrinsicCovar()
+
     if testingIntrinsic:
 
         # We use the full machinery of our Nx2x2 covariance
@@ -5910,11 +5915,12 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         CVE.generateSamples()
         xiObs = xieta + MC.CF.deltaTransf.T + CVE.deltaTransf.T
 
-        # We get the linear parameters for the intrinsic variance for
-        # "free." 
-        covExtra = CVE.covars[0]
-        parsCovInt = np.array([covExtra[0,0], covExtra[1,1], covExtra[0,1]])
-        
+        # 2024-02-29 we're going to use our alpha, beta, ln(r)
+        # parameterization when actually exploring the intrinsic
+        # covariance. Do the conversion here.
+        covTruth.populatefrom_ab(MC.simAext, MC.simBext, MC.simText)
+        parsCovInt = np.array([covTruth.alpha, covTruth.beta, covTruth.lnr])
+
     # consistency checking for eigenvals
     #evv = np.linalg.eigvals(MC.CF.covars)
     #print(evv.shape, MC.CF.deltaTransf.shape)
@@ -6007,10 +6013,12 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     
 
     # 2024-02-26 This is where we extend the parameter array if we are
-    # including intrinsic variance as model parameter. COME BACK TO THIS
+    # including intrinsic variance as model parameter.
     parsTruth = np.hstack(( parsTruth, parsCovInt))
     parsTruthInp = np.hstack(( parsTruthInp, parsCovInt))
 
+
+    
     # perturb parsTruth into an initial guess
     parsGuess = parsTruth * np.random.uniform(0.90, 1.10, parsTruth.size)
 
@@ -6024,8 +6032,14 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         # different method for loglike. Same arguments, slightly
         # different treatment of the parameters.
         if testingIntrinsic:
-            ufunc = lambda *args: -np.sum(likesMCMC.ll_linr_unctyproj_intrns(*args))
+            ## ufunc = lambda *args: -np.sum(likesMCMC.ll_linr_unctyproj_intrns(*args))
 
+            # 2024-02-29: including the intrinsic covariance brings in
+            # identification issues. Let's try using ln(posterior) in
+            # this case so that we can use the prior to enforce
+            # physicality. Otherwise the minimizer can reach a
+            # solution that is forbidden by the sampler.
+            ufunc = lambda *args: -np.sum(likesMCMC.logprob_linr_unctyproj_intrns(*args))        
 
         #soln = minimize(ufunc, parsGuess, args=(PATT.pattern, xiObs, \
         #                                        MC.CF.covars, CVD.covars))
@@ -6180,29 +6194,49 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
     # 2024-02-26 fudge for labels if testing intrinsic
     if testingIntrinsic:
-        labelsCov = ["xx", "yy", "xy"]
+        labelsCov = [r"$\alpha$", r"$\beta$", r"$\ln(r)$"]
         labels = labels + labelsCov
 
-        # translate the intrinsic covariance parameters into major,
-        # minor and rotdeg
-        covsh = np.zeros((flat_human.shape[0],2,2 ))
-        covsh[:,0,0] = flat_samples[:,-3]
-        covsh[:,1,1] = flat_samples[:,-2]
-        covsh[:,0,1] = flat_samples[:,-3]
-        covsh[:,1,0] = flat_samples[:,-3]
-        CVH = CovarsNx2x2(covsh)
-        CVH.eigensFromCovars()
+        covset = IntrinsicCovar()
+        covset.populatefrom_alpha(flat_samples[:,-3], \
+                                  flat_samples[:,-2], \
+                                  flat_samples[:,-1])
+
+        flat_human = np.column_stack(( flat_human, \
+                                       covset.a, \
+                                       covset.b, \
+                                       covset.phi))
+        
+        ## translate the intrinsic covariance parameters into major,
+        ## minor and rotdeg
+        #covsh = np.zeros((flat_human.shape[0],2,2 ))
+        #covsh[:,0,0] = flat_samples[:,-3]
+        #covsh[:,1,1] = flat_samples[:,-2]
+        #covsh[:,0,1] = flat_samples[:,-3]
+        #covsh[:,1,0] = flat_samples[:,-3]
+        #CVH = CovarsNx2x2(covsh)
+        #CVH.eigensFromCovars()
 
         # 2024-02-26: the truth parameters for the covariance also
         # need to be updated to human-readable for the plots (so that
         # the "truth" in these plots is meaningful)
         
-        flat_human = np.column_stack(( flat_human, \
-                                       CVH.majors, \
-                                       CVH.minors, \
-                                       CVH.rotDegs))
-        labelshCov = ['aa', 'bb', 'phi']
+        #flat_human = np.column_stack(( flat_human, \
+        #                               CVH.majors, \
+        #                               CVH.minors, \
+        #                               CVH.rotDegs))
+        
+        labelshCov = [r"$\sigma_a$", r"$\sigma_b$", r"$\phi_i$"]
         labelsh = labelsh + labelshCov
+
+        # parsTruthInp is ONLY used for plotting. So we change its
+        # last three entries to the elements we are exploring:
+        parsTruthInp[-3] = np.sqrt(covTruth.a) # plotting stds
+        parsTruthInp[-2] = np.sqrt(covTruth.b) # plotting stds
+        parsTruthInp[-1] = covTruth.phi
+
+        # 2024-02-29 WATCHOUT - The above stddevs shouldn't be
+        # needed. CHECK.
         
     ### 2023-07-17 - fudge for the mixture fraction being a parameter
     if mixmodOutliers:
