@@ -510,6 +510,7 @@ covariances. Assumes uniform prior on the parameters.
     
 
 def logprob_linr_unctyproj_intrns(pars, xypattern, xi, xycovars, xicovars, \
+                                  enforceLnr=False, aexpon=1., \
                                   ialpha=-3, ibeta=-2, ilnr=-1):
 
 
@@ -521,8 +522,17 @@ explored. Assumes uniform prior on the parameters.
 Under the reparameterization of the intrinsic covariance, we need to
 include the 1/sqrt(alpha^2 + beta^2) term. The arguments ialpha, ibeta
 specify which entries in the 1D pars array corresponds to those
-factors. We also enforce ln(r) = ln(b/a) < 0 to avoid identification
-issues with the major and minor axes.
+factors. 
+
+    If we have a uniform prior on a, then the prior in alpha, beta,
+    ln(r) goes as 1/a --> -0.5 ln(alpha^2 + beta^2). If on the other
+    hand we have a uniform prior in ln(a), then that up-front term
+    becomes -1. The aexpon handles this: default is aexpon=0.5 for the
+    uniform prior in a. If in ln(a), set aexpon to 1.0.
+
+    Finally, we enforce ln(r) <= 0. (major axis cannot be larger than
+    minor axis). If this is not included, the prior sometimes returns
+    NaN, I'm not sure yet why.
 
     """
 
@@ -538,23 +548,33 @@ issues with the major and minor axes.
     if not np.isfinite(lp):
         return -np.inf
 
-    # 2024-02-29 - Using the reparameterization, ln(r) cannot be
-    # positive (if it is, then the identifications of the major and
-    # minor axis switch. We could handle this in post, but I think
-    # it's better to simply forbid b to ever be > a. We enforce this
-    # through the prior.
-    if pars[ilnr] > 0:
-        return -np.inf
+    ## 2024-02-29 - Using the reparameterization, ln(r) cannot be
+    ## positive (if it is, then the identifications of the major and
+    ## minor axis switch. We could handle this in post, but I think
+    ## it's better to simply forbid b to ever be > a. We enforce this
+    ## through the prior.
+    if enforceLnr:
+        if pars[ilnr] > 0:
+            return -np.inf
     
-    # 2024-02-29 - using our reparameterization, the prior (in xx, yy,
-    # xy) is propertional to 1/a, where a=sqrt(alpha**2 +
+    # 2024-02-29 - using our reparameterization, the prior (in alpha,
+    # beta, ln(r) is propertional to 1/a, where a=sqrt(alpha**2 +
     # beta**2). Implement that here.
     alpha = pars[ialpha]
     beta = pars[ibeta]
-    lp -= 0.5*np.log(alpha**2 + beta**2)
-    
-    return lp + np.sum(ll_linr_unctyproj_intrns(pars, xypattern, xi, \
+    lp -= aexpon*np.log(alpha**2 + beta**2)
+
+    logprob = lp + np.sum(ll_linr_unctyproj_intrns(pars, xypattern, xi, \
                                                 xycovars, xicovars) )
+    if np.isnan(logprob):
+        print("WARN - prob computed NaN")
+        print(alpha, beta, aexpon)
+        print(pars)
+
+    return logprob
+        
+#return lp + np.sum(ll_linr_unctyproj_intrns(pars, xypattern, xi, \
+#                                                xycovars, xicovars) )
     
 
 
@@ -657,7 +677,8 @@ reparameterization (alpha, beta, ln(r)). Returns phi in degrees, in the range 9-
         
         a = np.sqrt(alpha**2 + beta**2)
         b = a * np.exp(lnr)
-        phi = np.arctan(beta/alpha) # NOT arctan2.
+        ## phi = np.arctan(beta/alpha) # NOT arctan2.
+        phi = np.arctan2(beta, alpha) 
 
         return a, b, np.degrees(phi)
 
@@ -685,7 +706,8 @@ reparameterization (alpha, beta, ln(r)). Returns phi in degrees, in the range 9-
         # the ln(prior) for this parameterization.
         
         a = np.sqrt(alpha**2 + beta**2)
-        phideg = np.degrees(np.arctan(beta/alpha)) ## NOT arctan2
+        ## phideg = np.degrees(np.arctan(beta/alpha)) ## NOT arctan2
+        phideg = np.degrees(np.arctan2(beta, alpha))
         
         return a, phideg, lnr
         
@@ -847,4 +869,38 @@ reparameterization (alpha, beta, ln(r)). Returns phi in degrees, in the range 9-
             return covar[0,0], covar[1,1], covar[0,1]
 
         return covar[:,0,0], covar[:,1,1], covar[:,0,1]
+        
+    def enforceQuadrantConvention(self, a, b, phi):
+
+        """Given a, b, phi, returns the set a,b,phi with a strictly >= b and
+(-90 <= phi <= +90"""
+
+        # Ensure vectorized so that we can use booleans
+
+        va = np.atleast_1d(a)
+        vb = np.atleast_1d(b)
+        vp = np.atleast_1d(phi)
+
+        # enforce a >= b
+        vbcopy = np.copy(vb) #         
+        bSwap = vb > va
+        vb[bSwap] = va[bSwap]
+        va[bSwap] = vbcopy[bSwap]
+        vp[bSwap] += 90.  # phi is in degrees
+
+        # Since we've now added 90 to any swaps, ensure 0 <= phi <=
+        # 360. and handle accordingly.
+        vp = vp % 360.
+        vp[vp > 180.] -= 360. # range -180 < phi < 180
+
+        vp[vp > 90.] -= 180.  # upper-left flip
+        vp[vp < -90.] += 180. # lower-left flip
+        
+        if np.isscalar(a):
+            va = va[0]
+            vb = vb[0]
+            vp = vp[0]
+
+        return va, vb, vp
+            
         

@@ -5915,12 +5915,24 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         CVE.generateSamples()
         xiObs = xieta + MC.CF.deltaTransf.T + CVE.deltaTransf.T
 
+        # Compare the sizes of the typical perturbations
+        print("TestingIntrinsic DEBUG perturbation sizes:", \
+              np.median(np.abs(MC.CF.deltaTransf.T), axis=0) , \
+              np.median(np.abs(CVE.deltaTransf.T), axis=0))
+        
         # 2024-02-29 we're going to use our alpha, beta, ln(r)
         # parameterization when actually exploring the intrinsic
-        # covariance. Do the conversion here.
-        covTruth.populatefrom_ab(MC.simAext, MC.simBext, MC.simText)
+        # covariance. Do the conversion here. WATCHOUT - CovarsNx2x2
+        # expects a, b as variances, while IntrinsicCovar expects
+        # standard deviations. Do that correction at input.
+        covTruth.populatefrom_ab(np.sqrt(MC.simAext), np.sqrt(MC.simBext), \
+                                 MC.simText)
         parsCovInt = np.array([covTruth.alpha, covTruth.beta, covTruth.lnr])
 
+        print("TestingIntrinsic DEBUG - parsCovInt:", parsCovInt)
+        print("TestingIntrinsic DEBUG - a,b,phi:", \
+              covTruth.a, covTruth.b, covTruth.phi)
+        
     # consistency checking for eigenvals
     #evv = np.linalg.eigvals(MC.CF.covars)
     #print(evv.shape, MC.CF.deltaTransf.shape)
@@ -6021,7 +6033,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
     
     # perturb parsTruth into an initial guess
     parsGuess = parsTruth * np.random.uniform(0.90, 1.10, parsTruth.size)
-
+    
     # Include XY uncertainty in the minimization and MCMC?
     if mcmcUnctyXY:
 
@@ -6039,6 +6051,13 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
             # this case so that we can use the prior to enforce
             # physicality. Otherwise the minimizer can reach a
             # solution that is forbidden by the sampler.
+            #
+            ## The -1 is there in the arguments to eforce the optimizer
+            ## finding a solution with a > b. Since this is then used
+            ## to populate the guesses for the chains, it's good to
+            ## ensure that we're on the right side of the a/b boundary
+            ## to start with.
+            ##args = (PATT.pattern, xiObs, CVD.covars, MC.CF.covars, -1)
             ufunc = lambda *args: -np.sum(likesMCMC.logprob_linr_unctyproj_intrns(*args))        
 
         #soln = minimize(ufunc, parsGuess, args=(PATT.pattern, xiObs, \
@@ -6122,7 +6141,7 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
         #print(pos[0])
         #print(pos[1])
         #return
-    
+
     ### pos = soln.x + 1.0e-3 * np.random.randn(nchains, soln.x.size)
     nwalkers, ndim = pos.shape
 
@@ -6202,6 +6221,10 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
                                   flat_samples[:,-2], \
                                   flat_samples[:,-1])
 
+        # 2024-02-29: enforce a > b and quadrant convention
+        covset.a, covset.b, covset.phi = \
+            covset.enforceQuadrantConvention(covset.a, covset.b, covset.phi)
+        
         flat_human = np.column_stack(( flat_human, \
                                        covset.a, \
                                        covset.b, \
@@ -6231,8 +6254,8 @@ def testMCMC(parFile='inp_mcparams.txt', showPoints=True, nchains=32, \
 
         # parsTruthInp is ONLY used for plotting. So we change its
         # last three entries to the elements we are exploring:
-        parsTruthInp[-3] = np.sqrt(covTruth.a) # plotting stds
-        parsTruthInp[-2] = np.sqrt(covTruth.b) # plotting stds
+        parsTruthInp[-3] = covTruth.a
+        parsTruthInp[-2] = covTruth.b
         parsTruthInp[-1] = covTruth.phi
 
         # 2024-02-29 WATCHOUT - The above stddevs shouldn't be
