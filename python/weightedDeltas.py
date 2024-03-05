@@ -4840,6 +4840,82 @@ class Outliers2d(object):
         dy = r * np.sin(theta)
 
         return dx, dy
+
+
+#### Some noise models depend on flux. This class implements this
+
+class Mags(object):
+
+    """Methods for generating and handling apparent magnitude
+measurements"""
+
+    def __init__(self, nmags=100, seed=None, expon=3, maglo=16., maghi=23., \
+                 sigmafloor=0.001, sigmaM=1.84, sigmaB=1e-19):
+
+        self.nmags = nmags
+        self.seed = seed
+
+        # magnitude range
+        self.maglo = maglo
+        self.maghi = maghi
+        
+        # Power law exponent if generating power-law deviates
+        self.expon = expon
+
+        # noise model parameters
+        self.sigmafloor = sigmafloor   # minimum noise
+        self.sigmaM = sigmaM  # gradient vs m
+        self.sigmaB = sigmaB  # intercept of power law component
+        
+        # flux values
+        self.samples = np.array([])
+
+        # noise values (separated out into flat and power law for easy
+        # plotting)
+        self.lnNoiseFlat = np.array([])
+        self.lnNoisePowr = np.array([])
+        
+    def genpowersamples(self, seed=None):
+
+        """Generates power-law samples in apparent magnitude. Allows
+modification of the random number generator seed."""
+
+        self.seed = seed
+        
+        rng = np.random.default_rng(self.seed)
+        deviates = rng.power(self.expon, self.nmags)
+
+        self.samples = deviates*(self.maghi-self.maglo) + self.maglo
+
+    def attachNoise(self):
+
+        """Utility method: attaches noise to magnitudes."""
+
+        # This class is not the best place for this from the pov of
+        # efficiency - including the noise model in likesMCMC.py is
+        # better since it'll be used there to evaluate the likelihood
+        # and log-posterior. HOWEVER, we want to ensure our generator
+        # is separate from the methods that assess the results. So
+        # here we go:
+
+        npts = self.samples.size
+        
+        self.lnNoiseFlat = np.repeat(np.log(self.sigmafloor), npts)
+        self.lnNoisePowr = self.samples*self.sigmaM + np.log(self.sigmaB) 
+
+def testMags(npts=100):
+        
+    # Example session to test the above:
+    MM = Mags(npts)
+    MM.genpowersamples()
+    MM.attachNoise()
+    plt.figure(6)
+    plt.cla()
+    plt.plot(MM.samples, np.exp(MM.lnNoiseFlat) + np.exp(MM.lnNoisePowr) , 'ko')
+    plt.yscale("log")
+    plt.plot(MM.samples, np.exp(MM.lnNoisePowr), 'r.')
+    plt.plot(MM.samples, np.exp(MM.lnNoiseFlat), 'b')
+
         
 #### Some routines that use this follow
 
