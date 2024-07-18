@@ -153,9 +153,34 @@ stored in object self.j2tan"""
         self.j2tan[:,1,0] = J_etaa
         self.j2tan[:,1,1] = J_etad
 
+    def cov2sky(self):
+
+        """Propagates the covariance matrices from tangent plane to sky"""
+
+        J = self.j2sky
+        Jt = np.transpose(J, axes=(0,2,1) )
+        C = self.covtan
+
+        JCJt = np.matmul(J, np.matmul(C, Jt) )
+        self.covsky = JCJt
+
+    def cov2tan(self):
+
+        """Propagates the covariance matrices from sky to tangent plane"""
+
+        J = self.j2tan
+        Jt = np.transpose(J, axes=(0,2,1) )
+        C = self.covsky
+
+        JCJt = np.matmul(J, np.matmul(C, Jt) )
+        self.covtan = JCJt
+
+        
 ####### Methods that use the above follow
 
-def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1):
+def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
+               showplots=True, \
+               sigx=1.0, sigy=0.7, sigr=0.2):
 
     # Construct a random set of xi, eta points for our
     # transformations. Use a square detector for convenience
@@ -165,6 +190,17 @@ def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1):
     # construct our coordinate object
     SS = Sky(postan=xieta, tpoint=np.array([alpha0, delta0]) )
 
+    # generate some covariances in the tangent plane. For testing,
+    # default to uniform so that we can see how the transformation
+    # impacts the covariances
+    vstdxi = np.ones(nobjs)*sigx
+    vstdeta = vstdxi * sigy/sigx
+    vcorrel = np.ones(nobjs)*sigr
+    CS = CovStack(vstdxi, vstdeta, r12=vcorrel, runOnInit=True)
+
+    # pass the covariances arrays to the uncty2d object
+    SS.covtan = np.copy(CS.covars)
+    
     # convert tp to sky
     SS.tan2sky()
 
@@ -172,6 +208,36 @@ def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1):
     SS.jac2sky()
     SS.jac2tan()
 
+    # Now convert the covariance matrices from the tangent plane to the sky
+    SS.cov2sky()
+
+    ### Check whether the jacobians really are the inverses of each
+    ### other...
+    Jsky = SS.j2sky
+    Jinv = np.linalg.inv(SS.j2tan)
+
+    print("Inversion check - sky vs inv(tan):")
+    print(Jsky[0])
+    print(Jinv[0])
+
+    Jtan = SS.j2tan
+    Jsin = np.linalg.inv(SS.j2sky)
+    
+    print("Inversion check - tan vs inv(sky):")
+    print(Jtan[0])
+    print(Jsin[0])
+
+    print("============")
+    
+    print("Covariances on the sky:", SS.covsky.shape)
+
+    # Try converting back again... do we get the same as the input?
+    SS.cov2tan()
+    
+    print("INFO: input row 0:", CS.covars[0])
+    print("INFO: conv row 0:", SS.covsky[0])
+    print("INFO: back row 0:", SS.covtan[0])
+    
     # compute the determinants
     det2sky = np.linalg.det(SS.j2sky)
     det2tan = np.linalg.det(SS.j2tan)
@@ -179,6 +245,15 @@ def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1):
     # so that we can conveniently divide out the cos(delta) when
     # plotting
     cosdec = np.cos(np.radians( SS.possky[:,1] ))
+
+    print("testTransf INFO -- covtan shape:",SS.covtan.shape)
+    print(SS.covtan[0])
+    print(SS.j2sky.shape)
+    print(SS.j2tan.shape)
+    print(SS.j2sky[0])
+    
+    if not showplots:
+        return
     
     fig1 = plt.figure(1)
     fig1.clf()
