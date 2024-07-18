@@ -97,9 +97,9 @@ stored in object self.j2sky"""
         J_ax = 1.0/denom00
 
         # dalpha / deta
-        denom01 = xi**2 + np.cos(delta0)**2 \
+        denom01 = xi**2 + (np.cos(delta0))**2 \
             - 2.0 * eta * np.cos(delta0) * np.sin(delta0) \
-            + eta**2 * np.sin(delta0)**2
+            + eta**2 * (np.sin(delta0))**2
         J_ay = xi*np.sin(delta0) / denom01
 
         # ddelta / dxi
@@ -108,6 +108,7 @@ stored in object self.j2sky"""
 
         J_dx = 0. - xi*( eta*np.cos(delta0) + np.sin(delta0)) / denom10
 
+        # ddelta / deta
         J_dy = ((1.0 + xi**2)*np.cos(delta0) - eta*np.sin(delta0)) / denom10
 
         # Populate the stack
@@ -130,15 +131,15 @@ stored in object self.j2tan"""
         delta0 = np.radians(self.tpoint[1])
 
         # We have the same denominator for all four terms
-        denom = ( np.cos(alpha-alpha0)*np.cos(delta)*np.cos(delta0) \
+        denom = ( np.cos(alpha-alpha0) * np.cos(delta) * np.cos(delta0) \
             + np.sin(delta)*np.sin(delta0) )**2
 
         # dxi/dalpha
-        J_xia = ( np.cos(delta) * np.cos(delta) * np.cos(delta0) \
+        J_xia = np.cos(delta) * ( np.cos(delta) * np.cos(delta0) \
             + np.cos(alpha-alpha0) * np.sin(delta)*np.sin(delta0)) / denom
 
         # dxi/ddelta
-        J_xid = 0. -np.sin(alpha-alpha0) * np.sin(2.0*delta) / denom
+        J_xid = 0. -np.sin(alpha-alpha0) * np.sin(delta0) / denom
 
         # deta/dalpha
         J_etaa = 0.5 * np.sin(alpha-alpha0) * np.sin(2.0*delta) / denom
