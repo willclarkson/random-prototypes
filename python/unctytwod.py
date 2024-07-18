@@ -55,7 +55,7 @@ class Sky(object):
 
         self.postan = self.possky*0.
         self.postan[:,0] = np.degrees(xi)
-        self.postan[:,1] = np.degreees(eta)
+        self.postan[:,1] = np.degrees(eta)
         
     def tan2sky(self):
 
@@ -202,6 +202,34 @@ stored in object self.j2tan"""
 
         if retvals:
             return self.possky, self.covsky
+
+    def propag2tan(self, alpha0deg, delta0deg, \
+                   possky=np.array([]), covsky=np.array([]), \
+                   retvals=False):
+
+        """One-liner to propagate equatorial coordinates and uncertainties onto the tangent plane. If retvals is True, the transformed positions and covariances are returned. Otherwise they are just updated in the instance."""
+
+        # update the tangent point in radians
+        self.tpoint=np.array([alpha0deg, delta0deg])
+
+        # update the coords and covariances if they were supplied here
+        # and if their lengths match
+        if np.size(possky) > 0:
+            self.possky = np.copy(possky)
+
+        if np.abs(np.shape(covsky)[0] - np.shape(self.possky)[0]) < 1:
+            self.covsky = np.copy(covsky)
+
+        # Propagate the positions
+        self.sky2tan()
+        
+        # Propagate the uncertainties
+        self.jac2tan()
+        self.cov2tan()
+
+        if retvals:
+            return self.postan, self.covtan
+
         
 ####### Methods that use the above follow
 
@@ -274,6 +302,16 @@ def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
     print(SS.covsky[0])
     print(TT.covsky[0])
     print("============")
+
+    ### Try the one-liner in the other direction
+    RR = Sky()
+    RR.propag2tan(alpha0, delta0, SS.possky, SS.covsky)
+
+    print("One-liner check, other direction:")
+    print(SS.covtan[0])
+    print(RR.covtan[0])
+    print("============")
+
     
     # compute the determinants
     det2sky = np.linalg.det(SS.j2sky)
