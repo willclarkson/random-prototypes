@@ -176,6 +176,32 @@ stored in object self.j2tan"""
         JCJt = np.matmul(J, np.matmul(C, Jt) )
         self.covtan = JCJt
 
+    def propag2sky(self, alpha0deg, delta0deg, \
+                   postan=np.array([]), covtan=np.array([]), \
+                   retvals=False):
+
+        """One-liner to propagate tangent plane coordinates and covariances onto the sky, given input pointing. If retvals is True, the transformed positions and covariances are returned. Otherwise they are just updated in the instance."""
+
+        # update the tangent point in radians
+        self.tpoint=np.array([alpha0deg, delta0deg])
+
+        # update the coords and covariances if they were supplied here
+        # and if their lengths match
+        if np.size(postan) > 0:
+            self.postan = np.copy(postan)
+
+        if np.abs(np.shape(covtan)[0] - np.shape(self.postan)[0]) < 1:
+            self.covtan = np.copy(covtan)
+        
+        # Propagate the positions
+        self.tan2sky()
+        
+        # Propagate the uncertainties
+        self.jac2sky()
+        self.cov2sky()
+
+        if retvals:
+            return self.possky, self.covsky
         
 ####### Methods that use the above follow
 
@@ -238,6 +264,16 @@ def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
     print("INFO: input row 0:", CS.covars[0])
     print("INFO: conv row 0:", SS.covsky[0])
     print("INFO: back row 0:", SS.covtan[0])
+
+
+    ### Now try the one-liner
+    TT = Sky()
+    TT.propag2sky(alpha0, delta0, xieta, CS.covars)
+
+    print("One-liner check:")
+    print(SS.covsky[0])
+    print(TT.covsky[0])
+    print("============")
     
     # compute the determinants
     det2sky = np.linalg.det(SS.j2sky)
