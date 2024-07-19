@@ -42,14 +42,14 @@ the one direction."""
         self.xtran = np.array([])
         self.ytran = np.array([])
         self.covtran = np.array([])
-        
+
         # control variable - original coords are in degrees?
         self.degrees = degrees
 
         # Labels for the transformed quantities
         self.labelxtran = r'$X$'
         self.labelytran = r'$Y$'
-        
+
     def polyval2d(self, pars=np.array([])):
 
         """Evaluates the polynomial for the instance-level coordinates"""
@@ -541,6 +541,9 @@ def checkdeltas(transf=None, dxarcsec=10., dyarcsec=10., showPlots=True, \
         transf.ytran = transf.possky[:,1]
         transf.x = transf.postan[:,0]
         transf.y = transf.postan[:,1]
+        detj = np.linalg.det(transf.j2sky)
+    else:
+        detj = np.linalg.det(transf.jac)
         
     dxbrute = nudged.xtran - transf.xtran
     dybrute = nudged.ytran - transf.ytran
@@ -601,17 +604,18 @@ def checkdeltas(transf=None, dxarcsec=10., dyarcsec=10., showPlots=True, \
                       cmap=cmap, s=1, \
                       vmin=vminy, vmax=vmaxy)
 
-    blah41 = ax4.scatter(transf.xtran, transf.ytran, s=1, c='k', \
-                         alpha=0.5)
-    blah42 = ax4.scatter(nudged.xtran, nudged.ytran, s=1, \
-                         c='r', \
-                         alpha=0.5)
+    blah41 = ax4.scatter(transf.xtran, transf.ytran, s=1, \
+                         c=detj,\
+                         zorder=10)
+    #blah42 = ax4.scatter(nudged.xtran, nudged.ytran, s=1, \
+    #                     c='k', \
+    #                     alpha=0.5, zorder=5)
 
     # colorbars
     cb0 = fig2.colorbar(blah0, ax=ax0)
     cb1 = fig2.colorbar(blah1, ax=ax1)
     cb2 = fig2.colorbar(blah2, ax=ax2)
-    # cb4 = fig2.colorbar(blah42, ax=ax4, alpha=0.01)
+    cb4 = fig2.colorbar(blah41, ax=ax4)
 
     
     ax0.set_xlabel(r'$\xi$, degrees')
@@ -637,7 +641,7 @@ def checkdeltas(transf=None, dxarcsec=10., dyarcsec=10., showPlots=True, \
     ax0.set_title(r"$|d\vec{%s}|$" % (labelxr) )
     if magconv > 1:
         ax0.set_title(r"$|d\vec{%s}|$, arcsec" % (labelxr) )
-    
+        
     ax1.set_title(r"$(d%s - d%s_{\rm J}) / |d\vec{%s}|$" \
                   % (labelxr, labelxr, labelxr))
     ax2.set_title(r"$(d%s - d%s_{\rm J}) / |d\vec{%s}|$" \
@@ -649,6 +653,8 @@ def checkdeltas(transf=None, dxarcsec=10., dyarcsec=10., showPlots=True, \
         ax2.set_title(r"$100\times (d%s - d%s_{\rm J}) / |d\vec{%s}|$" \
                       % (labelyr, labelyr, labelxr))
 
+    ax4.set_title('det(J)')
+        
     # Show the input nudge
     ssup = r"$(\Delta \xi, \Delta\eta) = (%.1f, %.1f)$ arcsec" \
         % (dxarcsec, dyarcsec)
