@@ -442,13 +442,19 @@ def gridxieta(sidelen=2.1, ncoarse=11, nfine=41):
 
 def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
                showplots=True, \
-               sigx=1.0, sigy=0.7, sigr=0.2):
+               sigx=1.0, sigy=0.7, sigr=0.2, \
+               usegrid=True):
 
     # Construct a random set of xi, eta points for our
     # transformations. Use a square detector for convenience
     # halfrad = np.radians(sidelen)
     xieta = np.random.uniform(0.-sidelen, sidelen, (nobjs,2)) 
-    
+
+    if usegrid:
+        xi, eta = gridxieta(sidelen, 11, 41)
+        xieta = np.vstack((xi, eta)).T
+        nobjs = np.size(xi)
+        
     # construct our coordinate object
     SS = Sky(postan=xieta, tpoint=np.array([alpha0, delta0]) )
 
