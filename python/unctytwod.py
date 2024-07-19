@@ -584,8 +584,13 @@ def checkdeltas(transf=None, dxarcsec=10., dyarcsec=10., showPlots=True, \
     # raw offsets?
     ax4=fig2.add_subplot(222)
 
-    # Show the original positions
-    blah0=ax0.scatter(transf.x, transf.y, c=dmag, \
+    # Show the original positions. One more feature: if we are dealing
+    # with outoput in equatorial coordinates, convert the magnitude
+    # displayed here to arcsec and adjust the reporting accordingly
+    magconv = 1.
+    if hasattr(transf,'tpoint'):
+        magconv = 3600.
+    blah0=ax0.scatter(transf.x, transf.y, c=dmag*magconv, \
                       cmap=cmap, s=1)
     
     blah1=ax1.scatter(transf.xtran, transf.ytran, c=sx, \
@@ -630,6 +635,9 @@ def checkdeltas(transf=None, dxarcsec=10., dyarcsec=10., showPlots=True, \
 
     # titles
     ax0.set_title(r"$|d\vec{%s}|$" % (labelxr) )
+    if magconv > 1:
+        ax0.set_title(r"$|d\vec{%s}|$, arcsec" % (labelxr) )
+    
     ax1.set_title(r"$(d%s - d%s_{\rm J}) / |d\vec{%s}|$" \
                   % (labelxr, labelxr, labelxr))
     ax2.set_title(r"$(d%s - d%s_{\rm J}) / |d\vec{%s}|$" \
@@ -641,12 +649,14 @@ def checkdeltas(transf=None, dxarcsec=10., dyarcsec=10., showPlots=True, \
         ax2.set_title(r"$100\times (d%s - d%s_{\rm J}) / |d\vec{%s}|$" \
                       % (labelyr, labelyr, labelxr))
 
-        # ax2.set_title(r"$100\times (dY - dY_{\rm J}) / |d\vec{X}|$")
-
     # Show the input nudge
     ssup = r"$(\Delta \xi, \Delta\eta) = (%.1f, %.1f)$ arcsec" \
         % (dxarcsec, dyarcsec)
 
+    # If the transformation object has a tangent point, show this too
+    if hasattr(transf,'tpoint'):
+        ssup = r"$(\Delta \xi, \Delta\eta) = (%.1f'', %.1f'')$, $(\alpha_0, \delta_0) = (%.1f, %.1f)$" %  (dxarcsec, dyarcsec, transf.tpoint[0], transf.tpoint[1])
+    
     fig2.suptitle(ssup)
     fig2.subplots_adjust(hspace=0.5, wspace=0.5, top=0.85)
     
@@ -654,7 +664,7 @@ def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
                showplots=True, \
                sigx=1.0, sigy=0.7, sigr=0.2, \
                usegrid=True, \
-               dxarcsec=10., dyarcsec=10.):
+               dxarcsec=10., dyarcsec=10., showpct=True):
 
     # Construct a random set of xi, eta points for our
     # transformations. Use a square detector for convenience
@@ -693,7 +703,7 @@ def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
     # By this point we should have the Jacobian to the sky
     # populated. Run our checker to see how the deltas compare to each
     # other.
-    checkdeltas(SS, dxarcsec, dyarcsec)
+    checkdeltas(SS, dxarcsec, dyarcsec, showpct=showpct)
     
     ### Check whether the jacobians really are the inverses of each
     ### other...
