@@ -666,6 +666,12 @@ def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
                usegrid=True, \
                dxarcsec=10., dyarcsec=10., showpct=True):
 
+
+    # Example call:
+    #
+    # unctytwod.testTransf(usegrid=True, sidelen=2., dxarcsec=10., dyarcsec=0., delta0=57.9, showpct=False)
+
+    
     # Construct a random set of xi, eta points for our
     # transformations. Use a square detector for convenience
     # halfrad = np.radians(sidelen)
@@ -802,6 +808,10 @@ def testpoly(sidelen=2.1, ncoarse=15, nfine=51, \
 
     """Test the propagation through a polynomial"""
 
+    # Example call:
+    #
+    # unctytwod.testpoly(dxarcsec=10., dyarcsec=-10.)
+    
     # Create the grid of points
     xi, eta = gridxieta(sidelen, ncoarse, nfine)
 
