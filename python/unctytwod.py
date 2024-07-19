@@ -13,6 +13,197 @@ from covstack import CovStack
 from matplotlib.pylab import plt
 plt.ion()
 
+class Poly(object):
+
+    """Methods to transform positions and uncertainties via
+polynomial. Note this is not invertible, so we only provide methods in
+the one direction."""
+
+    def __init__(self, posxy=np.array([]), covxy=np.array([]), \
+        parsx=np.array([]), parsy=np.array([]) ):
+
+        self.x = posxy[:,0]
+        self.y = posxy[:,1]
+
+        self.covxy = covxy
+
+        # transformation parameters for x, y coords
+        self.parsx = parsx
+        self.parsy = parsy
+
+        # Jacobian for the transformation
+        self.jac = np.array([])
+        
+    def polyval2d(self, pars=np.array([])):
+
+        """Evaluates the polynomial for the instance-level coordinates"""
+
+        # This is written out by hand for readability and for ease
+        # translating to the jacobians later on. Might be better to
+        # use rules to construct all the powers, but that requires
+        # cleverer list comprehension chops than I currently have.
+        
+        # This really serves to establish our convention for the
+        # coefficients throughout this object.
+        z = self.x * 0. + pars[0] # inherit the shape of x
+        if np.size(pars) < 2: # want this to work on scalar pars
+            return z
+
+        # add linear terms...
+        z += self.x * pars[1] + self.y * pars[2]
+        if np.size(pars) < 6:
+            return z
+
+        # second-order...
+        z += self.x**2 * pars[3] + self.x*self.y*pars[4] + self.y**2 * pars[5]
+        if np.size(pars) < 10:
+            return z
+
+        # third order...
+        z += self.x**3 * pars[6] + \
+            self.x**2 * self.y    * pars[7] + \
+            self.x    * self.y**2 * pars[8] + \
+            self.y**3 * pars[9]
+        if np.size(pars) < 15:
+            return z
+        
+        # fourth order...
+        z += self.x**4            * pars[10] + \
+            self.x**3 * self.y    * pars[11] + \
+            self.x**2 * self.y**2 * pars[12] + \
+            self.x    * self.y**3 * pars[13] + \
+                        self.y**4 * pars[14]
+        if np.size(pars) < 21:
+            return z
+        
+        # fifth-order
+        z += self.x**5 * pars[15] + \
+            self.x**4 * self.y    * pars[16] + \
+            self.x**3 * self.y**2 * pars[17] + \
+            self.x**2 * self.y**3 * pars[18] + \
+            self.x * self.y**4 * pars[19] + \
+            self.y**5 * pars[20]
+
+        return z
+        
+        # ... beyond fifth order, consider iterations (would need
+        # something clever for the covariances)
+
+    def jac2d(self, pars=np.array([]) ):
+
+        """Returns the Jacobian terms dz/dx, dz/dy when z=polyval2d(pars,
+x,y)). Coordinates are taken from the instance, pars are passed in as
+arguments
+        """
+
+        #dz/dx, dz/dy
+        zx = self.x * 0.
+        zy = self.y * 0.
+
+        if np.size(pars) < 2:
+            return zx, zy
+
+        # first order
+        zx += self.x * 0. + pars[1]
+        zy += self.y * 0. + pars[2]
+        if np.size(pars) < 6:
+            return zx, zy
+
+        # second order - now the coordinates finally get involved
+        zx += 2.0*self.x * pars[3] + self.y*pars[4]
+        zy += 2.0*self.y * pars[5] + self.x*pars[4]
+        if np.size(pars) < 10:
+            return zx, zy
+
+        # third order
+        zx += \
+            3.0*self.x**2 * pars[6] + \
+            2.0*self.x*self.y*pars[7] + \
+            self.y**2 * pars[8]
+
+        zy += \
+            self.x**2 * pars[7] + \
+            2.0*self.y * self.x * pars[8] + \
+            3.0*self.y**2 * pars[9]
+        if np.size(pars) < 15:
+            return zx, zy
+
+        # fourth order
+        zx += \
+            4.0*self.x**3 * pars[10] + \
+            3.0*self.x**2 * self.y * pars[11] + \
+            2.0*self.x * self.y**2 * pars[12] + \
+            self.y**3 * pars[13]
+
+        zy += \
+            self.x**3 * pars[11] + \
+            2.0 * self.y * self.x**2 * pars[12] + \
+            3.0 * self.y**2 * self.x * pars[13] + \
+            4.0 * self.y**3 * pars[14]
+        if np.size(pars) < 21:
+            return zx, zy
+
+        # fifth-order
+        zx += \
+            5.0*self.x**4 * pars[15] + \
+            4.0*self.x**3 * self.y * pars[16] + \
+            3.0*self.x**2 * self.y**2 * pars[17] + \
+            2.0*self.x    * self.y**3 * pars[18] +\
+            self.y**4 * pars[19]
+
+        zy += \
+            self.x**4 * pars[16] + \
+            2.0*self.y    * self.x**3 * pars[17] + \
+            3.0*self.y**2 * self.x**2 * pars[18] + \
+            4.0*self.y**3 * self.x    * pars[19] + \
+            5.0*self.y**4 * pars[20]
+
+        # fifth-order is probably enough for now!
+        return zx, zy
+
+    def tranpos(self):
+
+        """Transforms the positions by the polyomials"""
+
+        self.xtran = self.polyval2d(self.parsx)
+        self.ytran = self.polyval2d(self.parsy)
+
+    def getjacobian(self):
+
+        """Populates the jacobian associated with the polynomial
+transformations"""
+
+        self.jac = np.zeros(( np.size(self.x), 2, 2 ))
+
+        jxix, jxiy = self.jac2d(self.parsx)
+        jetax, jetay = self.jac2d(self.parsy)
+
+        self.jac[:,0,0] = jxix
+        self.jac[:,0,1] = jxiy
+        self.jac[:,1,0] = jetax
+        self.jac[:,1,1] = jetay
+
+    def trancov(self):
+
+        """Transforms the covariance via the jacobian"""
+
+        if np.size(self.jac) < 1:
+            self.getjacobian()
+
+        J = self.jac
+        Jt = np.transpose(J, axes=(0,2,1))
+        C = self.covxy
+
+        self.covtran = np.matmul(J, np.matmul(C, Jt) )
+
+    def propagate(self):
+
+        """One-liner to propagate positions and covariances"""
+
+        self.tranpos()
+        self.getjacobian()
+        self.trancov()
+        
 class Sky(object):
 
     def __init__(self, possky=np.array([]), covsky=np.array([]), \
@@ -230,7 +421,23 @@ stored in object self.j2tan"""
         if retvals:
             return self.postan, self.covtan
 
-        
+
+# utility - return a grid of xi, eta points
+def gridxieta(sidelen=2.1, ncoarse=11, nfine=41):
+
+    """Returns a grid of points in xi, eta"""
+    
+    xv = np.linspace(0.-sidelen, sidelen, ncoarse, endpoint=True)
+    yv = np.linspace(0.-sidelen, sidelen, nfine, endpoint=True)
+    xx, yy = np.meshgrid(xv, yv)
+    xi = np.ravel(xx)
+    eta = np.ravel(yy)
+
+    xi = np.hstack(( xi, np.ravel(yy) ))
+    eta = np.hstack(( eta, np.ravel(xx) ))
+
+    return xi, eta
+    
 ####### Methods that use the above follow
 
 def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
@@ -353,3 +560,60 @@ def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
     ax2.set_title(r'$|\frac{\partial(\xi,\eta)}{\partial(\alpha, \delta)}|/\cos(\delta)$')
     
     fig1.subplots_adjust(hspace=0.4, wspace=0.4)
+
+
+def testpoly(sidelen=2.1, ncoarse=11, nfine=41, \
+             showplots=True, \
+             sigx=1.0, sigy=0.7, sigr=0.2):
+
+    """Test the propagation through a polynomial"""
+
+    # Create the grid of points
+    xi, eta = gridxieta(sidelen, ncoarse, nfine)
+
+    # concatenate these into the N,2 array we expect
+    xieta = np.vstack((xi, eta)).T
+    
+    # transformation parameters. While testing I'll just write out
+    # some examples here. Consider making this more systematic later
+    # on...
+    parsx = [ 10., 10., 2.]
+    parsy = [-5., -1., 9.]
+
+    # add some curvature via quadratic
+    parsx = parsx + [1.5, 0.2, 0.1]
+    parsy = parsy + [0.7, 0.05, -0.4]
+
+    # Now make this really curved...
+    parsx = parsx +  [0.1, 0.2, 0.3, 0.4]
+    parsy = parsy +  [-0.4, -0.3, -0.2, -0.1]
+    
+    # Covariances in the original frame
+    vstdxi = np.ones(np.size(xi))*sigx
+    vstdeta = vstdxi * sigy/sigx
+    vcorrel = np.ones(np.size(xi))*sigr
+    CS = CovStack(vstdxi, vstdeta, r12=vcorrel, runOnInit=True)
+    
+    # Create the instance and use it
+    PP = Poly(xieta, CS.covars, parsx, parsy)
+    PP.propagate()
+    
+    if not showplots:
+        return
+    
+    fig1 = plt.figure(1)
+    fig1.clf()
+    ax1 = fig1.add_subplot(221)
+    ax2 = fig1.add_subplot(222)
+
+    # plot the original coordinates
+    blah1 = ax1.scatter(xi, eta, s=1)
+    ax1.set_xlabel(r'$\xi$')
+    ax1.set_ylabel(r'$\eta$')
+    ax1.set_title('raw')
+    
+    # plot the transformed coordinates
+    blah2 = ax2.scatter(PP.xtran, PP.ytran, s=1)
+    ax2.set_xlabel(r'$X$')
+    ax2.set_ylabel(r'$Y$')
+    ax2.set_title('transformed')
