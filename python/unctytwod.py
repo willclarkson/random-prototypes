@@ -9,6 +9,9 @@
 import numpy as np
 from covstack import CovStack
 
+# for replicating instances
+import copy
+
 # for debug plotting
 from matplotlib.pylab import plt
 plt.ion()
@@ -20,7 +23,8 @@ polynomial. Note this is not invertible, so we only provide methods in
 the one direction."""
 
     def __init__(self, posxy=np.array([]), covxy=np.array([]), \
-        parsx=np.array([]), parsy=np.array([]) ):
+                 parsx=np.array([]), parsy=np.array([]), \
+                 degrees=True):
 
         self.x = posxy[:,0]
         self.y = posxy[:,1]
@@ -33,6 +37,18 @@ the one direction."""
 
         # Jacobian for the transformation
         self.jac = np.array([])
+
+        # Transformed coordinates, covariances
+        self.xtran = np.array([])
+        self.ytran = np.array([])
+        self.covtran = np.array([])
+        
+        # control variable - original coords are in degrees?
+        self.degrees = degrees
+
+        # Labels for the transformed quantities
+        self.labelxtran = r'$X$'
+        self.labelytran = r'$Y$'
         
     def polyval2d(self, pars=np.array([])):
 
@@ -203,6 +219,35 @@ transformations"""
         self.tranpos()
         self.getjacobian()
         self.trancov()
+
+    def nudgepos(self, dxarcsec=10., dyarcsec=10.):
+
+        """Nudges the input positions by input amounts"""
+
+        conv = 206265.
+        if self.degrees:
+            conv = 3600.
+
+        self.x += dxarcsec / conv
+        self.y += dyarcsec / conv
+            
+    def calcdeltas(self, dxarcsec=10., dyarcsec=10.):
+
+        """Estimates deltas in the projected frame from Jacobian.dx"""
+
+        if np.size(self.jac) < 4:
+            return np.array([])
+
+        # Produce delta-array in the same unit as the original
+        # coordinates, assuming input in arcsec
+        conv = 206265.
+        if self.degrees:
+            conv = 3600.
+            
+        dx = np.array([dxarcsec, dyarcsec])/conv
+        dv = np.matmul(self.jac, dx)
+        
+        return dv
         
 class Sky(object):
 
@@ -225,6 +270,10 @@ class Sky(object):
         self.j2sky = np.array([])    # dalpha/dxi, etc.
         self.j2tan = np.array([])    # dxi/dalpha, etc.
 
+        # Labels for transformed positions (when plotting)
+        self.labelxtran = r'$\alpha$'
+        self.labelytran = r'$\delta$'
+        
     def sky2tan(self):
 
         """Converts sky coordinates to tangent plane coordinates. Input and output all in DEGREES."""
@@ -421,7 +470,37 @@ stored in object self.j2tan"""
         if retvals:
             return self.postan, self.covtan
 
+    def nudgepos(self, dxarcsec=10., dyarcsec=10.):
 
+        """Nudges the tangent plane positions by input offsets"""
+
+        self.postan[:,0] += dxarcsec / 3600.
+        self.postan[:,1] += dyarcsec / 3600.
+
+    def calcdeltas(self, dxarcsec=10., dyarcsec=10.):
+
+        """Estimates deltas on the sky from the jacobian.dxi"""
+
+        if np.size(self.j2sky) < 4:
+            return
+
+        # For this instance the Jacobian expects everything in
+        # radians.
+        dxi = np.array([dxarcsec, dyarcsec])/206265.
+        dv = np.matmul(self.j2sky, dxi)
+
+        # Converts back to degrees, since the sky coords are in degrees
+        return np.degrees(dv)
+
+    def tranpos(self):
+
+        """Transforms tangent plane positions onto the sky using the same
+naming convention as the Poly() object"""
+
+        self.tan2sky()
+        self.xtran = self.possky[:,0]
+        self.ytran = self.possky[:,1]
+        
 # utility - return a grid of xi, eta points
 def gridxieta(sidelen=2.1, ncoarse=11, nfine=41):
 
@@ -440,10 +519,142 @@ def gridxieta(sidelen=2.1, ncoarse=11, nfine=41):
     
 ####### Methods that use the above follow
 
+def checkdeltas(transf=None, dxarcsec=10., dyarcsec=10., showPlots=True, \
+                cmap='viridis', symm=False, showpct=True):
+
+    """Given a transformation object, checks the differences between the brute-force deltas and the Jacobian-obtained deltas"""
+
+    if transf is None:
+        return
+
+    dv = transf.calcdeltas(dxarcsec, dyarcsec)
+
+    # Now compute the deltas directly
+    nudged = copy.deepcopy(transf)
+    nudged.nudgepos(dxarcsec, dyarcsec)
+    nudged.tranpos()
+
+    # Hack to ensure the transformation object has the xtran, ytran
+    # coordinates we expect here
+    if not hasattr(transf, 'xtran'):
+        transf.xtran = transf.possky[:,0]
+        transf.ytran = transf.possky[:,1]
+        transf.x = transf.postan[:,0]
+        transf.y = transf.postan[:,1]
+        
+    dxbrute = nudged.xtran - transf.xtran
+    dybrute = nudged.ytran - transf.ytran
+    dvbrute = np.vstack(( dxbrute, dybrute )).T
+
+    # Create delta of deltas array
+    ddv = dv - dvbrute
+    dmag = np.sqrt(dvbrute[:,0]**2 + dvbrute[:,1]**2)
+
+    # views - our figure of merit
+    sx = ddv[:,0]/dmag
+    sy = ddv[:,1]/dmag
+    
+    if not showPlots:
+        return
+
+    # Are we showing as percent?
+    if showpct:
+        sx *= 100.
+        sy *= 100.
+    
+    # symmetric limits for colorbars
+    if symm:
+        vminx = 0.-np.max(np.abs(sx))
+        vmaxx = 0.+np.max(np.abs(sx))
+        vminy = 0.-np.max(np.abs(sy))
+        vmaxy = 0.+np.max(np.abs(sy))
+    else:
+        vminx = None
+        vmaxx = None
+        vminy = None
+        vmaxy = None
+        
+
+    fig2=plt.figure(2)
+    fig2.clf()
+    ax1=fig2.add_subplot(223)
+    ax2=fig2.add_subplot(224)
+    ax0=fig2.add_subplot(221)
+
+    # raw offsets?
+    ax4=fig2.add_subplot(222)
+
+    # Show the original positions
+    blah0=ax0.scatter(transf.x, transf.y, c=dmag, \
+                      cmap=cmap, s=1)
+    
+    blah1=ax1.scatter(transf.xtran, transf.ytran, c=sx, \
+                      cmap=cmap, s=1, \
+                      vmin=vminx, vmax=vmaxx)
+
+    blah2=ax2.scatter(transf.xtran, transf.ytran, c=sy, \
+                      cmap=cmap, s=1, \
+                      vmin=vminy, vmax=vmaxy)
+
+    blah41 = ax4.scatter(transf.xtran, transf.ytran, s=1, c='k', \
+                         alpha=0.5)
+    blah42 = ax4.scatter(nudged.xtran, nudged.ytran, s=1, \
+                         c='r', \
+                         alpha=0.5)
+
+    # colorbars
+    cb0 = fig2.colorbar(blah0, ax=ax0)
+    cb1 = fig2.colorbar(blah1, ax=ax1)
+    cb2 = fig2.colorbar(blah2, ax=ax2)
+    # cb4 = fig2.colorbar(blah42, ax=ax4, alpha=0.01)
+
+    
+    ax0.set_xlabel(r'$\xi$, degrees')
+    ax0.set_ylabel(r'$\eta$, degrees')
+
+    # Some plot label carpentry
+    labelx = r'$X$'
+    labely = r'$Y$'
+    if hasattr(transf, 'labelxtran'):
+        labelx = transf.labelxtran
+    if hasattr(transf, 'labelytran'):
+        labely = transf.labelytran
+
+    # For concatenation within latex strings
+    labelxr = labelx.replace('$','')
+    labelyr = labely.replace('$','')
+
+    for ax in [ax1, ax2, ax4]:
+        ax.set_xlabel(labelx)
+        ax.set_ylabel(labely)
+
+    # titles
+    ax0.set_title(r"$|d\vec{%s}|$" % (labelxr) )
+    ax1.set_title(r"$(d%s - d%s_{\rm J}) / |d\vec{%s}|$" \
+                  % (labelxr, labelxr, labelxr))
+    ax2.set_title(r"$(d%s - d%s_{\rm J}) / |d\vec{%s}|$" \
+                  % (labelyr, labelyr, labelyr)) 
+
+    if showpct:
+        ax1.set_title(r"$100\times (d%s - d%s_{\rm J}) / |d\vec{%s}|$" \
+                      % (labelxr, labelxr, labelxr))
+        ax2.set_title(r"$100\times (d%s - d%s_{\rm J}) / |d\vec{%s}|$" \
+                      % (labelyr, labelyr, labelxr))
+
+        # ax2.set_title(r"$100\times (dY - dY_{\rm J}) / |d\vec{X}|$")
+
+    # Show the input nudge
+    ssup = r"$(\Delta \xi, \Delta\eta) = (%.1f, %.1f)$ arcsec" \
+        % (dxarcsec, dyarcsec)
+
+    fig2.suptitle(ssup)
+    fig2.subplots_adjust(hspace=0.5, wspace=0.5, top=0.85)
+    
 def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
                showplots=True, \
                sigx=1.0, sigy=0.7, sigr=0.2, \
-               usegrid=True):
+               usegrid=True, \
+               dxarcsec=10., dyarcsec=10.):
 
     # Construct a random set of xi, eta points for our
     # transformations. Use a square detector for convenience
@@ -479,6 +690,11 @@ def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
     # Now convert the covariance matrices from the tangent plane to the sky
     SS.cov2sky()
 
+    # By this point we should have the Jacobian to the sky
+    # populated. Run our checker to see how the deltas compare to each
+    # other.
+    checkdeltas(SS, dxarcsec, dyarcsec)
+    
     ### Check whether the jacobians really are the inverses of each
     ### other...
     Jsky = SS.j2sky
@@ -568,9 +784,11 @@ def testTransf(nobjs=5000, alpha0=35., delta0=35., sidelen=2.1, \
     fig1.subplots_adjust(hspace=0.4, wspace=0.4)
 
 
-def testpoly(sidelen=2.1, ncoarse=11, nfine=41, \
+def testpoly(sidelen=2.1, ncoarse=15, nfine=51, \
              showplots=True, \
-             sigx=1.0, sigy=0.7, sigr=0.2):
+             sigx=1.0, sigy=0.7, sigr=0.2, \
+             symm=False, cmap='viridis', \
+             dxarcsec=10., dyarcsec=10.):
 
     """Test the propagation through a polynomial"""
 
@@ -603,6 +821,9 @@ def testpoly(sidelen=2.1, ncoarse=11, nfine=41, \
     # Create the instance and use it
     PP = Poly(xieta, CS.covars, parsx, parsy)
     PP.propagate()
+
+    # try our deltas-checker
+    checkdeltas(PP, dxarcsec, dyarcsec, cmap=cmap, symm=symm)
     
     if not showplots:
         return
