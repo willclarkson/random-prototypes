@@ -623,3 +623,11 @@ def testpoly(sidelen=2.1, ncoarse=11, nfine=41, \
     ax2.set_xlabel(r'$X$')
     ax2.set_ylabel(r'$Y$')
     ax2.set_title('transformed')
+
+    # did that produce sensible output?
+    print(PP.covxy[0])
+    print(PP.covtran[0])
+
+    # because np.matmul works plane-by-plane, the test of how delta-x
+    # compares with jac x delta xi is pretty easy to do once you have
+    # the jacobian in place. Return to this tomorrow.
