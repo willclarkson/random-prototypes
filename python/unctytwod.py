@@ -114,8 +114,8 @@ coefficients and the 2D convention expected by numpy methods"""
 
         """Updates and returns the 2D coefficients for supplied parameters"""
 
-        # If this instance has already had the degree and indices
-        # arrays assigned, don't do them again.
+        # If no input supplied, use whatever parameters are already
+        # primed in the instance.
         if np.size(p) > 0:
             self.p = p
 
