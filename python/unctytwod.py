@@ -109,6 +109,24 @@ coefficients and the 2D convention expected by numpy methods"""
         
         l = np.arange(np.size(self.p))
         self.p2d[self.i[l],self.j[l]] = self.p[l]
+
+    def getcoeffs2d(self, p=np.array([]), clobber=False):
+
+        """Updates and returns the 2D coefficients for supplied parameters"""
+
+        # If this instance has already had the degree and indices
+        # arrays assigned, don't do them again.
+        if np.size(p) > 0:
+            self.p = p
+
+        # (re-) assign the degree and indices arrays if not already
+        # set, OR if input keyword "clobber" is set.
+        if self.deg < 0 or clobber:
+            self.assigndeg()
+            self.assignij()
+            
+        self.updatecoeffs2d()
+        return self.p2d
         
 class Poly(object):
 
@@ -1012,3 +1030,9 @@ def testpolycoefs(nterms=10, Verbose=True):
     print("j-indices:", PC.j)
     print("2D coeffs array:")
     print(PC.p2d) # gets a separate line for nice printing
+
+    # try the one-liner
+    dum = PC.getcoeffs2d(p+1)
+
+    print("One-liner call-return with p + 1 as input:")
+    print(dum)
