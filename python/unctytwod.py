@@ -16,7 +16,9 @@ import copy
 from matplotlib.pylab import plt
 plt.ion()
 
-class Poly(object):
+ 
+
+class Polynom(object):
 
     """Methods to transform positions and uncertainties via
 polynomial. Note this is not invertible, so we only provide methods in
@@ -495,7 +497,7 @@ stored in object self.j2tan"""
     def tranpos(self):
 
         """Transforms tangent plane positions onto the sky using the same
-naming convention as the Poly() object"""
+naming convention as the Polynom() object"""
 
         self.tan2sky()
         self.xtran = self.possky[:,0]
@@ -845,7 +847,7 @@ def testpoly(sidelen=2.1, ncoarse=15, nfine=51, \
     CS = CovStack(vstdxi, vstdeta, r12=vcorrel, runOnInit=True)
     
     # Create the instance and use it
-    PP = Poly(xieta, CS.covars, parsx, parsy)
+    PP = Polynom(xieta, CS.covars, parsx, parsy)
     PP.propagate()
 
     # try our deltas-checker
