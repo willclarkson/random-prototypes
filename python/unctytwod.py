@@ -32,8 +32,9 @@ coefficients and the 2D convention expected by numpy methods"""
         # coefficients arranged as 2D array
         self.p2d = np.array([])
         
-        # Degree of the corresponding polynomial
-        self.deg = 0
+        # Degree of the corresponding polynomial (could make this -1
+        # to indicate inconsistency or unfilled)
+        self.deg = -1
 
         # arrays of x indices, y indices
         self.i = np.array([])
@@ -79,7 +80,7 @@ coefficients and the 2D convention expected by numpy methods"""
         if np.abs(degr - np.int(degr)) > 1.0e-3:
             if self.Verbose:
                 print("Polycoeffs.assigndeg WARN - parameters do not correspond to a degree: %i" % (np.size(self.p)))
-            self.deg = 0
+            self.deg = -1
             return
 
         self.deg = int(degr)
@@ -101,9 +102,9 @@ coefficients and the 2D convention expected by numpy methods"""
         """Fills in the 2D coefficients array"""
 
         # do nothing if there is an inconsistency
-        if self.p.size > 1 and self.deg < 1:
+        if self.deg < 1:
             if self.Verbose:
-                print("Polycoeffs.updatecoeffs2d WARN - degree zero but >1 param. Check parameters for dimension consistency.")
+                print("Polycoeffs.updatecoeffs2d WARN - degree < 0. Check length of parameter-set")
             return
         
         l = np.arange(np.size(self.p))
