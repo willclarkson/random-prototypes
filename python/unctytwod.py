@@ -16,8 +16,125 @@ import copy
 from matplotlib.pylab import plt
 plt.ion()
 
- 
+class Polycoeffs(object):
 
+    """Object and methods to translate between flat array of polynomial
+coefficients and the 2D convention expected by numpy methods"""
+
+    def __init__(self, p=np.array([]), Verbose=True):
+
+        # flat coefficients
+        self.p = p
+
+        # Print warnings?
+        self.Verbose = Verbose
+
+        # coefficients arranged as 2D array
+        self.p2d = np.array([])
+        
+        # Degree of the corresponding polynomial
+        self.deg = 0
+
+        # arrays of x indices, y indices
+        self.i = np.array([])
+        self.j = np.array([])
+
+        # Populate on initialization
+        self.assigndeg()
+        self.assignij()
+
+        self.initcoeffs2d()
+        self.updatecoeffs2d()
+        
+    def degfromcoeffs(self, m=1):
+
+        """Returns the degree given the number of coefficients"""
+
+        d = (-3. + np.sqrt(9.0 + 8.*(m-1.) ))/2.
+
+        return d
+
+    def ijfromdeg(self, deg=2):
+
+        """Returns the i, j indices for the coefficients given the degree"""
+
+        # useful to have as a method that returns values
+        
+        iarr = np.array([], dtype='int')
+        jarr = np.array([], dtype='int')
+
+        for iterm in range(deg+1):
+            count = np.arange(iterm+1, dtype='int')
+            jarr = np.hstack(( jarr, count ))
+            iarr = np.hstack(( iarr, count[::-1] ))
+
+        return iarr, jarr
+
+    def assigndeg(self):
+
+        """Assigns the degree from the length of the coefficients"""
+
+        degr = self.degfromcoeffs(np.size(self.p))
+
+        if np.abs(degr - np.int(degr)) > 1.0e-3:
+            if self.Verbose:
+                print("Polycoeffs.assigndeg WARN - parameters do not correspond to a degree: %i" % (np.size(self.p)))
+            self.deg = 0
+            return
+
+        self.deg = int(degr)
+
+    def assignij(self):
+
+        """Assigns i- and j-arrays using the degree of the polynomial"""
+
+        self.i, self.j = self.ijfromdeg(self.deg)
+
+    def initcoeffs2d(self):
+
+        """Sets up empty 2d array of coefficients"""
+
+        self.p2d = np.zeros(( self.deg+1, self.deg+1 ))
+
+    def updatecoeffs2d(self):
+
+        """Fills in the 2D coefficients array"""
+
+        # do nothing if there is an inconsistency
+        if self.p.size > 1 and self.deg < 1:
+            if self.Verbose:
+                print("Polycoeffs.updatecoeffs2d WARN - degree zero but >1 param. Check parameters for dimension consistency.")
+            return
+        
+        l = np.arange(np.size(self.p))
+        self.p2d[self.i[l],self.j[l]] = self.p[l]
+        
+class Poly(object):
+
+    """Methods to transform positions and uncertainties using numpy's
+polynomial objects and methods. Should allow polynomials, legendre,
+chebyshev and hermite depending on which of numpy's methods we
+choose."""
+
+    def __init__(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
+                 parsx=np.array([]), parsy=np.array([]), degrees=True):
+
+        # Inputs
+        self.x = x
+        self.y = y
+        self.covxy = covxy
+        self.parsx = parsx
+        self.parsy = parsy
+
+        # control variable (for scaling deltas)
+        self.degrees = degrees
+
+        # The jacobian, transformed coords, transformed covariances
+        self.xtran = np.array([])
+        self.ytran = np.array([])
+        self.covtran = np.array([])
+
+        
 class Polynom(object):
 
     """Methods to transform positions and uncertainties via
@@ -880,3 +997,17 @@ def testpoly(sidelen=2.1, ncoarse=15, nfine=51, \
     # because np.matmul works plane-by-plane, the test of how delta-x
     # compares with jac x delta xi is pretty easy to do once you have
     # the jacobian in place. Return to this tomorrow.
+
+
+def testpolycoefs(nterms=10, Verbose=True):
+
+    """Tests the polycoeffs functionality"""
+
+    p = np.arange(nterms)
+    PC = Polycoeffs(p, Verbose=Verbose)
+    print("Input params:", p)
+    print("Degree:", PC.deg)
+    print("i-indices:", PC.i)
+    print("j-indices:", PC.j)
+    print("2D coeffs array:")
+    print(PC.p2d) # gets a separate line for nice printing
