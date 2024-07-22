@@ -9,6 +9,9 @@
 import numpy as np
 from covstack import CovStack
 
+# For using numpy's polynomial convnience classes
+from numpy import polynomial
+
 # for replicating instances
 import copy
 
@@ -135,24 +138,229 @@ polynomial objects and methods. Should allow polynomials, legendre,
 chebyshev and hermite depending on which of numpy's methods we
 choose."""
 
+    # WATCHOUT - numpys convenience methods DO account for the domain,
+    # but the convenience *functions* like chebval2d DO NOT. However,
+    # in the numpy implementation, series cannot be multiplied if
+    # their domains are different, which will be problematic when
+    # trying to evaluate 2D polynomials. So, we rescale within the
+    # instance and force the [-1., 1.] domain. This wll require some
+    # other methods to handle the scaling when evaluating the
+    # polynomials and their derivatives. That's annoying.
+    
     def __init__(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
-                 parsx=np.array([]), parsy=np.array([]), degrees=True):
+                 parsx=np.array([]), parsy=np.array([]), degrees=True, \
+                 kind='Polynomial', Verbose=False, \
+                 xmin=None, xmax=None, ymin=None, ymax=None):
 
         # Inputs
         self.x = x
         self.y = y
         self.covxy = covxy
-        self.parsx = parsx
-        self.parsy = parsy
+        self.parsx = np.array(parsx)
+        self.parsy = np.array(parsy)
 
+        # Domains for the polynomials
+        self.xmin = xmin
+        self.xmax = xmax
+        self.ymin = ymin
+        self.ymax = ymax
+        
         # control variable (for scaling deltas)
         self.degrees = degrees
+        
+        # control variable
+        self.Verbose = Verbose
 
+        # rescaled x, y to the [-1, 1] interval, and scaling factors
+        self.jacrescale = np.eye(2)
+        self.setdomain()
+        self.setjacrescale()
+        self.rescalepos()
+        
+        # Polynomial convenience class instance - default to
+        # Polynomial
+        self.P = polynomial.Polynomial
+        self.polx = None
+        self.poly = None
+        
+        # data domains for polynomial convenience classes
+        #
+        # COMMENTED OUT FOR NOW AS WE ARE FORCING THE DOMAIN
+        #self.domainx = np.array([-1., 1.])
+        #self.domainy = np.array([-1., 1.])
+        #self.setdomains()
+        
+        # Coefficients objects (to handle the translation from 1D
+        # input to the 2D that the polynomial objects will expect:
+        self.setuppars()
+
+        self.methval2d = {'Polynomial':polynomial.polynomial.polyval2d, \
+                          'Chebyshev':polynomial.chebyshev.chebval2d, \
+                          'Legendre':polynomial.legendre.legval2d, \
+                          'Hermite':polynomial.hermite.hermval2d, \
+                          'HermiteE':polynomial.hermite_e.hermeval2d}
+
+        self.methder = {'Polynomial':polynomial.polynomial.polyder, \
+                        'Chebyshev':polynomial.chebyshev.chebder, \
+                        'Legendre':polynomial.legendre.legder, \
+                        'Hermite':polynomial.hermite.hermval2d, \
+                        'HermiteE':polynomial.hermite_e.hermeval2d}
+
+        
+        # Polynomial object and methods to use
+        self.polysallowed = self.methder.keys()
+        self.kind = kind[:]
+        self.checkpolysupported()
+        self.setmethods()
+        
+        # self.setpoly() # NO LONGER USING CONVENIENCE CLASSES
+
+        # Now instantiate the convenience classes for this choice of
+        # polynomial
+        # self.makepolys()
+        
         # The jacobian, transformed coords, transformed covariances
         self.xtran = np.array([])
         self.ytran = np.array([])
         self.covtran = np.array([])
 
+    def setdomain(self):
+
+        """Sets the domain (for rescaling to [-1., 1.]"""
+
+        # Allow passing in to the instance as user-supplied
+        # variables.
+
+        # Note that the user doesn't need to supply actual data, only
+        # the minmax values. If all four are supplied, this is valid.
+
+        nx = np.size(self.x)
+        ny = np.size(self.y)
+        
+        if self.xmin is None:
+            self.xmin = np.min(self.x)
+        else:
+            if nx > 0:
+                self.xmin = np.min([self.xmin, np.min(self.x)])
+            
+        if self.xmax is None:
+            self.xmax = np.max(self.x)
+        else:
+            if nx > 0:
+                self.xmax = np.max([self.xmin, np.max(self.x)])
+
+        if self.ymin is None:
+            self.ymin = np.min(self.y)
+        else:
+            if ny > 0:
+                self.ymin = np.min([self.ymin, np.min(self.y)])
+            
+        if self.ymax is None:
+            self.ymax = np.max(self.y)
+        else:
+            if ny > 0:
+                self.ymax = np.max([self.ymin, np.max(self.y)])
+
+    def setjacrescale(self):
+
+        """Gets the jacobian for the rescaling of the input positions"""
+                
+        self.jrescale = np.array( [[2.0/(self.xmax - self.xmin), 0.], \
+                                    [0., 2.0/(self.ymax - self.ymin)] ] )
+        
+    def rescalepos(self):
+
+        """Rescales x, y to the interval [-1., 1.], computing the jacobian for
+this rescaling"""
+        
+        self.xr, self.yr = self.rescalexy(self.x, self.y)
+
+    def rescalexy(self, x=np.array([]), y=np.array([])):
+
+        """Rescales input x, y using the limits set for the object"""
+
+        xr = (2.0*x - (self.xmax + self.xmin))/(self.xmax - self.xmin)
+        yr = (2.0*y - (self.ymax + self.ymin))/(self.ymax - self.ymin)
+
+        return xr, yr
+        
+    def setuppars(self):
+
+        """Updates the parameters-objects given the instance parameters"""
+        
+        self.pars2x = Polycoeffs(self.parsx, Verbose=self.Verbose)
+        self.pars2y = Polycoeffs(self.parsy, Verbose=self.Verbose)
+        
+    def checkpolysupported(self):
+
+        """Checks whether the requested polynomial type is supported
+        """
+
+        # Implemented using a list of known-allowed rather than just
+        # using try/except because the exception handler could be
+        # slow.
+        
+        if not self.kind in self.polysallowed:
+            if self.Verbose:
+                print("Poly.checkpoly WARN - supplied polynomial %s not found. Defaulting to Polynomial" % (self.kind))
+
+            self.kind='Polynomial'
+
+    def setmethods(self):
+
+        """Selects the methods by which polynomials will be manipulated"""
+
+        # Because the convenience classes do not have the *val2d
+        # methods, we drop back to the functions provided by
+        # numpy. This means more footwork in identifying the methods
+        # to use.
+
+        # We actually could construct this using comprehension of the
+        # labels since numpy's convention is adhered to so
+        # well. However it's probably easiest to debug if the methods
+        # are just stated explicitly. All the ones below use unlimited
+        # domain or [-1., 1.] domain. (Laguerre uses [0,1]). For all
+        # but the Hermite, the n=1 entry is just "x", which will make
+        # testing the linear case easier.
+        
+        self.methval2d = self.methval2d[self.kind]
+        self.methder = self.methder[self.kind]
+        
+    def setpoly(self):
+
+        """Sets up the kind of polynomial object we want"""
+            
+        self.P = getattr(polynomial, self.kind)
+
+    def setdomains(self):
+
+        """Sets the data domains for the input data"""
+
+        self.domainx = np.array([np.min(self.x), np.max(self.x) ])
+        self.domainy = np.array([np.min(self.y), np.max(self.y) ])
+        
+    def makepolys(self):
+
+        """Creates the polynomial convenience objects"""
+
+        self.polx = self.P(self.parsx)
+        self.poly = self.P(self.parsy)
+
+    def tranpos(self):
+
+        """Applies the transformation to the raw positions"""
+
+        xr, yr = self.rescalexy(self.x, self.y)
+        self.xtran = self.methval2d(xr, yr, self.pars2x.p2d)
+        self.ytran = self.methval2d(xr, yr, self.pars2y.p2d)
+        
+    def tranpos_r(self):
+
+        """Applies the transformation (to the RESCALED positions over the
+domain [-1, 1])"""
+
+        self.xtran = self.methval2d(self.xr, self.yr, self.pars2x.p2d)
+        self.ytran = self.methval2d(self.xr, self.yr, self.pars2y.p2d)
         
 class Polynom(object):
 
@@ -638,7 +846,7 @@ naming convention as the Polynom() object"""
         self.tan2sky()
         self.xtran = self.possky[:,0]
         self.ytran = self.possky[:,1]
-        
+
 # utility - return a grid of xi, eta points
 def gridxieta(sidelen=2.1, ncoarse=11, nfine=41):
 
@@ -654,7 +862,26 @@ def gridxieta(sidelen=2.1, ncoarse=11, nfine=41):
     eta = np.hstack(( eta, np.ravel(xx) ))
 
     return xi, eta
+
+def makepars(deg=1):
+
+    """Utility - makes sets of polynomial parameters for testing"""
+
+    # Rubbish by-hand hack for the moment
     
+    parsx = [ 10., 10., 2.]
+    parsy = [-5., -1., 9.]
+
+    if deg > 1:
+        parsx = parsx + [1.5, 0.2, 0.1]
+        parsy = parsy + [0.7, 0.05, -0.4]
+
+    if deg > 2:
+        parsx = parsx +  [0.1, 0.2, 0.3, 0.4]
+        parsy = parsy +  [-0.4, -0.3, -0.2, -0.1]
+
+    return parsx, parsy
+        
 ####### Methods that use the above follow
 
 def checkdeltas(transf=None, dxarcsec=10., dyarcsec=10., showPlots=True, \
@@ -1018,7 +1245,9 @@ def testpoly(sidelen=2.1, ncoarse=15, nfine=51, \
     # the jacobian in place. Return to this tomorrow.
 
 
-def testpolycoefs(nterms=10, Verbose=True):
+def testpolycoefs(nterms=10, Verbose=True, \
+                  showcheb=True, \
+                  xtest = 0.2, ytest=0.2):
 
     """Tests the polycoeffs functionality"""
 
@@ -1036,3 +1265,66 @@ def testpolycoefs(nterms=10, Verbose=True):
 
     print("One-liner call-return with p + 1 as input:")
     print(dum)
+
+    if not showcheb:
+        return
+    
+    # Now try playing with numpy's polynomial methods.
+    cheb2d = polynomial.chebyshev.chebval2d(xtest, ytest, PC.p2d) 
+    
+    print("INFO - chebval2d at %.2f, %.2f gives %.2f" % (xtest, ytest, cheb2d) )
+
+    # Now try the 1D object. Do we trust the domains?
+    cheb1 = polynomial.chebyshev.chebval(xtest, PC.p2d[0])
+
+    C = getattr(polynomial, 'Chebyshev')
+
+    Cheb = C(PC.p2d[0], domain=[-1., 1.])
+    
+    print("INFO - chebval1d:")
+    print("Using coeffs", PC.p2d[0])
+    print("chebval at x=%.2f gives " % (xtest), cheb1)
+    print("Cheb gives" , Cheb(xtest) )
+
+
+def testconvenience(sidelen=2.1, deg=3, kind='Polynomial', Verbose=True, \
+                    showplots=False):
+
+    """Tests the convenience polynomial methods in numpy."""
+
+    xi, eta = gridxieta(sidelen, 11, 41)
+    xieta = np.vstack((xi, eta)).T
+    nobjs = np.size(xi)
+
+    parsx, parsy = makepars(deg=deg)
+
+    # now create the polynomial object
+    PP = Poly(xi, eta, np.array([]), parsx, parsy, kind=kind, Verbose=Verbose)
+
+    #print(PP.methval2d, PP.methder)
+    #print(PP.xr.min(), PP.xr.max(), PP.yr.min(), PP.yr.max())
+    print(PP.xmin, PP.xmax)
+    print(PP.jrescale)
+    
+    PP.tranpos()
+
+    if not showplots:
+        return
+    
+    # OK how does that look...
+    fig2=plt.figure(3)
+    fig2.clf()
+    ax1=fig2.add_subplot(221)
+    ax2=fig2.add_subplot(222)
+
+    blah1 = ax1.scatter(PP.x, PP.y, c='k', s=2)
+    blah2 = ax2.scatter(PP.xtran, PP.ytran, c='b', s=2)
+
+    ax1.set_title('Raw positions')
+    ax2.set_title('Transformed')
+    
+    
+    
+    ## ... and take a look at the resulting object(s)
+    #print(PP.polx, PP.polx.domain)
+    #print(PP.poly, PP.poly.domain)
