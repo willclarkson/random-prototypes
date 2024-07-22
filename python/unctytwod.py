@@ -797,6 +797,182 @@ transformations"""
         dv = np.matmul(self.jac, dx)
         
         return dv
+
+class Tan2equ(object):
+
+    """Object handling the transformation of coordinates and covariances
+from the tangent plane to the sky"""
+
+    # Convention: x, y => xi, eta
+    
+    def __init__(self, xi=np.array([]), eta=np.array([]), \
+                 covxieta=np.array([]), \
+                 pars=np.array([]), degrees=True, \
+                 Verbose=True):
+
+        self.x = xi
+        self.y = eta
+        self.covxy = covxieta
+
+        self.pars = pars # the tangent point
+
+        # Input coordinates are in degrees? (Alternate is radians)
+        self.degrees = degrees
+        self.conv2rad = 1.
+        self.setconversion()
+        
+        # jacobian for transforming uncertainty
+        self.initjac()
+
+        # Go ahead and populate the jacobian on initialization
+        self.setjacobian()
+        
+    def initjac(self):
+
+        """Initializes the jacobian"""
+
+        npoints = np.size(self.xi)
+        if npoints < 1:
+            if self.Verbose:
+                print("Tan2equ WARN - no datapoints. Initializing jacobian to identity")
+            self.jac = np.eye(2)
+            return
+        
+        self.jac = np.zeros(( npoints, 2, 2 ))
+        self.jac[:,0,0] = 1.
+        self.jac[:,1,1] = 1.
+        
+    def setconversion(self):
+
+        """Sets the angular conversion factor to radians"""
+
+        self.conv2rad = 1.
+        if self.degrees:
+            self.conv2rad = np.pi/180.
+        
+    def setjacobian(self):
+
+        """Sets up the jacobian for the tangent plane to sky conversion"""
+
+        # comparison on number of planes between data and jacobian
+        # might come here.
+        
+        # Ensure input angles are in radians
+        xi  = self.x * self.conv2rad
+        eta = self.y * self.conv2rad
+        alpha0 = self.pars[0] * self.conv2rad
+        delta0 = self.pars[1] * self.conv2rad
+
+        # Now we compute the four terms in the jacobian in turn:
+        # dalpha / dxi
+        denom00 = (np.cos(delta0) - eta*np.sin(delta0)) * \
+            (1.0 + (xi/(np.cos(delta0) - eta*np.sin(delta0) ))**2 )
+        J_ax = 1.0/denom00
+
+        # dalpha / deta
+        denom01 = xi**2 + (np.cos(delta0))**2 \
+            - 2.0 * eta * np.cos(delta0) * np.sin(delta0) \
+            + eta**2 * (np.sin(delta0))**2
+        J_ay = xi*np.sin(delta0) / denom01
+
+        # ddelta / dxi
+        denom10 = (1.0 + xi**2 + eta**2) \
+            * np.sqrt(xi**2 + (np.cos(delta0) - eta * np.sin(delta0) )**2 )
+
+        J_dx = 0. - xi*( eta*np.cos(delta0) + np.sin(delta0)) / denom10
+
+        # ddelta / deta
+        J_dy = ((1.0 + xi**2)*np.cos(delta0) - eta*np.sin(delta0)) / denom10
+
+        # now populate the jacobian
+        self.jac[:,0,0] = J_ax
+        self.jac[:,0,1] = J_ay
+        self.jac[:,1,0] = J_dx
+        self.jac[:,1,1] = J_dy
+
+    def tranpos(self):
+
+        """Maps tangent plane coordinates onto equatorial"""
+
+        # Ensure the angles are computed in radians
+        xi = self.x * self.conv2rad
+        eta = self.y * self.conv2rad
+        alpha0 = self.pars[0] * self.conv2rad
+        delta0 = self.pars[1] * self.conv2rad
+            
+        gamma = np.cos(delta0) - eta*np.sin(delta0)
+        alphaf = alpha0 + np.arctan(xi/gamma)
+        deltaf = np.arctan(
+            (eta*np.cos(delta0) + np.sin(delta0) ) /
+            np.sqrt(xi**2 + gamma**2) )
+
+        # Convert the equatorial positions back to the input system.
+        self.xtran = alphaf / self.conv2rad
+        self.ytran = deltaf / self.conv2rad
+
+    def trancov(self):
+
+        """Transforms covariance matrices from tangent plane to equatorial"""
+
+        # Populate the jacobian if not already done
+        if np.size(self.jac) < 2:
+            self.setjacobian()
+
+        J = self.jac
+        Jt = np.transpose(J,axes=(0,2,1))
+        C = self.covxy
+
+        self.covtran = np.matmul(J, np.matmul(C, Jt))
+
+    def propagate(self):
+
+        """One-liner to propagate the positions and covariances"""
+
+        self.tranpos()
+        self.trancov()
+
+    def updatetransf(self, pars=np.array([]) ):
+
+        """One-liner to update the transformation and jacobian when the
+pointing is changed"""
+
+        # Don't do anything if bad parameters were passed
+        if np.size(pars) != 2:
+            return
+
+        # Pass the parameters up and update the needed pieces. For
+        # this class, that's not much.
+        self.pars=np.copy(pars)
+        self.setjacobian()
+
+    def nudgepos(self, dxarcsec=10., dyarcsec=10.):
+
+        """Nudges the input positions by dxarcsec, dyarcsec"""
+
+        # Convert the nudge into degrees or radians as appropriate for
+        # self.x, self.y
+        conv = 206265.
+        if self.degrees:
+            conv = 3600.
+
+        self.x += dxarcsec / conv
+        self.y += dyarcsec / conv
+
+        # recalculate the jacobian as appropriate for the nudged positions
+        self.setjacobian()
+
+    def calcdeltas(self, dxarcsec=10., dyarcsec=10.):
+
+        """Estimates deltas in the projected frame from J.dx"""
+
+        conv=206265.
+        if self.degrees:
+            conv = 3600.
+
+        dx = np.array([dxarcsec, dyarcsec])/conv
+        dv = np.matmul(self.jac, dx)
+
+        return dv
         
 class Sky(object):
 
