@@ -100,6 +100,17 @@ coefficients and the 2D convention expected by numpy methods"""
 
         self.p2d = np.zeros(( self.deg+1, self.deg+1 ))
 
+    def updatecoeffs(self, p=np.array([]) ):
+
+        """Updates the 1d and 2d coefficients from input 1d parameters"""
+
+        # Exit gracefully if nothing passed in
+        if np.size(p) < 1:
+            return
+
+        self.p = p
+        self.updatecoeffs2d()
+        
     def updatecoeffs2d(self):
 
         """Fills in the 2D coefficients array"""
@@ -223,6 +234,9 @@ choose."""
         # transformed covariances
         self.jacpoly = np.array([]) # jacobian for the polynomial only
         self.jac = np.array([]) # jacobian including rescaling
+
+        # We set up the jacobian given input parameters now
+        self.getjacobian()
         
         self.xtran = np.array([])
         self.ytran = np.array([])
@@ -515,9 +529,41 @@ deltas from J.dx"""
         """Propagates the positions and covariances from raw to target
 frame"""
 
+        # We assume the jacobian has already been populated.
+
         self.tranpos()
-        self.getjacobian()
         self.trancov()
+
+    def splitpars(self, pars=np.array([]) ):
+
+        """Utility: splits 1D params into two half-length lists"""
+
+        npars = np.size(pars)
+        if npars < 2:
+            return np.array([]), np.array([])
+
+        imid = int(npars/2)
+        return pars[0:imid], pars[imid::]
+        
+    def updatetransf(self, pars=np.array([]) ):
+
+        """Updates the transformation and relevant quantities from input
+parameters. Anticipating the eventual use-case, the x and y parameters are assumed to be abutted together"""
+
+        parsx, parsy = self.splitpars(pars)
+
+        if np.size(parsx) < 1:
+            return
+
+        # ... the 2d parameters...
+        self.pars2x.updatecoeffs(parsx)
+        self.pars2y.updatecoeffs(parsy)
+
+        # ... and the jacobian
+        self.populatejacpoly()
+        self.combinejac()
+
+        
         
 class Polynom(object):
 
@@ -1499,18 +1545,28 @@ def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
     covsxieta = CS.covars
     
     parsx, parsy = makepars(deg=deg)
-
-    # Force the same domain for both objects
+    
+    # Access the poly domain
     xmin = None
     xmax = None
     ymin = None
     ymax = None
 
-    # now create the polynomial object
-    PP = Poly(xi, eta, covsxieta, parsx, parsy, \
+    # try generating with "wrong" parameters first then updating them
+    parsxr = parsx[::-1]
+    parsyr = parsy[::-1]
+    
+    # now create the polynomial object. We deliberately use the wrong
+    # parameters (but with correct lengths) for initialization so that
+    # we can ensure the update step later on works.
+    PP = Poly(xi, eta, covsxieta, parsxr, parsyr, \
               kind=kind, Verbose=Verbose, \
               xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
 
+    # Try updating the parameters after initialization. Does this
+    # work?
+    PP.updatetransf(np.hstack(( parsx, parsy )) )
+    
     # Translate the raw positions and covariances from input to target
     # frame, including working out the jacobian terms
     PP.propagate()
