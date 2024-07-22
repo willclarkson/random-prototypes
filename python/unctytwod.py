@@ -164,7 +164,7 @@ choose."""
         self.xmax = xmax
         self.ymin = ymin
         self.ymax = ymax
-        
+
         # control variable (for scaling deltas)
         self.degrees = degrees
         
@@ -178,10 +178,10 @@ choose."""
         self.rescalepos()
         
         # Polynomial convenience class instance - default to
-        # Polynomial
-        self.P = polynomial.Polynomial
-        self.polx = None
-        self.poly = None
+        # Polynomial. COMMENTED OUT BECAUSE NOT USING CONVENIENCE CLASS
+        # self.P = polynomial.Polynomial
+        # self.polx = None
+        # self.poly = None
         
         # data domains for polynomial convenience classes
         #
@@ -191,7 +191,7 @@ choose."""
         #self.setdomains()
         
         # Coefficients objects (to handle the translation from 1D
-        # input to the 2D that the polynomial objects will expect:
+        # input to the 2D that the polynomial methods will expect:
         self.setuppars()
 
         self.methval2d = {'Polynomial':polynomial.polynomial.polyval2d, \
@@ -203,8 +203,8 @@ choose."""
         self.methder = {'Polynomial':polynomial.polynomial.polyder, \
                         'Chebyshev':polynomial.chebyshev.chebder, \
                         'Legendre':polynomial.legendre.legder, \
-                        'Hermite':polynomial.hermite.hermval2d, \
-                        'HermiteE':polynomial.hermite_e.hermeval2d}
+                        'Hermite':polynomial.hermite.hermder, \
+                        'HermiteE':polynomial.hermite_e.hermeder}
 
         
         # Polynomial object and methods to use
@@ -219,14 +219,18 @@ choose."""
         # polynomial
         # self.makepolys()
         
-        # The jacobian, transformed coords, transformed covariances
+        # The jacobian for the transformation, transformed coords,
+        # transformed covariances
+        self.jacpoly = np.array([]) # jacobian for the polynomial only
+        self.jac = np.array([]) # jacobian including rescaling
+        
         self.xtran = np.array([])
         self.ytran = np.array([])
         self.covtran = np.array([])
 
-    def setdomain(self):
+    def setdomain(self, clobber=False):
 
-        """Sets the domain (for rescaling to [-1., 1.]"""
+        """Sets the domain (for rescaling to [-1., 1.] If clobber is set, then any user-input limits not outside the domain of the data are overridden."""
 
         # Allow passing in to the instance as user-supplied
         # variables.
@@ -236,37 +240,50 @@ choose."""
 
         nx = np.size(self.x)
         ny = np.size(self.y)
-        
+
         if self.xmin is None:
-            self.xmin = np.min(self.x)
-        else:
             if nx > 0:
+                self.xmin = np.min(self.x)
+            else:
+                self.xmin = -1.
+        else:
+            if nx > 0 and clobber:
                 self.xmin = np.min([self.xmin, np.min(self.x)])
             
         if self.xmax is None:
-            self.xmax = np.max(self.x)
-        else:
             if nx > 0:
+                self.xmax = np.max(self.x)
+            else:
+                self.xmax = 1.
+        else:
+            if nx > 0 and clobber:
                 self.xmax = np.max([self.xmin, np.max(self.x)])
 
         if self.ymin is None:
-            self.ymin = np.min(self.y)
-        else:
             if ny > 0:
+                self.ymin = np.min(self.y)
+            else:
+                self.ymin = -1.
+        else:
+            if ny > 0 and clobber:
                 self.ymin = np.min([self.ymin, np.min(self.y)])
             
         if self.ymax is None:
-            self.ymax = np.max(self.y)
-        else:
             if ny > 0:
+                self.ymax = np.max(self.y)
+            else:
+                self.ymax = 1.
+        else:
+            if ny > 0 and clobber:
                 self.ymax = np.max([self.ymin, np.max(self.y)])
 
     def setjacrescale(self):
 
-        """Gets the jacobian for the rescaling of the input positions"""
+        """Sets the jacobian for the rescaling of the input positions"""
                 
-        self.jrescale = np.array( [[2.0/(self.xmax - self.xmin), 0.], \
-                                    [0., 2.0/(self.ymax - self.ymin)] ] )
+        self.jacrescale = np.array( [[2.0/(self.xmax - self.xmin), 0.], \
+                                     [0., 2.0/(self.ymax - self.ymin)] ] )
+
         
     def rescalepos(self):
 
@@ -361,6 +378,146 @@ domain [-1, 1])"""
 
         self.xtran = self.methval2d(self.xr, self.yr, self.pars2x.p2d)
         self.ytran = self.methval2d(self.xr, self.yr, self.pars2y.p2d)
+
+    def derivcoeffs(self, c=np.array([]) ):
+
+        """Given a 2d set of coefficients for a polynomial, returns the
+derivative wrt x as a coefficient set with the same dimensions as the
+original (i.e. padded at the highest power).
+
+        """
+
+        # if c is blank
+        if len(np.shape(c)) < 1:
+            return np.array([])
+
+        # if fed scalar or 1d coefficients
+        if np.ndim(c) < 2:
+            return np.array([0])
+
+        # Find the derivative along each axis...
+        cdx = self.methder(c, 1,1,axis=0)
+        cdy = self.methder(c, 1,1,axis=1)
+
+        # ... and pad so that the outputs are square with same dimensions
+        # as inputs.
+        cdx = np.pad(cdx, [[0,1], [0,0]] )
+        cdy = np.pad(cdy, [[0,0], [0,1]] )
+
+        return cdx, cdy
+
+    def initjacpoly(self):
+
+        """Initializes the jacobian for the polynomial using the
+characteristics of the data, to the identity, [N,2,2] """
+
+        nobjs = np.size(self.x)
+        if nobjs < 1:
+            self.jacpoly = np.array([])
+            return
+        
+        self.jacpoly = np.zeros(( nobjs, 2, 2 ))
+        self.jacpoly[:,0,0] = 1.
+        self.jacpoly[:,1,1] = 1.
+        
+    def populatejacpoly(self):
+
+        """Computes the jacobian for the transformation represented by the
+polynomial"""
+
+        # We assume the jacobian has already been initialized. If not,
+        # return.
+        if np.size(self.jacpoly) < 2:
+            if self.Verbose:
+                print("Poly.populatejacpoly WARN - jacobian < 2 elements. Not initialized yet?")
+            return
+
+        # Compute the coefficients and evaluate them at the datapoints
+        cxx, cxy = self.derivcoeffs(self.pars2x.p2d)
+        cyx, cyy = self.derivcoeffs(self.pars2y.p2d)
+
+        self.jacpoly[:,0,0] = self.methval2d(self.xr, self.yr, cxx)
+        self.jacpoly[:,0,1] = self.methval2d(self.xr, self.yr, cxy)
+        self.jacpoly[:,1,0] = self.methval2d(self.xr, self.yr, cyx)
+        self.jacpoly[:,1,1] = self.methval2d(self.xr, self.yr, cyy)
+
+    def combinejac(self):
+
+        """Utility - combines the jacobians for rescaling and polynomial into
+a single jacobian"""
+
+        # numpy's matmul handles broadcasting for us. 
+        self.jac = np.matmul( self.jacrescale, self.jacpoly )
+
+    def getjacobian(self):
+
+        """One-liner to get the jacobians for the rescaling and polynomial"""
+
+        self.setjacrescale()
+        if np.size(self.jacpoly) < 2:
+            self.initjacpoly()
+            
+        self.populatejacpoly()
+        self.combinejac()
+        
+    def trancov(self):
+
+        """Transforms the covariances from the unrescaled originals to the
+target frame"""
+
+        if np.size(self.jac) < 2:
+            self.getjacobian()
+
+        if np.size(self.covxy) < 2:
+            if self.Verbose:
+                print("Poly.trancov WARN - self.covxy size < 2")
+                return
+            return
+            
+        J = self.jac
+        Jt = np.transpose(J,axes=(0,2,1))
+        C = self.covxy
+
+        self.covtran = np.matmul(J, np.matmul(C, Jt) )
+
+    def nudgepos(self, dxarcsec=10., dyarcsec=10.):
+
+        """Nudges the input positions. Beware - this will happily send positions outside the domain of the polynomial."""
+
+        conv = 206265.
+        if self.degrees:
+            conv = 3600.
+
+        self.x += dxarcsec / conv
+        self.y += dyarcsec / conv
+            
+    def calcdeltas(self, dxarcsec=10., dyarcsec=10.):
+
+        """Utility - given the jacobian for the transformation, compute the
+deltas from J.dx"""
+
+        if np.size(self.jac) < 1:
+            return np.array([])
+
+        # delta-array will be in the same units as the original
+        # coordinates, assuming the input deltas are in arcsec
+        conv = 206265.
+        if self.degrees:
+            conv = 3600.
+
+        dx = np.array([dxarcsec, dyarcsec])/conv
+        dv = np.matmul(self.jac, dx)
+
+        return dv
+            
+    def propagate(self):
+
+        """Propagates the positions and covariances from raw to target
+frame"""
+
+        self.tranpos()
+        self.getjacobian()
+        self.trancov()
         
 class Polynom(object):
 
@@ -1175,7 +1332,7 @@ def testpoly(sidelen=2.1, ncoarse=15, nfine=51, \
              showplots=True, \
              sigx=1.0, sigy=0.7, sigr=0.2, \
              symm=False, cmap='viridis', \
-             dxarcsec=10., dyarcsec=10.):
+             dxarcsec=10., dyarcsec=10., degrees=True):
 
     """Test the propagation through a polynomial"""
 
@@ -1266,6 +1423,39 @@ def testpolycoefs(nterms=10, Verbose=True, \
     print("One-liner call-return with p + 1 as input:")
     print(dum)
 
+    # Now try differentiating this
+    cderx = polynomial.polynomial.polyder(dum, 1, 1, 0)
+    cdery = polynomial.polynomial.polyder(dum, 1, 1, 1)
+
+    print("One-liner differentiated wrt x, padded")
+    print(np.pad(cderx, [[0,1],[0,0]] )  )
+
+    print("One-liner differentiated wrt y, padded")
+    print(np.pad(cdery,[[0,0],[0,1]] )  )
+
+    # Try a polynomial object
+    PP = Poly()
+    dx, dy = PP.derivcoeffs(dum)
+
+    print("Using the polynomial object:")
+    print("d/dx:")
+    print(dx)
+
+    print("d/dy:")
+    print(dy)
+    
+    # what happens with chebyshev? Try it!
+    print("Interpreting coeffs as chebyshev and differentiating:")
+    chderx = polynomial.chebyshev.chebder(dum, 1, 1, 0)
+    chdery = polynomial.chebyshev.chebder(dum, 1, 1, 1)
+
+    print("Chebder wrt x")
+    print(chderx)
+
+    print("Chebder wrt y")
+    print(chdery)
+
+    
     if not showcheb:
         return
     
@@ -1287,43 +1477,138 @@ def testpolycoefs(nterms=10, Verbose=True, \
     print("Cheb gives" , Cheb(xtest) )
 
 
-def testconvenience(sidelen=2.1, deg=3, kind='Polynomial', Verbose=True, \
-                    showplots=False):
+def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
+                    deg=3, kind='Polynomial', Verbose=True, \
+                    showplots=False, \
+                    sigx=0.1, sigy=0.07, sigr=0.02, \
+                    dxarcsec=10., dyarcsec=10., degrees=True, \
+                    cmap='viridis', showpct=True):
 
     """Tests the convenience polynomial methods in numpy."""
 
-    xi, eta = gridxieta(sidelen, 11, 41)
+    # Synthetic datapoints
+    xi, eta = gridxieta(sidelen, ncoarse, nfine)
     xieta = np.vstack((xi, eta)).T
     nobjs = np.size(xi)
 
+    # Synthetic covariances in the original frame
+    vstdxi = np.ones(np.size(xi))*sigx
+    vstdeta = vstdxi * sigy/sigx
+    vcorrel = np.ones(np.size(xi))*sigr
+    CS = CovStack(vstdxi, vstdeta, r12=vcorrel, runOnInit=True)
+    covsxieta = CS.covars
+    
     parsx, parsy = makepars(deg=deg)
 
+    # Force the same domain for both objects
+    xmin = None
+    xmax = None
+    ymin = None
+    ymax = None
+
     # now create the polynomial object
-    PP = Poly(xi, eta, np.array([]), parsx, parsy, kind=kind, Verbose=Verbose)
+    PP = Poly(xi, eta, covsxieta, parsx, parsy, \
+              kind=kind, Verbose=Verbose, \
+              xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
 
-    #print(PP.methval2d, PP.methder)
-    #print(PP.xr.min(), PP.xr.max(), PP.yr.min(), PP.yr.max())
-    print(PP.xmin, PP.xmax)
-    print(PP.jrescale)
+    # Translate the raw positions and covariances from input to target
+    # frame, including working out the jacobian terms
+    PP.propagate()
     
-    PP.tranpos()
+    # Nudge the positions BEFORE sending them to the object, to avoid
+    # issues to do with points being shifted outside the domain.
+    conv = 3600.
+    if not degrees:
+        conv = 206265.
+        
+    xinudged = xi + dxarcsec / conv
+    etanudged = eta + dyarcsec / conv
 
+    PPn = Poly(xinudged, etanudged, covsxieta, parsx, parsy, \
+               kind=kind, Verbose=Verbose, \
+               xmin=PP.xmin, xmax=PP.xmax, ymin=PP.ymin, ymax=PP.ymax)
+    PPn.propagate()
+
+    ## ... or we can nudge within the object. Uncomment the lines below
+    ## to do so.
+    #PPn = copy.copy(PP)
+    #PPn.nudgepos(dxarcsec, dyarcsec)
+    #PPn.propagate()
+    ## #print(PPP.xtran[0:5], PPn.xtran[0:5])
+
+    # Now we create the diagnostics
+    
+    # Deltas estimated from the jacobian
+    dv = PP.calcdeltas(dxarcsec, dyarcsec)
+
+    dxbrute = PPn.xtran - PP.xtran
+    dybrute = PPn.ytran - PP.ytran
+    dvbrute = np.vstack(( dxbrute, dybrute )).T
+
+    # create deltas of deltas array
+    ddv = dv - dvbrute
+    dmag = np.sqrt(dxbrute**2 + dybrute**2)
+
+    detj = np.linalg.det(PP.jac)
+    
+    # views - our figure of merit
+    sx = ddv[:,0]/dmag
+    sy = ddv[:,1]/dmag
+    
     if not showplots:
         return
     
     # OK how does that look...
-    fig2=plt.figure(3)
-    fig2.clf()
-    ax1=fig2.add_subplot(221)
-    ax2=fig2.add_subplot(222)
+    fig3=plt.figure(3)
+    fig3.clf()
+    ax1=fig3.add_subplot(221)
+    ax2=fig3.add_subplot(222)
+    ax3=fig3.add_subplot(223)
+    ax4=fig3.add_subplot(224)
 
-    blah1 = ax1.scatter(PP.x, PP.y, c='k', s=2)
-    blah2 = ax2.scatter(PP.xtran, PP.ytran, c='b', s=2)
+    # conversion factor for the fractional deltas
+    sconv = 1.
+    if showpct:
+        sconv = 100.
+    
+    blah1 = ax1.scatter(PP.x, PP.y, c=dmag, cmap=cmap, s=1)
+    blah2 = ax2.scatter(PP.xtran, PP.ytran, c=detj, cmap=cmap, s=1)
+    blah3 = ax3.scatter(PP.xtran, PP.ytran, c=sx*sconv, cmap=cmap, s=1)
+    blah4 = ax4.scatter(PP.xtran, PP.ytran, c=sy*sconv, cmap=cmap, s=1)
+    
+    ax1.set_title(r'$|d\vec{X}|$')
+    ax2.set_title(r'det(J)')
 
-    ax1.set_title('Raw positions')
-    ax2.set_title('Transformed')
+    stitl4 = r'$(dY - dY_J)/|d\vec{X}|)$'
+    if showpct:
+        stitl4 = r'$100\times (dY - dY_J)/|d\vec{X}|)$'
+        
+    stitl3 = stitl4.replace("Y","X")
     
+    ax3.set_title(stitl3)
+    ax4.set_title(stitl4)
     
+    cb1 = fig3.colorbar(blah1, ax=ax1)
+    cb2 = fig3.colorbar(blah2, ax=ax2)
+    cb3 = fig3.colorbar(blah3, ax=ax3)
+    cb4 = fig3.colorbar(blah4, ax=ax4)
+
+    ax1.set_xlabel(r'$\xi$, degrees')
+    ax1.set_ylabel(r'$\eta$, degrees')
+
+    for ax in [ax2, ax3, ax4]:
+        ax.set_xlabel(r'$X$')
+        ax.set_ylabel(r'$Y$')
+    
+    # some cosmetic updating
+    fig3.subplots_adjust(hspace=0.5, wspace=0.5, top=0.85)
+
+    # show the input offset. We are in danger of repeating ourselves
+    # from a previous diagnostic plot here!
+    ssup = r"$(\Delta \xi, \Delta\eta) = (%.1f, %.1f)$ arcsec" \
+        % (dxarcsec, dyarcsec)
+
+    fig3.suptitle("%s, %s" % (PP.kind, ssup))
     
     ## ... and take a look at the resulting object(s)
     #print(PP.polx, PP.polx.domain)
