@@ -161,7 +161,8 @@ choose."""
     def __init__(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
                  parsx=np.array([]), parsy=np.array([]), degrees=True, \
                  kind='Polynomial', Verbose=False, \
-                 xmin=None, xmax=None, ymin=None, ymax=None):
+                 xmin=None, xmax=None, ymin=None, ymax=None, \
+                 xisxi=True):
 
         # Inputs
         self.x = x
@@ -182,6 +183,20 @@ choose."""
         # control variable
         self.Verbose = Verbose
 
+        # Convenience labels for plots
+        self.labelx=r'$\xi$'
+        self.labely=r'$\eta$'
+        self.labelxtran = 'X'
+        self.labelytran = 'Y'
+
+        # Flip the meaning of the labels if we're going from x,y to
+        # (xi, eta)
+        if not xisxi:
+            self.labelxtran = self.labelx[:]
+            self.labelytran = self.labely[:]
+            self.labelx = 'X'
+            self.labely = 'Y'
+            
         # rescaled x, y to the [-1, 1] interval, and scaling factors
         self.jacrescale = np.eye(2)
         self.setdomain()
@@ -813,9 +828,11 @@ from the tangent plane to the sky"""
         self.x = xi
         self.y = eta
         self.covxy = covxieta
-
+        
         self.pars = pars # the tangent point
 
+        self.Verbose = Verbose # control variable
+         
         # Input coordinates are in degrees? (Alternate is radians)
         self.degrees = degrees
         self.conv2rad = 1.
@@ -826,12 +843,23 @@ from the tangent plane to the sky"""
 
         # Go ahead and populate the jacobian on initialization
         self.setjacobian()
+
+        # Output quantities
+        self.xtran = np.array([])
+        self.ytran = np.array([])
+        self.covxytran = np.array([])
+
+        # Some plot labels
+        self.labelx = r'$\xi$'
+        self.labely = r'$\eta$'
+        self.labelxtran = r'$\alpha$'
+        self.labelytran = r'$\delta$'
         
     def initjac(self):
 
         """Initializes the jacobian"""
 
-        npoints = np.size(self.xi)
+        npoints = np.size(self.x)
         if npoints < 1:
             if self.Verbose:
                 print("Tan2equ WARN - no datapoints. Initializing jacobian to identity")
@@ -890,6 +918,14 @@ from the tangent plane to the sky"""
         self.jac[:,1,0] = J_dx
         self.jac[:,1,1] = J_dy
 
+        # WATCHOUT - We may need to account for the rescaling to
+        # radians, depending on what output frame we want. Currently,
+        # the jacobian translates from source position in radians to
+        # target position in radians. But then the positions are
+        # converted BACK to the input system, whether degrees or
+        # radians. So the scaling is undone again after the
+        # conversion. Check this!!
+        
     def tranpos(self):
 
         """Maps tangent plane coordinates onto equatorial"""
@@ -926,7 +962,7 @@ from the tangent plane to the sky"""
 
     def propagate(self):
 
-        """One-liner to propagate the positions and covariances"""
+        """One-liner to propagate the positions and covariances from tangent plane to equatorial"""
 
         self.tranpos()
         self.trancov()
@@ -964,6 +1000,178 @@ pointing is changed"""
     def calcdeltas(self, dxarcsec=10., dyarcsec=10.):
 
         """Estimates deltas in the projected frame from J.dx"""
+
+        conv=206265.
+        if self.degrees:
+            conv = 3600.
+
+        dx = np.array([dxarcsec, dyarcsec])/conv
+        dv = np.matmul(self.jac, dx)
+
+        return dv
+
+class Equ2tan(object):
+
+    """Object handling the transformation of coordinates and covariances
+from the sky to the tangent plane"""
+
+    # convention: x, y --> ra, dec
+
+    def __init__(self, ra=np.array([]), dec=np.array([]), \
+                 covradec=np.array([]), \
+                 pars=np.array([]), degrees=True, \
+                 Verbose=True):
+
+        self.x = ra
+        self.y = dec
+        self.covxy = covradec
+
+        self.pars=pars # the tangent point
+
+        self.Verbose = Verbose # control variable
+
+        # input coordinates in degrees?
+        self.degrees = degrees
+        self.conv2rad = 1.
+        self.setconversion()
+
+        # Some labels that'll come in handy when plotting, or when
+        # reminding ourselves which quantity should be which
+        self.labelx = r'$\alpha$'
+        self.labely = r'$\delta$'
+        self.labelxtran = r'$\xi$'
+        self.labelytran = r'$\eta$'
+        
+    def initjac(self):
+
+        """Initializes the jacobian"""
+
+        npoints = np.size(self.x)
+        if npoints < 1:
+            if self.Verbose:
+                print("Equ2tan WARN - no datapoints. Initializing jacobian to identity")
+            self.jac = np.eye(2)
+            return
+        
+        self.jac = np.zeros(( npoints, 2, 2 ))
+        self.jac[:,0,0] = 1.
+        self.jac[:,1,1] = 1.
+        
+    def setconversion(self):
+
+        """Sets the angular conversion factor to radians"""
+
+        self.conv2rad = 1.
+        if self.degrees:
+            self.conv2rad = np.pi/180.
+
+    def setjacobian(self):
+
+        """Sets the jacobian for the equatorial to tangent plane conversion"""
+
+        alpha = self.x * self.conv2rad
+        delta = self.y * self.conv2rad
+        alpha0 = self.pars[0] * self.conv2rad
+        delta0 = self.pars[1] * self.conv2rad
+
+        # We have the same denominator for all four terms
+        denom = ( np.cos(alpha-alpha0) * np.cos(delta) * np.cos(delta0) \
+            + np.sin(delta)*np.sin(delta0) )**2
+
+        # dxi/dalpha
+        J_xia = np.cos(delta) * ( np.cos(delta) * np.cos(delta0) \
+            + np.cos(alpha-alpha0) * np.sin(delta)*np.sin(delta0)) / denom
+
+        # dxi/ddelta
+        J_xid = 0. -np.sin(alpha-alpha0) * np.sin(delta0) / denom
+
+        # deta/dalpha
+        J_etaa = 0.5 * np.sin(alpha-alpha0) * np.sin(2.0*delta) / denom
+
+        # deta/ddelta
+        J_etad = np.cos(alpha-alpha0) / denom
+
+        # now populate the jacobian
+        self.jac[:,0,0] = J_xia
+        self.jac[:,0,1] = J_xid
+        self.jac[:,1,0] = J_etaa
+        self.jac[:,1,1] = J_etad
+
+        
+    def tranpos(self):
+
+        """Maps equatorial positions onto tangent plane"""
+
+        # Ensure the angles are computed in radians
+        alpha = self.x * self.conv2rad
+        delta = self.y * self.conv2rad
+        alpha0 = self.pars[0] * self.conv2rad
+        delta0 = self.pars[1] * self.conv2rad
+
+        denom = np.cos(alpha-alpha0) * np.cos(delta)*np.cos(delta0) \
+            + np.sin(delta)*np.sin(delta0)
+
+        xi = np.cos(delta)*np.sin(alpha-alpha0) / denom
+        
+        eta = (np.cos(delta0)*np.sin(delta) - \
+            np.cos(alpha-alpha0)*np.sin(delta)*np.sin(delta0)) / denom
+
+
+        # Pass up to the instance including the degrees-radians conversion
+        self.xtran = xi / conv
+        self.ytran = eta / conv
+
+    def trancov(self):
+
+        """Applies the transformation of covariances from equatorial to
+tangent plane"""
+
+        # Ensure the jacobian is appropriate
+        if np.size(self.jac) < 2:
+            self.setjacobian()
+
+        J = self.jac
+        Jt = np.transpose(J,axes=(0,2,1))
+        C = self.covxy
+
+        self.covtran = np.matmul(J, np.matmul(C, Jt))
+
+    def propagate(self):
+
+        """One-liner to propagate the positions and covariances from equatorial to tangent plane"""
+
+        self.tranpos()
+        self.trancov()
+
+    def updatetransf(self, pars=np.array([]) ):
+
+        """One-liner to update the transformation and jacobian when the pointing is changed"""
+
+        # Check the parameters
+        if np.size(pars) != 2:
+            return
+
+        self.pars = np.copy(pars)
+        self.setjacobian()
+
+    def nudgepos(self, dxarcsec=10., dyarcsec=10.):
+
+        """Nudges the raw positions by input dxarcsec, dyarcsec"""
+
+        # translate arcsec into the same system as the raw coords
+        conv = 206265.
+        if self.degrees:
+            conv = 3600.
+
+        self.x += dxarcsec / conv
+        self.y += dyarcsec / conv
+
+        # Re-evaluate the jacobian
+        self.setjacobian()
+
+    def calcdeltas(self, dxarcsec=10., dyarcsec=10.):
+
+        """Calculates transformed deltas using J.dx"""
 
         conv=206265.
         if self.degrees:
@@ -1807,15 +2015,20 @@ def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
     blah2 = ax2.scatter(PP.xtran, PP.ytran, c=detj, cmap=cmap, s=1)
     blah3 = ax3.scatter(PP.xtran, PP.ytran, c=sx*sconv, cmap=cmap, s=1)
     blah4 = ax4.scatter(PP.xtran, PP.ytran, c=sy*sconv, cmap=cmap, s=1)
+
+    # just a bit of string carpentry needed
+    sxrep = PP.labelxtran.replace('$','')
+    syrep = PP.labelytran.replace('$','')
     
-    ax1.set_title(r'$|d\vec{X}|$')
+    ax1.set_title(r'$|d\vec{%s}|$' % (sxrep))
     ax2.set_title(r'det(J)')
 
-    stitl4 = r'$(dY - dY_J)/|d\vec{X}|)$'
+    stitl4 = r'$(d%s - d%s_J)/|d\vec{%s}|)$' % (syrep, syrep, sxrep)
     if showpct:
-        stitl4 = r'$100\times (dY - dY_J)/|d\vec{X}|)$'
+        stitl4 = r'$100\times(d%s - d%s_J)/|d\vec{%s}|)$' \
+            % (syrep, syrep, sxrep)
         
-    stitl3 = stitl4.replace("Y","X")
+    stitl3 = stitl4.replace(syrep,sxrep)
     
     ax3.set_title(stitl3)
     ax4.set_title(stitl4)
@@ -1825,12 +2038,13 @@ def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
     cb3 = fig3.colorbar(blah3, ax=ax3)
     cb4 = fig3.colorbar(blah4, ax=ax4)
 
-    ax1.set_xlabel(r'$\xi$, degrees')
-    ax1.set_ylabel(r'$\eta$, degrees')
+    # inherit the label from the object
+    ax1.set_xlabel(PP.labelx)
+    ax1.set_ylabel(PP.labely)
 
     for ax in [ax2, ax3, ax4]:
-        ax.set_xlabel(r'$X$')
-        ax.set_ylabel(r'$Y$')
+        ax.set_xlabel(PP.labelxtran)
+        ax.set_ylabel(PP.labelytran)
     
     # some cosmetic updating
     fig3.subplots_adjust(hspace=0.5, wspace=0.5, top=0.85)
