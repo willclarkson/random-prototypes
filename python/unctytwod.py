@@ -1605,10 +1605,10 @@ def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
 
     # show the input offset. We are in danger of repeating ourselves
     # from a previous diagnostic plot here!
-    ssup = r"$(\Delta \xi, \Delta\eta) = (%.1f, %.1f)$ arcsec" \
+    ssup = r"$(\Delta \xi, \Delta\eta)=(%.1f, %.1f)$ arcsec" \
         % (dxarcsec, dyarcsec)
 
-    fig3.suptitle("%s, %s" % (PP.kind, ssup))
+    fig3.suptitle("%s(%i), %s" % (PP.kind, PP.pars2x.deg, ssup))
     
     ## ... and take a look at the resulting object(s)
     #print(PP.polx, PP.polx.domain)
