@@ -839,6 +839,7 @@ from the tangent plane to the sky"""
         self.setconversion()
         
         # jacobian for transforming uncertainty
+        self.jac=np.eye(2)
         self.initjac()
 
         # Go ahead and populate the jacobian on initialization
@@ -935,7 +936,7 @@ from the tangent plane to the sky"""
         eta = self.y * self.conv2rad
         alpha0 = self.pars[0] * self.conv2rad
         delta0 = self.pars[1] * self.conv2rad
-            
+
         gamma = np.cos(delta0) - eta*np.sin(delta0)
         alphaf = alpha0 + np.arctan(xi/gamma)
         deltaf = np.arctan(
@@ -1035,12 +1036,23 @@ from the sky to the tangent plane"""
         self.conv2rad = 1.
         self.setconversion()
 
+        self.jac = np.eye(2)
+        self.initjac()
+        self.setjacobian() # set on initialization
+
+        # output quantities
+        self.xtran = np.array([])
+        self.ytran = np.array([])
+        self.covxytran = np.array([])
+        
         # Some labels that'll come in handy when plotting, or when
         # reminding ourselves which quantity should be which
         self.labelx = r'$\alpha$'
         self.labely = r'$\delta$'
         self.labelxtran = r'$\xi$'
         self.labelytran = r'$\eta$'
+
+        
         
     def initjac(self):
 
@@ -1114,12 +1126,11 @@ from the sky to the tangent plane"""
         xi = np.cos(delta)*np.sin(alpha-alpha0) / denom
         
         eta = (np.cos(delta0)*np.sin(delta) - \
-            np.cos(alpha-alpha0)*np.sin(delta)*np.sin(delta0)) / denom
-
+            np.cos(alpha-alpha0)*np.cos(delta)*np.sin(delta0)) / denom
 
         # Pass up to the instance including the degrees-radians conversion
-        self.xtran = xi / conv
-        self.ytran = eta / conv
+        self.xtran = xi / self.conv2rad
+        self.ytran = eta / self.conv2rad
 
     def trancov(self):
 
@@ -1224,7 +1235,7 @@ class Sky(object):
         xi = np.cos(delta)*np.sin(alpha-alpha0) / denom
         
         eta = (np.cos(delta0)*np.sin(delta) - \
-            np.cos(alpha-alpha0)*np.sin(delta)*np.sin(delta0)) / denom
+            np.cos(alpha-alpha0)*np.cos(delta)*np.sin(delta0)) / denom
 
         self.postan = self.possky*0.
         self.postan[:,0] = np.degrees(xi)
@@ -2059,3 +2070,140 @@ def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
     ## ... and take a look at the resulting object(s)
     #print(PP.polx, PP.polx.domain)
     #print(PP.poly, PP.poly.domain)
+
+def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
+            alpha0=35., delta0=35.,
+            usegrid=True, showplots=True, showpct=True, \
+            sigx=0.1, sigy=0.07, sigr=0.02, \
+            Verbose=True, \
+            dxarcsec=10., dyarcsec=10., cmap='viridis'):
+
+    """Test routines for the one-directional Tan2equ() and Equ2tan()"""
+
+    # Adapted from testTransf() above.
+
+    # create xi, eta positions
+    xi, eta = gridxieta(sidelen, ncoarse, nfine)
+    
+    # generate some covariances in the tangent plane. For testing,
+    # default to uniform so that we can see how the transformation
+    # impacts the covariances
+    vstdxi = xi*0.+sigx
+    vstdeta = vstdxi * sigy/sigx
+    vcorrel = xi*0.+sigr
+    CS = CovStack(vstdxi, vstdeta, r12=vcorrel, runOnInit=True)
+
+    # tangent point
+    tpoint = np.array([alpha0, delta0])
+    
+    # now set up the tan2sky object, transform positions and covariances
+    T2E = Tan2equ(xi, eta, CS.covars, tpoint, Verbose=Verbose)
+    T2E.propagate()
+
+    # Now we create a new object to go in the opposite direction and
+    # "undo" the changes.
+    E2T = Equ2tan(T2E.xtran, T2E.ytran, T2E.covtran, tpoint, Verbose=Verbose)
+    E2T.propagate()
+
+    # Create some figures of merit.
+    #
+    # The determinants of the original covariances and the
+    # transformed-back covariances. Not very interesting if the
+    # originals are all the same value...
+    detcovxi = np.linalg.det(T2E.covxy)
+    detcovback = np.linalg.det(E2T.covtran)
+
+    print("Round-trip differences in det(cov): %.3e to %.3e" \
+          % (np.min(detcovback - detcovxi), \
+             np.max(detcovback - detcovxi)) )
+    
+    # Consider refactoring this set of nudge-based diagnostics into
+    # another method, since I'm starting to repeat myself in all these
+    # test routines...
+
+    detj=np.linalg.det(T2E.jac)
+    
+    # Nudge positions, recompute, and recalculate
+    T2En = copy.deepcopy(T2E)
+    T2En.nudgepos(dxarcsec, dyarcsec)
+    T2En.propagate()
+    dxbrute = T2En.xtran - T2E.xtran
+    dybrute = T2En.ytran - T2E.ytran
+    dvbrute = np.vstack((dxbrute, dybrute)).T
+    dmag = np.sqrt(dxbrute**2 + dybrute**2)
+    
+    # compute the deltas with the original points
+    dv = T2E.calcdeltas(dxarcsec, dyarcsec)
+
+    # our figure of merit
+    ddv = dv - dvbrute
+    sx = ddv[:,0]/dmag
+    sy = ddv[:,1]/dmag
+
+    #print(np.min(np.abs(sx)), np.max(np.abs(sx)), np.mean(np.abs(sx)))
+    #print(np.min(dmag), np.max(dmag))
+    
+    if not showplots:
+        return
+
+    # conversion factor for the fractional deltas
+    sconv = 1.
+    if showpct:
+        sconv = 100.
+    
+    fig1=plt.figure(1)
+    fig1.clf()
+    ax1 = fig1.add_subplot(221)
+    ax2 = fig1.add_subplot(222)
+    ax3 = fig1.add_subplot(223)
+    ax4 = fig1.add_subplot(224)
+
+    blah1 = ax1.scatter(T2E.x, T2E.y, s=1, c=dmag*3600., cmap=cmap)
+    blah2 = ax2.scatter(T2E.xtran, T2E.ytran, s=1, c=detj, cmap=cmap)
+
+    blah3 = ax3.scatter(E2T.x, E2T.y, s=1, c=sx*sconv, cmap=cmap)
+    blah4 = ax4.scatter(E2T.xtran, E2T.ytran, s=1, c=sy*sconv, cmap=cmap)
+
+    # This was used when debugging the deltas
+    #blah4 = ax4.hist(sx, bins=100, log=True)
+    #blah42 = ax4.hist(sy, bins=100, log=True)
+    
+    cb1 = fig1.colorbar(blah1, ax=ax1)
+    cb2 = fig1.colorbar(blah2, ax=ax2)
+    cb3 = fig1.colorbar(blah3, ax=ax3)
+    cb4 = fig1.colorbar(blah4, ax=ax4)
+    
+    ax1.set_xlabel(T2E.labelx)
+    ax1.set_ylabel(T2E.labely)
+    ax2.set_xlabel(T2E.labelxtran)
+    ax2.set_ylabel(T2E.labelytran)
+
+    ax3.set_xlabel(E2T.labelx)
+    ax3.set_ylabel(E2T.labely)
+    ax4.set_xlabel(E2T.labelxtran)
+    ax4.set_ylabel(E2T.labelytran)
+
+    # string carpentry for plots again
+    sxrep = T2E.labelxtran.replace('$','')
+    syrep = T2E.labelytran.replace('$','')
+
+    ax1.set_title(r'$|d\vec{%s}|$ (")' % (sxrep))
+    ax2.set_title(r'det(J)')
+
+    stitl4 = r'$(d%s - d%s_J)/|d\vec{%s}|)$' % (syrep, syrep, sxrep)
+    if showpct:
+        stitl4 = r'$100\times(d%s - d%s_J)/|d\vec{%s}|)$' \
+            % (syrep, syrep, sxrep)
+        
+    stitl3 = stitl4.replace(syrep,sxrep)
+    ax3.set_title(stitl3)
+    ax4.set_title(stitl4)
+    
+    # some cosmetics
+    ssup = r'$(\Delta \xi, \Delta\eta)=(%.1f$",$%.1f$")' \
+        % (dxarcsec, dyarcsec)
+    
+    skind = r'$(\alpha_0, \delta_0)=(%.1f^{\circ}, %.1f^{\circ})$' \
+        % (T2E.pars[0], T2E.pars[1])
+    fig1.suptitle("%s; %s" % (ssup, skind))
+    fig1.subplots_adjust(hspace=0.5, wspace=0.5, top=0.85)
