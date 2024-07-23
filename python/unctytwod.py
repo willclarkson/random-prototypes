@@ -530,7 +530,8 @@ target frame. Updates self.covtran in the instance."""
 
         """Nudges the input positions. Beware - this will happily send positions outside the domain of the polynomial."""
 
-        conv = 206265.
+        # conv = 206265.
+        conv = 1.  # if units are radians or pixels
         if self.degrees:
             conv = 3600.
 
@@ -547,7 +548,8 @@ deltas from J.dx"""
 
         # delta-array will be in the same units as the original
         # coordinates, assuming the input deltas are in arcsec
-        conv = 206265.
+        #conv = 206265.
+        conv = 1. # if units are radians or pixels
         if self.degrees:
             conv = 3600.
 
@@ -1493,12 +1495,18 @@ naming convention as the Polynom() object. Updates quantities self.xtran, self.y
         self.ytran = self.possky[:,1]
         
 # utility - return a grid of xi, eta points
-def gridxieta(sidelen=2.1, ncoarse=11, nfine=41):
+def gridxieta(sidelen=2.1, ncoarse=11, nfine=41, llzero=False):
 
     """Returns a grid of points in xi, eta"""
     
     xv = np.linspace(0.-sidelen, sidelen, ncoarse, endpoint=True)
     yv = np.linspace(0.-sidelen, sidelen, nfine, endpoint=True)
+
+    # set the minimum for each vector to zero?
+    if llzero:
+        xv -= np.min(xv)
+        yv -= np.min(yv)
+        
     xx, yy = np.meshgrid(xv, yv)
     xi = np.ravel(xx)
     eta = np.ravel(yy)
@@ -1510,6 +1518,7 @@ def gridxieta(sidelen=2.1, ncoarse=11, nfine=41):
 
     return xi, eta
 
+    
 def makecovars(npts=2, sigx=0.1, sigy=0.07, sigr=0.02, returnobj=False):
 
     """Utility - makes synthetic covariance matrices. If returnobj is
@@ -1526,22 +1535,43 @@ True, returns the entire CovStack object, otherwise just returns the
     else:
         return CS.covars
     
-def makepars(deg=1):
+def makepars(deg=1, reverse=False, scale=1.):
 
-    """Utility - makes sets of polynomial parameters for testing"""
+    """Utility - makes sets of polynomial parameters for testing. Still a by-hand hack... If reverse is true, then these are the parameters going from [-1,1] domain to the output. In that case, the parameter 'scale' maps this domain onto the output domain."""
 
     # Rubbish by-hand hack for the moment
     
-    parsx = [ 10., 10., 2.]
-    parsy = [-5., -1., 9.]
+    parsx = np.array([ 120., 100., 20.])
+    parsy = np.array([100., -10., 90.])
 
+    detcd = 1.
+    if reverse:
+        cdmatrix = np.array([ [parsx[1], parsx[2]], \
+                               [parsy[1], parsy[2]] ])
+        cdinv = np.linalg.inv(cdmatrix)
+        detcd = np.linalg.det(cdmatrix)/ (scale * 50.)
+
+        parsx = np.array([0.02, 1.1*scale, -0.03*scale])
+        parsy = np.array([-0.01, 0.04*scale, 0.91*scale])
+        
+        tpraw = np.array([parsx[0], parsy[0]])
+        tpest = np.matmul(cdinv, tpraw)
+
+        #parsx = np.array([0.02, cdinv[0,0], cdinv[0,1]])
+        #parsy = np.array([0.05, cdinv[1,0], cdinv[1,1]])
+        
     if deg > 1:
-        parsx = parsx + [1.5, 0.2, 0.1]
-        parsy = parsy + [0.7, 0.05, -0.4]
+        xadd = np.array([15., 2., 1.]) /detcd
+        yadd = np.array([7., 0.5, -4.]) /detcd
+        parsx = np.hstack((parsx, xadd))
+        parsy = np.hstack((parsy, yadd))
 
     if deg > 2:
-        parsx = parsx +  [0.1, 0.2, 0.3, 0.4]
-        parsy = parsy +  [-0.4, -0.3, -0.2, -0.1]
+        xadd = np.array([1., 2., 3., 4.])/detcd
+        yadd = np.array([-4., -3., -2., -1.])/detcd
+
+        parsx = np.hstack((parsx, xadd))
+        parsy = np.hstack((parsy, yadd))
 
     return parsx, parsy
         
@@ -1987,13 +2017,13 @@ def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
                     deg=3, kind='Polynomial', Verbose=True, \
                     showplots=False, \
                     sigx=0.1, sigy=0.07, sigr=0.02, \
-                    dxarcsec=10., dyarcsec=10., degrees=True, \
-                    cmap='viridis', showpct=True):
+                    dxarcsec=10., dyarcsec=10., \
+                    cmap='viridis', showpct=True, reverse=False):
 
     """Tests the convenience polynomial methods in numpy."""
 
-    # Synthetic datapoints
-    xi, eta = gridxieta(sidelen, ncoarse, nfine)
+    # Synthetic datapoints (if reverse, pretend this is a camera)
+    xi, eta = gridxieta(sidelen, ncoarse, nfine, llzero=reverse)
     xieta = np.vstack((xi, eta)).T
     nobjs = np.size(xi)
 
@@ -2004,7 +2034,7 @@ def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
     CS = CovStack(vstdxi, vstdeta, r12=vcorrel, runOnInit=True)
     covsxieta = CS.covars
     
-    parsx, parsy = makepars(deg=deg)
+    parsx, parsy = makepars(deg=deg, reverse=reverse)
     
     # Access the poly domain
     xmin = None
@@ -2021,7 +2051,8 @@ def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
     # we can ensure the update step later on works.
     PP = Poly(xi, eta, covsxieta, parsxr, parsyr, \
               kind=kind, Verbose=Verbose, \
-              xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+              xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax, \
+              degrees=not(reverse), xisxi=not(reverse))
 
     # Try updating the parameters after initialization. Does this
     # work?
@@ -2034,8 +2065,8 @@ def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
     # Nudge the positions BEFORE sending them to the object, to avoid
     # issues to do with points being shifted outside the domain.
     conv = 3600.
-    if not degrees:
-        conv = 206265.
+    if reverse:
+        conv = 1.
         
     xinudged = xi + dxarcsec / conv
     etanudged = eta + dyarcsec / conv
@@ -2087,17 +2118,22 @@ def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
     if showpct:
         sconv = 100.
     
-    blah1 = ax1.scatter(PP.x, PP.y, c=dmag, cmap=cmap, s=1)
-    blah2 = ax2.scatter(PP.xtran, PP.ytran, c=detj, cmap=cmap, s=1)
+    blah1 = ax1.scatter(PP.x, PP.y, c=detj, cmap=cmap, s=1)
+    blah2 = ax2.scatter(PP.xtran, PP.ytran, c=dmag, cmap=cmap, s=1)
     blah3 = ax3.scatter(PP.xtran, PP.ytran, c=sx*sconv, cmap=cmap, s=1)
     blah4 = ax4.scatter(PP.xtran, PP.ytran, c=sy*sconv, cmap=cmap, s=1)
 
     # just a bit of string carpentry needed
     sxrep = PP.labelxtran.replace('$','')
     syrep = PP.labelytran.replace('$','')
+
+    # Units for the deltas
+    sunit = '(")'
+    if not PP.degrees:
+        sunit = '(pix)'
     
-    ax1.set_title(r'$|d\vec{%s}|$' % (sxrep))
-    ax2.set_title(r'det(J)')
+    ax2.set_title(r'$|d\vec{%s}|$ %s' % (sxrep, sunit))
+    ax1.set_title(r'det(J)')
 
     stitl4 = r'$(d%s - d%s_J)/|d\vec{%s}|)$' % (syrep, syrep, sxrep)
     if showpct:
@@ -2127,8 +2163,8 @@ def testconvenience(sidelen=2.1, ncoarse=15, nfine=51, \
 
     # show the input offset. We are in danger of repeating ourselves
     # from a previous diagnostic plot here!
-    ssup = r"$(\Delta \xi, \Delta\eta)=(%.1f, %.1f)$ arcsec" \
-        % (dxarcsec, dyarcsec)
+    ssup = r'$(\Delta \xi, \Delta\eta)=(%.1f, %.1f)$ %s' \
+        % (dxarcsec, dyarcsec, sunit.replace('(','').replace(')',''))
 
     fig3.suptitle("%s(%i), %s" % (PP.kind, PP.pars2x.deg, ssup))
     

@@ -59,28 +59,50 @@ def showpoly(sidelen=25., deg=3, kind='Polynomial', \
              sigx=0.1, sigy=0.05, sigr=0.0, \
              fignum=4, Verbose=True, \
              errsf=50000., edgecolor='0.3', \
-             reverse=False):
+             reverse=False, projsky=True, \
+             alpha0=35., delta0=35., \
+             scale=1.):
 
-    """Demos tangent plane to polynomial"""
+    """Demos tangent plane to polynomial
 
+    scale = scale factor from [-1,1] to xi, eta (convenient way to
+    inflate the output)
+
+    """
+    
     # Set up the xi, eta points
     xigrid, etagrid, xicross, etacross, covxieta = \
-        setupxieta(sidelen, ncoarse, nfine, sigx, sigy, sigr)
+        setupxieta(sidelen, ncoarse, nfine, sigx, sigy, sigr, \
+                   pix=reverse)
 
     # Make up some parameters at the given degree
-    parsx, parsy = unctytwod.makepars(deg=deg)
+    parsx, parsy = unctytwod.makepars(deg=deg, reverse=reverse, scale=scale)
 
     # now create the polynomial object
     PP = unctytwod.Poly(xicross, etacross, covxieta.covars, parsx, parsy, \
-                        kind=kind, Verbose=Verbose)
+                        kind=kind, Verbose=Verbose, \
+                        degrees=not(reverse), xisxi=not(reverse))
     PP.propagate()
 
     # Show the ellipses
     showellipses(PP, xigrid, etagrid, errsf, fignum=fignum)
 
+    # bonus - project onto the sky (assuming the target frame is xi,
+    # eta)?
+    if not projsky or not reverse:
+        return
+
+    T2E = unctytwod.Tan2equ(PP.xtran, PP.ytran, PP.covtran, \
+                            np.array([alpha0, delta0]), Verbose=Verbose)
+    T2E.propagate()
+    xg, yg = PP.propxy(xigrid, etagrid) # unfortunate naming
+    
+    showellipses(T2E, xg, yg, errsf, fignum=fignum+1, \
+                 enforceuniformaxes=False, showmajors=False)
+    
     
 def setupxieta(sidelen=25., ncoarse=15, nfine=101, \
-               sigx=0.1, sigy=0.05, sigr=0.0):
+               sigx=0.1, sigy=0.05, sigr=0.0, pix=False):
     
 
     """Utility - sets up xi, eta points for the plots"""
@@ -91,17 +113,28 @@ def setupxieta(sidelen=25., ncoarse=15, nfine=101, \
     # create grid of positions at the meeting points of the fine grid
     xicross, etacross = unctytwod.gridxieta(sidelen, ncoarse, ncoarse)
 
+    # If we want the lower-left to be 0,0 then we subtract the minimum
+    # grid point from both outputs
+    if pix:
+        ximin = np.min(xigrid)
+        etamin = np.min(etagrid)
+
+        xigrid -= ximin
+        xicross -= ximin
+        etagrid -= etamin
+        etacross -= etamin
+    
     # Create covariances stack in the tangent plane
     npts = np.size(xicross)
     covxieta = CovarsNx2x2(stdx=np.repeat(sigx/3600.,npts), \
                            stdy=np.repeat(sigy/3600.,npts), \
-                           corrxy=np.repeat(sigr/3600., npts))
+                           corrxy=np.repeat(sigr, npts))
 
     return xigrid, etagrid, xicross, etacross, covxieta
     
 def showellipses(transf=None, xigrid=np.array([]), etagrid=np.array([]),\
                  errsf=10000, edgecolor='0.3', \
-                 fignum=4):
+                 fignum=4, enforceuniformaxes=True, showmajors=True):
 
     """Refactored our input/output plotter into a new method for
 repeatability. 
@@ -136,7 +169,9 @@ repeatability.
                       ax=ax1, fig=fig, showColorbarEllipse=False, \
                       colorMajors=edgecolor, colorMinors=edgecolor, \
                       edgecolorEllipse=edgecolor, \
-                      shadeEllipses=False)
+                      shadeEllipses=False, \
+                      enforceUniformAxes=enforceuniformaxes, \
+                      showMajors=showmajors, showMinors=showmajors)
 
     # Show the transformed positions on the second axis
     blah2g = ax2.scatter(ragrid, degrid, s=.1, c='0.5')
@@ -145,7 +180,9 @@ repeatability.
                       ax=ax2, fig=fig, showColorbarEllipse=False, \
                       colorMajors=edgecolor, colorMinors=edgecolor, \
                       edgecolorEllipse=edgecolor, \
-                      shadeEllipses=False)
+                      shadeEllipses=False, \
+                      enforceUniformAxes=enforceuniformaxes, \
+                      showMajors=showmajors, showMinors=showmajors)
 
     # Set the labels
     ax1.set_xlabel(transf.labelx)
