@@ -196,6 +196,13 @@ choose."""
             self.labelytran = self.labely[:]
             self.labelx = 'X'
             self.labely = 'Y'
+
+        # Derivatives that will be evaluated at x, y to evaluate the
+        # jacobian for given input positions
+        self.cxx = np.array([])
+        self.cxy = np.array([])
+        self.cyx = np.array([])
+        self.cyy = np.array([])
             
         # rescaled x, y to the [-1, 1] interval, and scaling factors
         self.jacrescale = np.eye(2)
@@ -446,6 +453,14 @@ original (i.e. padded at the highest power).
 
         return cdx, cdy
 
+    def setderivcoeffs(self):
+
+        """Sets up the coefficients of the polynomial derivatives that will be
+evaluated at x,y to populate the jacobian"""
+
+        self.cxx, self.cxy = self.derivcoeffs(self.pars2x.p2d)
+        self.cyx, self.cyy = self.derivcoeffs(self.pars2y.p2d)
+        
     def initjacpoly(self):
 
         """Initializes the jacobian for the polynomial using the
@@ -472,15 +487,33 @@ polynomial"""
                 print("Poly.populatejacpoly WARN - jacobian < 2 elements. Not initialized yet?")
             return
 
-        # Compute the coefficients and evaluate them at the datapoints
-        cxx, cxy = self.derivcoeffs(self.pars2x.p2d)
-        cyx, cyy = self.derivcoeffs(self.pars2y.p2d)
+        # Compute the coefficients... 
+        self.setderivcoeffs()
 
-        self.jacpoly[:,0,0] = self.methval2d(self.xr, self.yr, cxx)
-        self.jacpoly[:,0,1] = self.methval2d(self.xr, self.yr, cxy)
-        self.jacpoly[:,1,0] = self.methval2d(self.xr, self.yr, cyx)
-        self.jacpoly[:,1,1] = self.methval2d(self.xr, self.yr, cyy)
+        # ... and evaluate them at the datapoints
+        self.jacpoly = self.evaluatejacpoly(self.xr, self.yr)
 
+        # this is if we already have an instance-level we want to fill in
+        #self.jacpoly[:,0,0] = self.methval2d(self.xr, self.yr, self.cxx)
+        #self.jacpoly[:,0,1] = self.methval2d(self.xr, self.yr, self.cxy)
+        #self.jacpoly[:,1,0] = self.methval2d(self.xr, self.yr, self.cyx)
+        #self.jacpoly[:,1,1] = self.methval2d(self.xr, self.yr, self.cyy)
+
+    def evaluatejacpoly(self, xr=np.array([]), yr=np.array([]) ):
+
+        """Evaluates the jacobian corresponding to the [-1,1] x, y"""
+
+        if np.size(xr) < 1 or np.size(yr) < 1:
+            return np.array([])
+
+        jacpoly = np.zeros(( xr.size, 2, 2 ))
+        jacpoly[:,0,0] = self.methval2d(xr, yr, self.cxx)
+        jacpoly[:,0,1] = self.methval2d(xr, yr, self.cxy)
+        jacpoly[:,1,0] = self.methval2d(xr, yr, self.cyx)
+        jacpoly[:,1,1] = self.methval2d(xr, yr, self.cyy)
+
+        return jacpoly
+        
     def combinejac(self):
 
         """Utility - combines the jacobians for rescaling and polynomial into
@@ -514,13 +547,18 @@ target frame. Updates self.covtran in the instance."""
                 return
             return
 
-        self.covtran = self.propcov(self.covxy)
+        self.covtran = self.propcov(self.covxy, self.x, self.y)
         
-    def propcov(self, C=np.array([])):
+    def propcov(self, C=np.array([]), x=np.array([]), y=np.array([]) ):
 
         """Propagates unrescaled covariances from input to output frame, returning the transformed covariances as an [N,2,2] array."""
+
+        # First compute the jacobian
+        xr, yr = self.rescalexy(x,y)
+        Jpoly = self.evaluatejacpoly(xr, yr)
+        J = np.matmul( self.jacrescale, Jpoly )
         
-        J = self.jac
+        # J = self.jac
         Jt = np.transpose(J,axes=(0,2,1))
 
         return np.matmul(J, np.matmul(C, Jt) )
@@ -593,6 +631,9 @@ parameters. Anticipating the eventual use-case, the x and y parameters are assum
         self.pars2x.updatecoeffs(parsx)
         self.pars2y.updatecoeffs(parsy)
 
+        # ... the derivative coefficients...
+        self.setderivcoeffs()
+        
         # ... and the jacobian
         self.populatejacpoly()
         self.combinejac()
@@ -902,12 +943,21 @@ from the tangent plane to the sky"""
 
         """Sets up the jacobian for the tangent plane to sky conversion"""
 
+        self.jac = self.evaluatejac(self.x, self.y)
+
+    def evaluatejac(self, x=np.array([]), y=np.array([]) ):
+
+        """Computes the jacobian for input x, y"""
+
+        if np.size(x) < 1 or np.size(y) < 1:
+            return np.array([])
+        
         # comparison on number of planes between data and jacobian
         # might come here.
         
         # Ensure input angles are in radians
-        xi  = self.x * self.conv2rad
-        eta = self.y * self.conv2rad
+        xi  = x * self.conv2rad
+        eta = y * self.conv2rad
         alpha0 = self.pars[0] * self.conv2rad
         delta0 = self.pars[1] * self.conv2rad
 
@@ -932,12 +982,16 @@ from the tangent plane to the sky"""
         # ddelta / deta
         J_dy = ((1.0 + xi**2)*np.cos(delta0) - eta*np.sin(delta0)) / denom10
 
-        # now populate the jacobian
-        self.jac[:,0,0] = J_ax
-        self.jac[:,0,1] = J_ay
-        self.jac[:,1,0] = J_dx
-        self.jac[:,1,1] = J_dy
-
+        # now set up and populate the jacobian
+        jac = np.zeros(( x.size, 2, 2 ))
+        jac[:,0,0] = J_ax
+        jac[:,0,1] = J_ay
+        jac[:,1,0] = J_dx
+        jac[:,1,1] = J_dy
+        
+        # ... and return this
+        return jac
+    
     def tranpos(self):
 
         """Maps instance's tangent plane coordinates onto equatorial. Updates self.xtran, self.ytran in the instance."""
@@ -975,18 +1029,21 @@ from the tangent plane to the sky"""
 equatorial, does a little sanity checking on the covariance and jacobian. Updates self.covtran in the instance."""
 
         # Populate the jacobian if not already done
-        if np.size(self.jac) < 2:
-            self.setjacobian()
+        #if np.size(self.jac) < 2:
+        #    self.setjacobian()
 
-        self.covtran = self.propcov(self.covxy)
+        self.covtran = self.propcov(self.covxy, self.x, self.y)
 
-    def propcov(self, C=np.array([]) ):
+    def propcov(self, C=np.array([]), x=np.array([]), y=np.array([]) ):
 
         """Transforms input covariance matrices from tangent plane to
 equatorial, returning the transformed covariance matrices as an
 [N,2,2] array."""
 
-        J = self.jac
+        if np.size(self.x) < 1 or np.size(y) < 1:
+            return np.array([])
+
+        J = self.evaluatejac(x, y)
         Jt = np.transpose(J,axes=(0,2,1))
 
         return np.matmul(J, np.matmul(C, Jt))
@@ -1111,8 +1168,17 @@ from the sky to the tangent plane"""
 
         """Sets the jacobian for the equatorial to tangent plane conversion"""
 
-        alpha = self.x * self.conv2rad
-        delta = self.y * self.conv2rad
+        self.jac = self.evaluatejac(self.x, self.y)
+        
+    def evaluatejac(self, x=np.array([]), y=np.array([]) ):
+
+        """Evaluates the jacobian at input x, y points"""
+
+        if np.size(x) < 1 or np.size(y) < 1:
+            return np.array([])
+
+        alpha = x * self.conv2rad
+        delta = y * self.conv2rad
         alpha0 = self.pars[0] * self.conv2rad
         delta0 = self.pars[1] * self.conv2rad
 
@@ -1134,11 +1200,13 @@ from the sky to the tangent plane"""
         J_etad = np.cos(alpha-alpha0) / denom
 
         # now populate the jacobian
-        self.jac[:,0,0] = J_xia
-        self.jac[:,0,1] = J_xid
-        self.jac[:,1,0] = J_etaa
-        self.jac[:,1,1] = J_etad
+        jac = np.zeros(( x.size, 2, 2 ))
+        jac[:,0,0] = J_xia
+        jac[:,0,1] = J_xid
+        jac[:,1,0] = J_etaa
+        jac[:,1,1] = J_etad
 
+        return jac
         
     def tranpos(self):
 
@@ -1185,13 +1253,17 @@ jacobian. Updates self.covtran in the instance.
         if np.size(self.jac) < 2:
             self.setjacobian()
 
-        self.covtran = self.propcov(self.covxy)
+        self.covtran = self.propcov(self.covxy, self.x, self.y)
             
-    def propcov(self, C=np.array([]) ):
+    def propcov(self, C=np.array([]), x=np.array([]), y=np.array([]) ):
 
         """Transforms input covariances C from equatorial to tangent plane. Returns the transformed covariances as an [N,2,2] array."""
-            
-        J = self.jac
+
+        if np.size(x) < 1 or np.size(y) < 1:
+            return np.array([])
+
+        # Evaluate the jacobian at the input points
+        J = self.evaluatejac(x, y)
         Jt = np.transpose(J,axes=(0,2,1))
 
         return np.matmul(J, np.matmul(C, Jt))
