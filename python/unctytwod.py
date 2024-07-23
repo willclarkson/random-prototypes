@@ -1503,8 +1503,10 @@ def gridxieta(sidelen=2.1, ncoarse=11, nfine=41):
     xi = np.ravel(xx)
     eta = np.ravel(yy)
 
-    xi = np.hstack(( xi, np.ravel(yy) ))
-    eta = np.hstack(( eta, np.ravel(xx) ))
+    # if ncoarse and nfine are the same, we do not need to double up
+    if ncoarse != nfine:
+        xi = np.hstack(( xi, np.ravel(yy) ))
+        eta = np.hstack(( eta, np.ravel(xx) ))
 
     return xi, eta
 
@@ -2151,11 +2153,6 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
     # generate some covariances in the tangent plane. For testing,
     # default to uniform so that we can see how the transformation
     # impacts the covariances
-    #vstdxi = xi*0.+sigx
-    #vstdeta = vstdxi * sigy/sigx
-    #vcorrel = xi*0.+sigr
-    #CS = CovStack(vstdxi, vstdeta, r12=vcorrel, runOnInit=True)
-    
     covs = makecovars(np.size(xi), sigx, sigy, sigr, returnobj=False)
     
     # tangent point
