@@ -392,13 +392,24 @@ this rescaling"""
         self.polx = self.P(self.parsx)
         self.poly = self.P(self.parsy)
 
+    def propxy(self, x=np.array([]), y=np.array([]) ):
+
+        """Propagates input x, y positions to target frame, returning transformed positions as arrays"""
+
+        if np.size(x) < 1 or np.size(y) < 1:
+            return np.array([]), np.array([])
+
+        xr, yr = self.rescalexy(x, y)
+        xtran = self.methval2d(xr, yr, self.pars2x.p2d)
+        ytran = self.methval2d(xr, yr, self.pars2y.p2d)
+
+        return xtran, ytran
+        
     def tranpos(self):
 
-        """Applies the transformation to the raw positions"""
+        """Applies the transformation to the raw positions, updating instance quantities self.xtran, self.ytran"""
 
-        xr, yr = self.rescalexy(self.x, self.y)
-        self.xtran = self.methval2d(xr, yr, self.pars2x.p2d)
-        self.ytran = self.methval2d(xr, yr, self.pars2y.p2d)
+        self.xtran, self.ytran = self.propxy(self.x, self.y)
         
     def tranpos_r(self):
 
@@ -492,7 +503,7 @@ a single jacobian"""
     def trancov(self):
 
         """Transforms the covariances from the unrescaled originals to the
-target frame"""
+target frame. Updates self.covtran in the instance."""
 
         if np.size(self.jac) < 2:
             self.getjacobian()
@@ -502,12 +513,18 @@ target frame"""
                 print("Poly.trancov WARN - self.covxy size < 2")
                 return
             return
-            
+
+        self.covtran = self.propcov(self.covxy)
+        
+    def propcov(self, C=np.array([])):
+
+        """Propagates unrescaled covariances from input to output frame, returning the transformed covariances as an [N,2,2] array."""
+        
         J = self.jac
         Jt = np.transpose(J,axes=(0,2,1))
-        C = self.covxy
 
-        self.covtran = np.matmul(J, np.matmul(C, Jt) )
+        return np.matmul(J, np.matmul(C, Jt) )
+        
 
     def nudgepos(self, dxarcsec=10., dyarcsec=10.):
 
@@ -919,21 +936,22 @@ from the tangent plane to the sky"""
         self.jac[:,1,0] = J_dx
         self.jac[:,1,1] = J_dy
 
-        # WATCHOUT - We may need to account for the rescaling to
-        # radians, depending on what output frame we want. Currently,
-        # the jacobian translates from source position in radians to
-        # target position in radians. But then the positions are
-        # converted BACK to the input system, whether degrees or
-        # radians. So the scaling is undone again after the
-        # conversion. Check this!!
-        
     def tranpos(self):
 
-        """Maps tangent plane coordinates onto equatorial"""
+        """Maps instance's tangent plane coordinates onto equatorial. Updates self.xtran, self.ytran in the instance."""
 
+        self.xtran, self.ytran = self.propxy(self.x, self.y)
+        
+    def propxy(self, x=np.array([]), y=np.array([])):
+
+        """Maps input x, y from the tangent plane to equatorial coordinates. Returns xtran, ytran."""
+
+        if np.size(x) < 1 or np.size(y) < 1:
+            return np.array([]), np.array([])
+        
         # Ensure the angles are computed in radians
-        xi = self.x * self.conv2rad
-        eta = self.y * self.conv2rad
+        xi = x * self.conv2rad
+        eta = y * self.conv2rad
         alpha0 = self.pars[0] * self.conv2rad
         delta0 = self.pars[1] * self.conv2rad
 
@@ -942,25 +960,35 @@ from the tangent plane to the sky"""
         deltaf = np.arctan(
             (eta*np.cos(delta0) + np.sin(delta0) ) /
             np.sqrt(xi**2 + gamma**2) )
-
+        
         # Convert the equatorial positions back to the input system.
-        self.xtran = alphaf / self.conv2rad
-        self.ytran = deltaf / self.conv2rad
+        xtran = alphaf / self.conv2rad
+        ytran = deltaf / self.conv2rad
 
+        return xtran, ytran
+        
     def trancov(self):
 
-        """Transforms covariance matrices from tangent plane to equatorial"""
+        """Transforms instances' covariance matrices from tangent plane to
+equatorial, does a little sanity checking on the covariance and jacobian. Updates self.covtran in the instance."""
 
         # Populate the jacobian if not already done
         if np.size(self.jac) < 2:
             self.setjacobian()
 
+        self.covtran = self.propcov(self.covxy)
+
+    def propcov(self, C=np.array([]) ):
+
+        """Transforms input covariance matrices from tangent plane to
+equatorial, returning the transformed covariance matrices as an
+[N,2,2] array."""
+
         J = self.jac
         Jt = np.transpose(J,axes=(0,2,1))
-        C = self.covxy
 
-        self.covtran = np.matmul(J, np.matmul(C, Jt))
-
+        return np.matmul(J, np.matmul(C, Jt))
+        
     def propagate(self):
 
         """One-liner to propagate the positions and covariances from tangent plane to equatorial"""
@@ -1112,11 +1140,20 @@ from the sky to the tangent plane"""
         
     def tranpos(self):
 
-        """Maps equatorial positions onto tangent plane"""
+        """Maps instance's equatorial positions onto tangent plane, updating instance quantities self.xtran, self.ytran"""
 
+        self.xtran, self.ytran = self.propxy(self.x, self.y)
+        
+    def propxy(self, x=np.array([]), y=np.array([]) ):
+        
+        """Maps input equatorial positions onto tangent plane. Returns the mapped x, y arrays."""
+
+        if np.size(x) < 1 or np.size(y) < 1:
+            return np.array([]), np.array([])
+        
         # Ensure the angles are computed in radians
-        alpha = self.x * self.conv2rad
-        delta = self.y * self.conv2rad
+        alpha = x * self.conv2rad
+        delta = y * self.conv2rad
         alpha0 = self.pars[0] * self.conv2rad
         delta0 = self.pars[1] * self.conv2rad
 
@@ -1128,24 +1165,34 @@ from the sky to the tangent plane"""
         eta = (np.cos(delta0)*np.sin(delta) - \
             np.cos(alpha-alpha0)*np.cos(delta)*np.sin(delta0)) / denom
 
-        # Pass up to the instance including the degrees-radians conversion
-        self.xtran = xi / self.conv2rad
-        self.ytran = eta / self.conv2rad
+        # Return tangent plane coordinates including the
+        # degrees/radians conversion
+        xtran = xi / self.conv2rad
+        ytran = eta / self.conv2rad
 
+        return xtran, ytran
+        
     def trancov(self):
 
-        """Applies the transformation of covariances from equatorial to
-tangent plane"""
-
+        """Applies the transformation of instance's covariances from
+equatorial to tangent plane, does a little sanity checking on the
+jacobian. Updates self.covtran in the instance.
+        """
+        
         # Ensure the jacobian is appropriate
         if np.size(self.jac) < 2:
             self.setjacobian()
 
+        self.covtran = self.propcov(self.covxy)
+            
+    def propcov(self, C=np.array([]) ):
+
+        """Transforms input covariances C from equatorial to tangent plane. Returns the transformed covariances as an [N,2,2] array."""
+            
         J = self.jac
         Jt = np.transpose(J,axes=(0,2,1))
-        C = self.covxy
 
-        self.covtran = np.matmul(J, np.matmul(C, Jt))
+        return np.matmul(J, np.matmul(C, Jt))
 
     def propagate(self):
 
@@ -1439,7 +1486,7 @@ stored in object self.j2tan"""
     def tranpos(self):
 
         """Transforms tangent plane positions onto the sky using the same
-naming convention as the Polynom() object"""
+naming convention as the Polynom() object. Updates quantities self.xtran, self.ytran"""
 
         self.tan2sky()
         self.xtran = self.possky[:,0]
@@ -2158,8 +2205,8 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
     ax3 = fig1.add_subplot(223)
     ax4 = fig1.add_subplot(224)
 
-    blah1 = ax1.scatter(T2E.x, T2E.y, s=1, c=dmag*3600., cmap=cmap)
-    blah2 = ax2.scatter(T2E.xtran, T2E.ytran, s=1, c=detj, cmap=cmap)
+    blah1 = ax1.scatter(T2E.x, T2E.y, s=1, c=detj, cmap=cmap)
+    blah2 = ax2.scatter(T2E.xtran, T2E.ytran, s=1, c=dmag*3600., cmap=cmap)
 
     blah3 = ax3.scatter(E2T.x, E2T.y, s=1, c=sx*sconv, cmap=cmap)
     blah4 = ax4.scatter(E2T.xtran, E2T.ytran, s=1, c=sy*sconv, cmap=cmap)
@@ -2187,8 +2234,8 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
     sxrep = T2E.labelxtran.replace('$','')
     syrep = T2E.labelytran.replace('$','')
 
-    ax1.set_title(r'$|d\vec{%s}|$ (")' % (sxrep))
-    ax2.set_title(r'det(J)')
+    ax2.set_title(r'$|d\vec{%s}|$ (")' % (sxrep))
+    ax1.set_title(r'det(J)')
 
     stitl4 = r'$(d%s - d%s_J)/|d\vec{%s}|)$' % (syrep, syrep, sxrep)
     if showpct:
