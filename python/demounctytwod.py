@@ -56,7 +56,7 @@ direction"""
 
 def showpoly(sidelen=25., deg=3, kind='Polynomial', \
              ncoarse=15, nfine=101, \
-             sigx=0.1, sigy=0.05, sigr=0.0, \
+             sigx=0.1, sigy=0.04, sigr=0.0, \
              fignum=4, Verbose=True, \
              errsf=50000., edgecolor='0.3', \
              reverse=False, projsky=True, \
@@ -67,6 +67,12 @@ def showpoly(sidelen=25., deg=3, kind='Polynomial', \
 
     scale = scale factor from [-1,1] to xi, eta (convenient way to
     inflate the output)
+
+    Example calls:
+
+    demounctytwod.showpoly(kind='Chebyshev', reverse=False, sidelen=2., errsf=4000, delta0=85., deg=3)
+
+    demounctytwod.showpoly(kind='Legendre', reverse=True, sidelen=500., errsf=1000000, scale=2., delta0=85., deg=3, rotdeg=20.)
 
     """
     
