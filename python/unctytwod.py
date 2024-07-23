@@ -1491,7 +1491,7 @@ naming convention as the Polynom() object. Updates quantities self.xtran, self.y
         self.tan2sky()
         self.xtran = self.possky[:,0]
         self.ytran = self.possky[:,1]
-
+        
 # utility - return a grid of xi, eta points
 def gridxieta(sidelen=2.1, ncoarse=11, nfine=41):
 
@@ -1508,6 +1508,22 @@ def gridxieta(sidelen=2.1, ncoarse=11, nfine=41):
 
     return xi, eta
 
+def makecovars(npts=2, sigx=0.1, sigy=0.07, sigr=0.02, returnobj=False):
+
+    """Utility - makes synthetic covariance matrices. If returnobj is
+True, returns the entire CovStack object, otherwise just returns the
+[nobjs, 2, 2] covariance array."""
+
+    vstdxi = np.ones(npts)*sigx
+    vstdeta = vstdxi * sigy/sigx
+    vcorrel = np.ones(npts)*sigr
+    CS = CovStack(vstdxi, vstdeta, r12=vcorrel, runOnInit=True)
+
+    if returnobj:
+        return CS
+    else:
+        return CS.covars
+    
 def makepars(deg=1):
 
     """Utility - makes sets of polynomial parameters for testing"""
@@ -2135,16 +2151,18 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
     # generate some covariances in the tangent plane. For testing,
     # default to uniform so that we can see how the transformation
     # impacts the covariances
-    vstdxi = xi*0.+sigx
-    vstdeta = vstdxi * sigy/sigx
-    vcorrel = xi*0.+sigr
-    CS = CovStack(vstdxi, vstdeta, r12=vcorrel, runOnInit=True)
-
+    #vstdxi = xi*0.+sigx
+    #vstdeta = vstdxi * sigy/sigx
+    #vcorrel = xi*0.+sigr
+    #CS = CovStack(vstdxi, vstdeta, r12=vcorrel, runOnInit=True)
+    
+    covs = makecovars(np.size(xi), sigx, sigy, sigr, returnobj=False)
+    
     # tangent point
     tpoint = np.array([alpha0, delta0])
     
     # now set up the tan2sky object, transform positions and covariances
-    T2E = Tan2equ(xi, eta, CS.covars, tpoint, Verbose=Verbose)
+    T2E = Tan2equ(xi, eta, covs, tpoint, Verbose=Verbose)
     T2E.propagate()
 
     # Now we create a new object to go in the opposite direction and
