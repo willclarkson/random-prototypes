@@ -1535,7 +1535,7 @@ True, returns the entire CovStack object, otherwise just returns the
     else:
         return CS.covars
     
-def makepars(deg=1, reverse=False, scale=1.):
+def makepars(deg=1, reverse=False, scale=1., rotdeg=0.):
 
     """Utility - makes sets of polynomial parameters for testing. Still a by-hand hack... If reverse is true, then these are the parameters going from [-1,1] domain to the output. In that case, the parameter 'scale' maps this domain onto the output domain."""
 
@@ -1551,8 +1551,19 @@ def makepars(deg=1, reverse=False, scale=1.):
         cdinv = np.linalg.inv(cdmatrix)
         detcd = np.linalg.det(cdmatrix)/ (scale * 50.)
 
-        parsx = np.array([0.02, 1.1*scale, -0.03*scale])
-        parsy = np.array([-0.01, 0.04*scale, 0.91*scale])
+        cdinv = np.array([[1.1, -0.03],[0.04, 0.91]])
+
+        cc = np.cos(np.radians(rotdeg))
+        ss = np.sin(np.radians(rotdeg))
+        rot = np.array([[cc, -ss], [ss, cc]])
+
+        cd22 = np.matmul(cdinv,rot) * scale
+
+        parsx = np.array([ 0.02, cd22[0,0], cd22[0,1]])
+        parsy = np.array([-0.01, cd22[1,0], cd22[1,1]])
+        
+        #parsx = np.array([0.02, 1.1*scale, -0.03*scale])
+        #parsy = np.array([-0.01, 0.04*scale, 0.91*scale])
         
         tpraw = np.array([parsx[0], parsy[0]])
         tpest = np.matmul(cdinv, tpraw)

@@ -61,7 +61,7 @@ def showpoly(sidelen=25., deg=3, kind='Polynomial', \
              errsf=50000., edgecolor='0.3', \
              reverse=False, projsky=True, \
              alpha0=35., delta0=35., \
-             scale=1.):
+             scale=1., rotdeg=0.):
 
     """Demos tangent plane to polynomial
 
@@ -76,7 +76,8 @@ def showpoly(sidelen=25., deg=3, kind='Polynomial', \
                    pix=reverse)
 
     # Make up some parameters at the given degree
-    parsx, parsy = unctytwod.makepars(deg=deg, reverse=reverse, scale=scale)
+    parsx, parsy = unctytwod.makepars(deg=deg, reverse=reverse, \
+                                      scale=scale, rotdeg=rotdeg)
 
     # now create the polynomial object
     PP = unctytwod.Poly(xicross, etacross, covxieta.covars, parsx, parsy, \
