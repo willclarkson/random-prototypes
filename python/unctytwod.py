@@ -2260,15 +2260,26 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
             usegrid=True, showplots=True, showpct=True, \
             sigx=0.1, sigy=0.07, sigr=0.02, \
             Verbose=True, \
-            dxarcsec=10., dyarcsec=10., cmap='viridis'):
+            dxarcsec=10., dyarcsec=10., cmap='viridis', \
+            deltaback=False):
 
-    """Test routines for the one-directional Tan2equ() and Equ2tan()"""
+    """Test routines for the one-directional Tan2equ() and Equ2tan(). Example calls:
+
+    # produce a quiver plot showing the impact on (xi, eta) of
+    # changing the pointing by dxarcsec, dyarcsec
+    unctytwod.testsky(sidelen=5., delta0=35.0, dxarcsec=100., dyarcsec=100., cmap='inferno', deltaback=True, ncoarse=31, nfine=31)
+
+    # produce a plot showing the difference between brute
+    # force-computed deltas and those computed via the jacobian
+    unctytwod.testsky(sidelen=5., delta0=35.0, dxarcsec=10., dyarcsec=10., cmap='inferno')
+
+    """
 
     # Adapted from testTransf() above.
 
     # create xi, eta positions
     xi, eta = gridxieta(sidelen, ncoarse, nfine)
-    
+            
     # generate some covariances in the tangent plane. For testing,
     # default to uniform so that we can see how the transformation
     # impacts the covariances
@@ -2286,6 +2297,15 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
     E2T = Equ2tan(T2E.xtran, T2E.ytran, T2E.covtran, tpoint, Verbose=Verbose)
     E2T.propagate()
 
+    # Another useful test: shift positions, transform back to xi, eta,
+    # and find the deltas
+    alpha0nudged = alpha0 + dxarcsec/3600.
+    delta0nudged = delta0 + dyarcsec/3600.
+    E2Tn = Equ2tan(np.copy(T2E.xtran), np.copy(T2E.ytran), T2E.covtran, \
+                   np.array([alpha0nudged, delta0nudged]), Verbose=Verbose)
+    #E2Tn.nudgepos(dxarcsec, dyarcsec)
+    E2Tn.propagate()
+    
     # Create some figures of merit.
     #
     # The determinants of the original covariances and the
@@ -2323,10 +2343,56 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
 
     #print(np.min(np.abs(sx)), np.max(np.abs(sx)), np.mean(np.abs(sx)))
     #print(np.min(dmag), np.max(dmag))
-    
+
+    # if we're using the last panel to show the deltas resulting from
+    # the shift:
+    deltaxi = E2Tn.xtran - E2T.xtran
+    deltaeta = E2Tn.ytran - E2T.ytran
+
     if not showplots:
         return
 
+    if deltaback:
+    
+        # if we're looking at the result of a pointing shift, set up a
+        # separate figure.
+        dxisho = deltaxi*3600. + dxarcsec*np.cos(np.radians(delta0))
+        detasho = deltaeta * 3600. + dyarcsec
+
+        # arrow magnitudes
+        deltamag = np.sqrt(dxisho**2 + detasho**2)
+        xrange = np.max(E2T.xtran) - np.min(E2T.xtran)
+        quivscale = 0.1*xrange/np.max(deltamag)
+        
+        fig5 = plt.figure(5, figsize=(4,4))
+        fig5.clf()
+        ax5 = fig5.add_subplot(111)
+        blah5 = ax5.quiver(E2T.xtran, E2T.ytran, dxisho, detasho, \
+                           angles='xy', scale_units='xy', units='xy', \
+                           scale=None)#quivscale)
+
+        # For the scale, use a quantile
+        ql = np.quantile(deltamag, 0.9)
+        qk = ax5.quiverkey(blah5, 0.05, 0.97, U=ql, label='%.1f"' % (ql), \
+                           labelpos='E')
+    
+        ax5.set_xlabel(E2T.labelxtran)
+        ax5.set_ylabel(E2T.labelytran)
+
+        supquiv = r'$(\Delta \alpha_0, \Delta \delta_0) = (%.1f, %.1f)$"' \
+            % (dxarcsec, dyarcsec)
+
+        skind = r'$(\alpha_0, \delta_0)=(%.1f^{\circ}, %.1f^{\circ})$' \
+            % (E2T.pars[0], E2T.pars[1])
+
+        fig5.suptitle('%s, %s' % (supquiv, skind))
+
+        stitl = r'Arrows: $( \Delta \xi + \cos(\delta_0) \Delta \alpha_0$,  $\Delta \eta + \Delta \delta_0)$"'
+        ax5.set_title(stitl)
+
+        #### arrow plot finishes here.
+        return
+        
     # conversion factor for the fractional deltas
     sconv = 1.
     if showpct:
@@ -2339,12 +2405,24 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
     ax3 = fig1.add_subplot(223)
     ax4 = fig1.add_subplot(224)
 
+    # hack for what we're plotting on the fourth axis
+    sy4 = sy*sconv
+    if deltaback:
+        sy4 = deltaxi * 3600.  # in arcsec
+    
     blah1 = ax1.scatter(T2E.x, T2E.y, s=1, c=detj, cmap=cmap)
     blah2 = ax2.scatter(T2E.xtran, T2E.ytran, s=1, c=dmag*3600., cmap=cmap)
 
-    blah3 = ax3.scatter(E2T.x, E2T.y, s=1, c=sx*sconv, cmap=cmap)
-    blah4 = ax4.scatter(E2T.xtran, E2T.ytran, s=1, c=sy*sconv, cmap=cmap)
-
+    # what we show on the last row depends on what we're doing
+    if not deltaback:
+        blah3 = ax3.scatter(E2T.x, E2T.y, s=1, c=sx*sconv, cmap=cmap)
+        blah4 = ax4.scatter(E2T.xtran, E2T.ytran, s=1, c=sy*sconv, cmap=cmap)
+    else:
+        blah3 = ax3.scatter(E2T.xtran, E2T.ytran, s=1, c=deltaxi*3600., \
+                            cmap=cmap)
+        blah4 = ax4.scatter(E2T.xtran, E2T.ytran, s=1, c=deltaeta*3600., \
+                            cmap=cmap)
+        
     # This was used when debugging the deltas
     #blah4 = ax4.hist(sx, bins=100, log=True)
     #blah42 = ax4.hist(sy, bins=100, log=True)
@@ -2359,8 +2437,13 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
     ax2.set_xlabel(T2E.labelxtran)
     ax2.set_ylabel(T2E.labelytran)
 
-    ax3.set_xlabel(E2T.labelx)
-    ax3.set_ylabel(E2T.labely)
+    if not deltaback:
+        ax3.set_xlabel(E2T.labelx)
+        ax3.set_ylabel(E2T.labely)
+    else:
+        ax3.set_xlabel(E2T.labelxtran)
+        ax3.set_ylabel(E2T.labelytran)
+
     ax4.set_xlabel(E2T.labelxtran)
     ax4.set_ylabel(E2T.labelytran)
 
@@ -2377,9 +2460,16 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
             % (syrep, syrep, sxrep)
         
     stitl3 = stitl4.replace(syrep,sxrep)
-    ax3.set_title(stitl3)
-    ax4.set_title(stitl4)
-    
+    if not deltaback:
+        ax3.set_title(stitl3)
+        ax4.set_title(stitl4)
+    else:
+        ax3.set_title(r'$\Delta \xi$ (")')
+        ax4.set_title(r'$\Delta \eta$ (")')
+
+    # What are we showing here?
+    stitl = r'$(\Delta \xi - \Delta \alpha_0 \cos(\delta_0)$, $(\Delta \eta - \Delta \delta_0)$'
+
     # some cosmetics
     ssup = r'$(\Delta \xi, \Delta\eta)=(%.1f$",$%.1f$")' \
         % (dxarcsec, dyarcsec)
