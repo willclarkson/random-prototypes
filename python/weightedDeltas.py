@@ -1173,7 +1173,7 @@ class NormalEqs(object):
         self.xi = np.column_stack(( xi, eta ))
 
         # The N x 2 x 2 weight array
-        self.W = W
+        self.W = np.copy(W) # because we may be updating this
 
         # Keep track of the reference input coords
         self.xref = np.copy(xref)
@@ -1185,6 +1185,9 @@ class NormalEqs(object):
 
         self.Verbose = Verbose
 
+        # Ensure the weights match the dimensions of the data
+        self.checkweights()
+        
         # Internal variables
         self.pattern = np.array([]) # pattern matrix
         self.patternT = np.array([]) # its plane-by-plane transpose
@@ -1223,6 +1226,43 @@ class NormalEqs(object):
         #if np.size(self.bPlanes) < 1:
         #    self.bPlanes = np.isfinite(self.x[:,0])
 
+    def checkweights(self):
+
+        """Ensures the weights-array dimensions agree with the input data"""
+
+        # The shape the weights array SHOULD have:
+        xshape = np.shape(self.x)
+        sshape = (xshape[0],2,2)
+        
+        # Find the shape of the weights as passed in
+        wshape = np.shape(self.W)
+
+        # Return if the weights shape matches the data
+        if wshape is sshape:
+            return
+
+        # Initialize as unweighted
+        Wfix = np.zeros(sshape)
+        Wfix[:,0,0] = 1.
+        Wfix[:,1,1] = 1.
+        
+        # If we have 1D weights, replicate them to 2D
+        wfixed=False
+        if wshape[0] == xshape[0]:
+            if np.size(wshape) < 2:
+                Wfix[:,0,0] = self.W
+                Wfix[:,1,1] = self.W
+
+                wfixed=True                
+                if self.Verbose:
+                    print("NormalEqs.checkweights INFO: using 1D weights")
+                    
+        # replace the instance's weights array with the updated set
+        self.W = np.copy(Wfix)
+
+        if not wfixed and self.Verbose:
+            print("NormalEqs.checkweights INFO: unweighted data")
+        
     def buildPattern(self):
 
         """Creates the pattern matrix using the pattern class"""

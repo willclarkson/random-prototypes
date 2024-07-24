@@ -19,6 +19,9 @@ import copy
 from matplotlib.pylab import plt
 plt.ion()
 
+# for occasional fitting
+from weightedDeltas import NormalEqs
+
 class Polycoeffs(object):
 
     """Object and methods to translate between flat array of polynomial
@@ -2349,6 +2352,20 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
     deltaxi = E2Tn.xtran - E2T.xtran
     deltaeta = E2Tn.ytran - E2T.ytran
 
+    # fit the transformation
+    NE = NormalEqs(E2T.xtran, E2T.ytran, E2Tn.xtran, E2Tn.ytran, \
+                   fitChoice='6term', xref=0., yref=0., flipx=False, \
+                   Verbose=True)
+
+    # where's this breaking... do the steps
+    #NE.buildPattern()    
+    #NE.makeBeta()
+    #NE.makeHessian()
+    #NE.solveParams()
+    
+    NE.doFit()
+    print("Fit info:", NE.pars)
+    
     if not showplots:
         return
 
@@ -2409,6 +2426,7 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
         stitl = r'Arrows: $( \Delta \xi + \cos(\delta_0) \Delta \alpha_0$,  $\Delta \eta + \Delta \delta_0)$%s' % (unitsho)
         ax6.set_title(stitl)
 
+        
         #### arrow plot finishes here.
         return
         
