@@ -2439,6 +2439,13 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
                            % (ql, unitsho), \
                            labelpos='E')
 
+        ## Experiment to locate the approximate center of rotation
+        ## [xi_0, eta_0]
+        #dum66 = ax6.scatter([0.-NE.xiRef[0]], [0.-NE.xiRef[1]], marker='x')
+        ## dalpha.tan(delta0) seems to be a bit closer...
+        #dum67 = ax6.scatter(dxarcsec*np.tan(delta0)/3600., \
+        #                    0.-NE.xiRef[1], marker='+')
+        
         # quiver plot with the residuals
 
         # slight hack: use the same conversion as above
