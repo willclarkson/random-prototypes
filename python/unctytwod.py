@@ -2376,27 +2376,27 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
             ql *= 1000.
             unitsho=' mas'
             
-        fig5 = plt.figure(5, figsize=(4,4))
-        fig5.clf()
-        ax5 = fig5.add_subplot(111)
-        blah5 = ax5.quiver(E2T.xtran, E2T.ytran, dxisho, detasho, \
+        fig6 = plt.figure(6, figsize=(6,6))
+        fig6.clf()
+        ax6 = fig6.add_subplot(111)
+        blah6 = ax6.quiver(E2T.xtran, E2T.ytran, dxisho, detasho, \
                            angles='xy', scale_units='xy', units='xy', \
                            scale=None)#quivscale)
 
         # For the scale, use a quantile
-        qk = ax5.quiverkey(blah5, 0.05, 0.97, U=ql, label='%.1f%s' \
+        qk = ax6.quiverkey(blah6, 0.05, 0.97, U=ql, label='%.1f%s' \
                            % (ql, unitsho), \
                            labelpos='E')
 
         # adjust the axes to ensure there is room for the quiver key
-        xlim = ax5.get_xlim()
-        ylim = ax5.get_ylim()
+        xlim = ax6.get_xlim()
+        ylim = ax6.get_ylim()
 
-        ax5.set_xlim(xlim*np.repeat(1.1,2))
-        ax5.set_ylim(ylim*np.repeat(1.1,2))
+        ax6.set_xlim(xlim*np.repeat(1.1,2))
+        ax6.set_ylim(ylim*np.repeat(1.1,2))
         
-        ax5.set_xlabel(E2T.labelxtran)
-        ax5.set_ylabel(E2T.labelytran)
+        ax6.set_xlabel(E2T.labelxtran)
+        ax6.set_ylabel(E2T.labelytran)
 
         supquiv = r'$(\Delta \alpha_0, \Delta \delta_0) = (%.1f, %.1f)$"' \
             % (dxarcsec, dyarcsec)
@@ -2404,10 +2404,10 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
         skind = r'$(\alpha_0, \delta_0)=(%.1f^{\circ}, %.1f^{\circ})$' \
             % (E2T.pars[0], E2T.pars[1])
 
-        fig5.suptitle('%s, %s' % (supquiv, skind))
+        fig6.suptitle('%s, %s' % (supquiv, skind))
 
         stitl = r'Arrows: $( \Delta \xi + \cos(\delta_0) \Delta \alpha_0$,  $\Delta \eta + \Delta \delta_0)$%s' % (unitsho)
-        ax5.set_title(stitl)
+        ax6.set_title(stitl)
 
         #### arrow plot finishes here.
         return
