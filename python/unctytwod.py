@@ -2363,7 +2363,19 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
         deltamag = np.sqrt(dxisho**2 + detasho**2)
         xrange = np.max(E2T.xtran) - np.min(E2T.xtran)
         quivscale = 0.1*xrange/np.max(deltamag)
-        
+
+        # For the scale, use a quantile
+        ql = np.quantile(deltamag, 0.9)
+
+        # if this is less than 0.01 arcsec, switch to milliarcsec
+        unitsho = '"'
+        if ql < 0.1:
+            dxisho *= 1000.
+            detasho *= 1000.
+            deltamag *= 1000.
+            ql *= 1000.
+            unitsho=' mas'
+            
         fig5 = plt.figure(5, figsize=(4,4))
         fig5.clf()
         ax5 = fig5.add_subplot(111)
@@ -2372,10 +2384,17 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
                            scale=None)#quivscale)
 
         # For the scale, use a quantile
-        ql = np.quantile(deltamag, 0.9)
-        qk = ax5.quiverkey(blah5, 0.05, 0.97, U=ql, label='%.1f"' % (ql), \
+        qk = ax5.quiverkey(blah5, 0.05, 0.97, U=ql, label='%.1f%s' \
+                           % (ql, unitsho), \
                            labelpos='E')
-    
+
+        # adjust the axes to ensure there is room for the quiver key
+        xlim = ax5.get_xlim()
+        ylim = ax5.get_ylim()
+
+        ax5.set_xlim(xlim*np.repeat(1.1,2))
+        ax5.set_ylim(ylim*np.repeat(1.1,2))
+        
         ax5.set_xlabel(E2T.labelxtran)
         ax5.set_ylabel(E2T.labelytran)
 
@@ -2387,7 +2406,7 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
 
         fig5.suptitle('%s, %s' % (supquiv, skind))
 
-        stitl = r'Arrows: $( \Delta \xi + \cos(\delta_0) \Delta \alpha_0$,  $\Delta \eta + \Delta \delta_0)$"'
+        stitl = r'Arrows: $( \Delta \xi + \cos(\delta_0) \Delta \alpha_0$,  $\Delta \eta + \Delta \delta_0)$%s' % (unitsho)
         ax5.set_title(stitl)
 
         #### arrow plot finishes here.
