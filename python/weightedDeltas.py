@@ -2049,6 +2049,10 @@ class CovarsNx2x2(object):
 
         """Generate samples from the distributions"""
 
+        # safety check: if transformation not yet populated, populate it!
+        if np.size(self.TT) < 2:
+            self.populateTransfsFromCovar()
+
         # Creates [nPts, 2] array
 
         # this whole thing is 2x2 so we'll do it piece by piece
@@ -2061,6 +2065,15 @@ class CovarsNx2x2(object):
 
         # self.deltaTransf = np.einsum('ij,ik->ijk', self.TT, xxr)
 
+    def getsamples(self):
+
+        """Utility - returns samples using the N,2,2 covariance array, in the form [N,2]"""
+
+        if np.size(self.TT) < 1:
+            self.populateTransfsFromCovar()
+        self.generateSamples()
+        return self.deltaTransf.T
+        
     def showDeltas(self, figNum=1):
 
         """Utility: scatterplots the deltas we have generated"""

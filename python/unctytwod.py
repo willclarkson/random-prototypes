@@ -267,6 +267,18 @@ choose."""
         self.ytran = np.array([])
         self.covtran = np.array([])
 
+        # convenience variable - xytran as [N,2]
+        self.xytran = np.array([])
+        self.initxytran()
+        
+    def initxytran(self):
+
+        """Utility - initializes xytran convenience variable using the size of
+the dataset"""
+
+        npts = np.size(self.x)
+        self.xytran = np.zeros(( npts, 2 ))
+        
     def setdomain(self, clobber=False):
 
         """Sets the domain (for rescaling to [-1., 1.] If clobber is set, then any user-input limits not outside the domain of the data are overridden."""
@@ -609,6 +621,9 @@ frame"""
         self.tranpos()
         self.trancov()
 
+        self.xytran[:,0] = self.xtran
+        self.xytran[:,1] = self.ytran
+        
     def splitpars(self, pars=np.array([]) ):
 
         """Utility: splits 1D params into two half-length lists"""
@@ -670,6 +685,9 @@ the one direction."""
         self.ytran = np.array([])
         self.covtran = np.array([])
 
+        # calling routines may want transformed coords in [N,2] format
+        self.xytran = np.zeros(( np.size(self.x), 2))
+        
         # control variable - original coords are in degrees?
         self.degrees = degrees
 
@@ -847,6 +865,17 @@ transformations"""
         self.getjacobian()
         self.trancov()
 
+        self.populatexytran()
+        
+    def populatexytran(self):
+
+        """Utility - updates the 2D xytran array"""
+        
+        # Updates [N,2] xytran array
+        
+        self.xytran[:,0] = self.xtran
+        self.xytran[:,1] = self.ytran
+        
     def nudgepos(self, dxarcsec=10., dyarcsec=10.):
 
         """Nudges the input positions by input amounts"""
@@ -918,6 +947,17 @@ from the tangent plane to the sky"""
         self.labely = r'$\eta$'
         self.labelxtran = r'$\alpha$'
         self.labelytran = r'$\delta$'
+
+        # initialize the xytran convenience-view
+        self.xytran = np.array([])
+        self.initxytran()
+        
+    def initxytran(self):
+
+        """Initializes convenience-view xytran [N,2] using dimensions of input
+data x"""
+
+        self.xytran = np.zeros(( np.size(self.x), 2 ))
         
     def initjac(self):
 
@@ -1058,6 +1098,9 @@ equatorial, returning the transformed covariance matrices as an
         self.tranpos()
         self.trancov()
 
+        self.xytran[:,0] = self.xtran
+        self.xytran[:,1] = self.ytran
+        
     def updatetransf(self, pars=np.array([]) ):
 
         """One-liner to update the transformation and jacobian when the
@@ -1142,7 +1185,16 @@ from the sky to the tangent plane"""
         self.labelxtran = r'$\xi$'
         self.labelytran = r'$\eta$'
 
+        # initialize the xytran convenience-view
+        self.xytran = np.array([])
+        self.initxytran()
         
+    def initxytran(self):
+
+        """Initializes convenience-view xytran [N,2] using dimensions of input
+        data x"""
+
+        self.xytran = np.zeros(( np.size(self.x), 2 ))
         
     def initjac(self):
 
@@ -1278,6 +1330,11 @@ jacobian. Updates self.covtran in the instance.
         self.tranpos()
         self.trancov()
 
+        # update the 2D object for convenience when calling this
+        self.xytran[:,0] = self.xtran
+        self.xytran[:,1] = self.ytran
+        
+        
     def updatetransf(self, pars=np.array([]) ):
 
         """One-liner to update the transformation and jacobian when the pointing is changed"""
@@ -2306,7 +2363,7 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
 
     # create xi, eta positions
     xi, eta = gridxieta(sidelen, ncoarse, nfine)
-            
+
     # generate some covariances in the tangent plane. For testing,
     # default to uniform so that we can see how the transformation
     # impacts the covariances
