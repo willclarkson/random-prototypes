@@ -1374,7 +1374,8 @@ class NormalEqs(object):
         self.makeBeta()
         self.makeHessian()
         self.solveParams()
-
+        self.interpretBmatrix() # for convenience later
+        
     def applyTransfToFitSample(self):
 
         """Applies the transformation to the fit sample"""

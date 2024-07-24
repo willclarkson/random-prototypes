@@ -20,7 +20,7 @@ from matplotlib.pylab import plt
 plt.ion()
 
 # for occasional fitting
-from weightedDeltas import NormalEqs
+from weightedDeltas import NormalEqs, Stack2x2
 
 class Polycoeffs(object):
 
@@ -1660,7 +1660,31 @@ def makepars(deg=1, reverse=False, scale=1., rotdeg=0.):
         parsy = np.hstack((parsy, yadd))
 
     return parsx, parsy
-        
+
+def fit6term(x, y, xi, eta, Verbose=False):
+
+    """Utility - fits 6-term linear model to positions, interprets the
+result in terms of human-readable parameters, returns the NormalEqs
+and Stack2x2 objects for full access to results.
+
+    """
+
+    NE = NormalEqs(x, y, xi, eta, \
+                   fitChoice='6term', xref=0., yref=0., flipx=False, \
+                   Verbose=Verbose)
+    NE.doFit()
+
+    # Apply the fit to the input sample. Produces quantity NE.xiPred
+    NE.applyTransfToFitSample()
+    NE.xiPred = NE.xiPred.squeeze()
+    
+    # now translate the results into scales, rotation, skew
+    SS = Stack2x2(NE.BMatrix)
+
+    # returns the NE and SS objects
+    return NE, SS
+
+    
 ####### Methods that use the above follow
 
 def checkdeltas(transf=None, dxarcsec=10., dyarcsec=10., showPlots=True, \
@@ -2264,7 +2288,7 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
             sigx=0.1, sigy=0.07, sigr=0.02, \
             Verbose=True, \
             dxarcsec=10., dyarcsec=10., cmap='viridis', \
-            deltaback=False):
+            deltaback=False, returnwithposan=False):
 
     """Test routines for the one-directional Tan2equ() and Equ2tan(). Example calls:
 
@@ -2317,9 +2341,10 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
     detcovxi = np.linalg.det(T2E.covxy)
     detcovback = np.linalg.det(E2T.covtran)
 
-    print("Round-trip differences in det(cov): %.3e to %.3e" \
-          % (np.min(detcovback - detcovxi), \
-             np.max(detcovback - detcovxi)) )
+    if not returnwithposan:
+        print("Round-trip differences in det(cov): %.3e to %.3e" \
+              % (np.min(detcovback - detcovxi), \
+                 np.max(detcovback - detcovxi)) )
     
     # Consider refactoring this set of nudge-based diagnostics into
     # another method, since I'm starting to repeat myself in all these
@@ -2347,30 +2372,37 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
     #print(np.min(np.abs(sx)), np.max(np.abs(sx)), np.mean(np.abs(sx)))
     #print(np.min(dmag), np.max(dmag))
 
-    # if we're using the last panel to show the deltas resulting from
-    # the shift:
-    deltaxi = E2Tn.xtran - E2T.xtran
-    deltaeta = E2Tn.ytran - E2T.ytran
-
-    # fit the transformation
-    NE = NormalEqs(E2T.xtran, E2T.ytran, E2Tn.xtran, E2Tn.ytran, \
-                   fitChoice='6term', xref=0., yref=0., flipx=False, \
-                   Verbose=True)
-
-    # where's this breaking... do the steps
-    #NE.buildPattern()    
-    #NE.makeBeta()
-    #NE.makeHessian()
-    #NE.solveParams()
-    
-    NE.doFit()
-    print("Fit info:", NE.pars)
-    
     if not showplots:
         return
 
     if deltaback:
-    
+
+        # fit the transformation, returning the fit objects
+        NE, SS = fit6term(E2T.xtran, E2T.ytran, E2Tn.xtran, E2Tn.ytran, \
+                          Verbose=not(returnwithposan))
+
+        # Return and report the position angle?
+        if returnwithposan:
+            return SS.rotDeg*3600.
+        
+        print("testsky pointing INFO - 6-term parameters:")
+        print("==========================================")
+        print("xi0: %f arcsec" % (NE.xiRef[0]*3600.))
+        print("eta0: %f arcsec" % (NE.xiRef[1]*3600.))
+        print("sx: %f" % (SS.sx))
+        print("sy: %f" % (SS.sy))
+        print("Rotation: %f arcsec" % (SS.rotDeg * 3600.))
+        print("Skew: %f mas" % (SS.skewDeg * 3.6e6))
+        print("======")
+
+        # Deltas due to pointing shift
+        deltaxi = E2Tn.xtran - E2T.xtran
+        deltaeta = E2Tn.ytran - E2T.ytran
+
+        # Removal of 6-term fit
+        residxi  = E2Tn.xtran - NE.xiPred[:,0]
+        resideta = E2Tn.ytran - NE.xiPred[:,1]
+
         # if we're looking at the result of a pointing shift, set up a
         # separate figure.
         dxisho = deltaxi*3600. + dxarcsec*np.cos(np.radians(delta0))
@@ -2392,11 +2424,13 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
             deltamag *= 1000.
             ql *= 1000.
             unitsho=' mas'
-            
+
+        # Quiver plot with the pointing offset
         fig6 = plt.figure(6, figsize=(6,6))
         fig6.clf()
         ax6 = fig6.add_subplot(111)
         blah6 = ax6.quiver(E2T.xtran, E2T.ytran, dxisho, detasho, \
+                           color='#00274C', \
                            angles='xy', scale_units='xy', units='xy', \
                            scale=None)#quivscale)
 
@@ -2405,15 +2439,41 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
                            % (ql, unitsho), \
                            labelpos='E')
 
-        # adjust the axes to ensure there is room for the quiver key
-        xlim = ax6.get_xlim()
-        ylim = ax6.get_ylim()
+        # quiver plot with the residuals
 
-        ax6.set_xlim(xlim*np.repeat(1.1,2))
-        ax6.set_ylim(ylim*np.repeat(1.1,2))
+        # slight hack: use the same conversion as above
+        convresid = 3600.
+        if ql < 0.1:
+            converesid *= 1000.
+        rxisho = residxi * convresid
+        retasho = resideta * convresid
+        residmag = np.sqrt(rxisho**2 + retasho**2)
+        qr = np.quantile(residmag, 0.9)
         
-        ax6.set_xlabel(E2T.labelxtran)
-        ax6.set_ylabel(E2T.labelytran)
+        fig7 = plt.figure(7, figsize=(6,6))
+        fig7.clf()
+        ax7=fig7.add_subplot(111)
+        blah7 = ax7.quiver(E2T.xtran, E2T.ytran, rxisho, retasho, \
+                           color='#9A3324',\
+                           angles='xy', scale_units='xy', units='xy', \
+                           scale=None)#quivscale)
+
+        qkr = ax7.quiverkey(blah7, 0.05, 0.97, U=qr, label='%.2e%s' \
+                            % (qr, unitsho), \
+                            labelpos='E')
+
+        # Figure labels and titles come here.
+        
+        # set the axes ranges and labels
+        for ax in [ax6, ax7]:
+            xlim = ax.get_xlim()
+            ylim = ax.get_ylim()
+
+            ax.set_xlim(xlim*np.repeat(1.1,2))
+            ax.set_ylim(ylim*np.repeat(1.1,2))
+        
+            ax.set_xlabel(E2T.labelxtran)
+            ax.set_ylabel(E2T.labelytran)
 
         supquiv = r'$(\Delta \alpha_0, \Delta \delta_0) = (%.1f, %.1f)$"' \
             % (dxarcsec, dyarcsec)
@@ -2421,11 +2481,17 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
         skind = r'$(\alpha_0, \delta_0)=(%.1f^{\circ}, %.1f^{\circ})$' \
             % (E2T.pars[0], E2T.pars[1])
 
-        fig6.suptitle('%s, %s' % (supquiv, skind))
+        # Title for axis 6
+        stitl6 = r'Arrows: $(\Delta \xi, \Delta \eta) - (-\cos(\delta_0) \Delta \alpha_0, - \Delta \delta_0)$%s' % (unitsho)
 
-        stitl = r'Arrows: $( \Delta \xi + \cos(\delta_0) \Delta \alpha_0$,  $\Delta \eta + \Delta \delta_0)$%s' % (unitsho)
-        ax6.set_title(stitl)
+        stitl7 = r'Arrows: $(\Delta \xi, \Delta \eta)$ - 6term$(\Delta \xi, \Delta \eta)$%s' % (unitsho)
+        
+        ax6.set_title(stitl6)
+        ax7.set_title(stitl7)
 
+        # set the supertitles
+        for fig in [fig6, fig7]:
+            fig.suptitle('%s, %s' % (supquiv, skind))
         
         #### arrow plot finishes here.
         return
@@ -2515,3 +2581,52 @@ def testsky(sidelen=2.1, ncoarse=15, nfine=51, \
         % (T2E.pars[0], T2E.pars[1])
     fig1.suptitle("%s; %s" % (ssup, skind))
     fig1.subplots_adjust(hspace=0.5, wspace=0.5, top=0.85)
+
+
+def wraptestsky(dxarcsec=10., dyarcsec=0., sidelen=2.1, \
+                ncoarse=51, nfine=51, alpha0=35., \
+                deltamin=-90., deltastep=5.):
+
+    """Wrapper to testsky - repeats the process for given dxarcsec,
+dyarcsec, returning the rotation angle from the pointing test. Example call:
+
+    unctytwod.wraptestsky(deltastep=5.)
+
+    """
+
+    # set up declination values
+    deltas = np.arange(deltamin, 90.+deltastep, deltastep)
+    thetas = np.zeros(deltas.size)
+
+    for idelt in range(len(deltas)):
+        thetas[idelt] = testsky(sidelen=sidelen, \
+                                dxarcsec=dxarcsec, dyarcsec=dyarcsec, \
+                                deltaback=True, \
+                                returnwithposan=True, \
+                                ncoarse=ncoarse, nfine=nfine, \
+                                delta0=deltas[idelt])
+
+    est = dxarcsec * np.sin(np.radians(deltas))
+        
+    # quick plot
+    fig8 = plt.figure(8, figsize=(5,3))
+    fig8.clf()
+    ax8 = fig8.add_subplot(111)
+    blah8a = ax8.scatter(deltas, thetas, c='#00274C', \
+                         zorder=5, s=2, label=r'$\theta$')
+    blah8b = ax8.plot(deltas, est, c='#9A3324', zorder=6, \
+                      label=r'$\sin(\delta_0) \Delta \alpha_0$')
+        
+    ax8.set_xlabel(r'$\delta_0(^\circ)$')
+    ax8.set_ylabel(r'$\theta$(")')
+    ax8.set_xlim(-90., 90.)
+
+    # show the parameters of this meta-run
+    ssup = r'$(\Delta \alpha_0, \Delta\delta_0) = (%.1f, %.1f)$"' \
+        % (dxarcsec, dyarcsec)
+
+    ax8.set_title(r'%s, $\alpha_0=%.1f^\circ$' % (ssup, alpha0))
+    
+    leg8 = ax8.legend()
+    
+    fig8.subplots_adjust(bottom=0.2, left=0.2)
