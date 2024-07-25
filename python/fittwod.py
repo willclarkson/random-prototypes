@@ -21,6 +21,9 @@ from weightedDeltas import CovarsNx2x2
 # The minimizer
 from scipy.optimize import minimize
 
+# For initial guess by linear least squares
+from fitpoly2d import Leastsq2d
+
 def uTVu(u, V):
 
     """Returns u^T.V.u where
@@ -163,9 +166,65 @@ def makefakecovars(npts=2000, sigx=0.1, sigy=0.07, sigr=0.2):
     
     return CS
 
+def wtsfromcovars(covars=np.array([]) ):
+
+    """Utility - returns inverse covars as weights, scaled to
+median(det)=1
+
+    """
+
+    wraw = np.linalg.inv(covars)
+    sfac = np.median(np.sqrt(np.linalg.det(wraw)))
+
+    return wraw / sfac
+
+def quivresid(xy=np.array([]), dxy=np.array([]),  ax=None, \
+              quant=0.9, color='k', \
+              stitl='', labelx='x', labely='y'):
+
+    """Utility - creates a residuals quiver plot"""
+
+    # Needs an axis object on which to operate
+    if ax is None:
+        return
+
+    # Convenience views
+    x = xy[:,0]
+    y = xy[:,1]
+
+    dx = dxy[:,0]
+    dy = dxy[:,1]
+
+    dmag = np.sqrt(dxy[:,0]**2 + dxy[:,1]**2)
+    quse = np.min([quant, 1.0])
+    ql = np.quantile(dmag, quse)
+
+    # string for quiver label
+    qs = r'%.1e (%0.f$^{th}$ percentile)' % (ql, quse*100.)
+    
+    # now do the quiver plot and key
+    blah = ax.quiver(xy[:,0], xy[:,1], dxy[:,0], dxy[:,1], color=color)
+    qk = ax.quiverkey(blah, 0.1, 0.95, U=ql, \
+                      label=qs, \
+                      labelpos='E', fontproperties={'size':8})
+
+    # adjust the axis scale to make room for the quiver key
+    ax.set_xlim(ax.get_xlim()*np.repeat(1.1, 2) )
+    ax.set_ylim(ax.get_ylim()*np.repeat(1.1, 2) )
+
+    if len(stitl) > 0:
+        ax.set_title(stitl)
+
+    if len(labelx) > 0:
+        ax.set_xlabel(labelx)
+    if len(labely) > 0:
+        ax.set_ylabel(labely)
+    
+########## "Test" routines that use these pieces. Some are messy.
+
 def testpoly(npts=2000, \
              deg=3, degfit=-1, \
-             xmin=-2., xmax=2., ymin=-2., ymax=2., \
+             xmin=-1., xmax=1., ymin=-1., ymax=1., \
              sigx=0.001, sigy=0.0007, sigr=0.0, \
              polytransf='Polynomial', \
              polyfit='Polynomial', \
@@ -175,7 +234,14 @@ def testpoly(npts=2000, \
              tan2sky=False, \
              alpha0=35., delta0=35.):
 
-    """Creates and fits fake data: polynomials"""
+    """Creates and fits fake data: polynomial or tan2sky
+
+    Example call:
+
+    fittwod.testpoly(deg=3, npts=2000, nouncty=True, tan2sky=False, degfit=3, polyfit='Legendre', polytransf='Legendre')
+
+
+"""
 
     # fit degree?
     if degfit < 0:
@@ -229,6 +295,17 @@ def testpoly(npts=2000, \
     covobs = Cxy.covars
     covtarg = Ctran.covars
 
+    # interpret covariances as weights (useful when trying linear
+    # least squares)
+    W = np.ones(xy.shape[0])
+    if not nouncty:
+
+        wobs = wtsfromcovars(covobs)
+        wtra = wtsfromcovars(covtran)
+
+        W = np.matmul(wobs, wtra)
+        
+        
     # initial guess for the fit (should work for tan2sky as long as
     # we're not close to the pole)
     pertpars = np.random.uniform(-0.1, 0.1, size=np.size(pars1d))*pars1d
@@ -274,6 +351,22 @@ def testpoly(npts=2000, \
         ax2.set_xlabel(PTruth.labelxtran)
         ax2.set_ylabel(PTruth.labelytran)
 
+    # Try the linear least squares guess
+    xylsq = np.array([]) # default if we're doing tan2sky
+    if not tan2sky:
+        print("testpoly INFO - trying leastsq2d guess")
+        t4 = time.time()
+        LSQ = Leastsq2d(xyobs[:,0], xyobs[:,1], W, \
+                        deg=degfit, kind=polyfit, \
+                        xytarg=xytarg)
+        t5 = time.time()
+        print("Done in %.2e seconds" % (t5-t4))
+
+        # project the leastsq2d solution for comparison later
+        xylsq = LSQ.ev(xy[:,0], xy[:,1])
+
+        # split the 1d params up using the same convention as the Poly objects:
+        parsxlsq, parsylsq = PTruth.splitpars(LSQ.pars)
         
     # Now the function for the minimizer. The non-parameter arguments
     # passed in...
@@ -328,9 +421,14 @@ def testpoly(npts=2000, \
 
         if nouncty:
             ssup = '%s: no unctys' % (ssup)
-
-        fig1.suptitle(ssup)
+        else:
+            # show the median det(covar)
+            detcov = np.sqrt(np.median(np.linalg.det(covtran)))
+            ssup = r'%s, $\sqrt{\langle|V|\rangle}$ = %.2e' % (ssup, detcov)
             
+        fig1.suptitle(ssup)
+        fig1.subplots_adjust(wspace=0.3, hspace=0.3, left=0.15, bottom=0.15)
+        
     # compare the input and fit parameters
     if tan2sky:
         print("Parameters comparison: alpha0, delta0")
@@ -340,20 +438,135 @@ def testpoly(npts=2000, \
               (pars1d[1], (soln.x[1]-pars1d[1])*3.6e3))
 
     else:
+
+        # quiver plots
+        if np.size(parsxlsq) > 0:
+            fig3 = plt.figure(3, figsize=(7,7))
+            fig3.clf()
+            ax31 = fig3.add_subplot(221)
+            ax32 = fig3.add_subplot(222)
+
+            slsq = 'Leastsq2d'
+            smin = 'scipy.optimize.minimize'
+            
+            quivresid(xyobs, xylsq - xytarg, ax=ax31, color='r', \
+                      stitl=slsq)
+            quivresid(xyobs, residxy, ax=ax32, color='b', \
+                      stitl=smin)
+
+            # Show histograms of the deltas as well
+            ax33 = fig3.add_subplot(223)
+            ax34 = fig3.add_subplot(224)            
+
+            ## do magnitudes
+            #dmaglsq = np.sqrt(np.sum((xylsq-xytarg)**2, axis=1))
+            #dmagmin = np.sqrt(np.sum(residxy**2, axis=1))
+
+            # just do a single component for the moment
+            dmaglsq = xylsq[:,0] - xytarg[:,0]
+            dmagmin = residxy[:,0]
+
+            # labels for histograms - use matplotlib's legen to take
+            # care of the positioning
+            sleglsq = r'$\sigma_{\Delta \xi} = %.2e$' % (np.std(dmaglsq))
+            slegmin = r'$\sigma_{\Delta \xi} = %.2e$' % (np.std(dmagmin))
+            
+            blah33 = ax33.hist(dmaglsq, \
+                               bins=100, color='r', label=sleglsq)
+            blah34 = ax34.hist(dmagmin, \
+                               bins=100, color='b', label=slegmin)
+
+            #ax33.annotate(r'$\sigma_{\Delta \xi} = %.2e$' % (np.std(dmaglsq)), \
+#                          (0.95, 0.95), ha='right', va='top', fontsize=9, \
+#                          color='r', xycoords='axes fraction')
+#            ax34.annotate(r'$\sigma_{\Delta \xi} = %.2e$' % (np.std(dmagmin)), \
+#                          (0.95, 0.95), ha='right', va='top', fontsize=9, \
+#                          color='b', xycoords='axes fraction')
+
+            
+            ax33.set_title(slsq)
+            ax34.set_title(smin)
+            for ax in [ax33, ax34]:
+                #ax.set_xlabel(r'$|\vec{\Delta \xi}|$')
+                ax.set_xlabel(r'$\Delta \xi$')
+                leg = ax.legend(fontsize=8)
+                
+            # use the same supertitle as figure 1
+            fig3.suptitle(ssup)
+            fig3.subplots_adjust(wspace=0.3, hspace=0.3, \
+                                 left=0.15, bottom=0.15, top=0.85)
+
         # Show the polynomial parameters comparison:
         npars = np.max([np.size(parsx), np.size(parsxf)])
         print("Parameters comparison: X, Y")
+
+        # This is just a little awkward, since we may or may not be
+        # using linear least squares as well for a comparison. 
+
+        # avoid typos
+        nolsq = np.size(parsxlsq) < 1
+
+        # The Polynom() and Leastsq2d() objects store their parameters
+        # in different orderings. We use the index "glsq" to map the
+        # Leastsq2d() ordering to the Polynom() ordering.
+        i_min = PCheck.pars2x.i
+        j_min = PCheck.pars2x.j
+
+        i_lsq = LSQ.pattern.isel
+        j_lsq = LSQ.pattern.jsel
+
         
         for ipar in range(npars):
+
+            sind = ''
+            
+            # of course the indices in the two conventions don't line
+            # up, so we have to fix that...
+            if ipar < np.size(i_min):
+                glsq = np.where((i_lsq == i_min[ipar]) & \
+                                (j_lsq == j_min[ipar]))[0]
+
+                # indices track: do these indices line up?
+                sind = 'i,j: %i, %i' % (PCheck.pars2x.i[ipar], \
+                                        PCheck.pars2x.j[ipar])
+
+                sind = '%s ## %i, %i' % (sind, \
+                                         LSQ.pattern.isel[glsq], \
+                                         LSQ.pattern.jsel[glsq])
+            
             if ipar >= np.size(parsx):
-                print("X: ########, %.2e -- Y: #########, %.2e" % \
-                      (parsxf[ipar], parsyf[ipar]))
+                if nolsq:
+                    print("%s - X: ########, %9.2e -- Y: #########, %9.2e" % \
+                          (parsxf[ipar], parsyf[ipar], sind))
+                else:
+                    print("%s - X: ########, %9.2e, %9.2e -- Y: #########, %9.2e, %9.2e" % \
+                          (sind, \
+                           parsxf[ipar], \
+                           parsxlsq[glsq], \
+                           parsyf[ipar], \
+                           parsylsq[glsq]))
                 continue
 
             if ipar >= np.size(parsxf):
-                print("X: %.2e, ######## -- Y: %.2e, ######## " % \
-                      (parsx[ipar], parsy[ipar]))
+                if nolsq:
+                    print("%s - X: %9.2e, ######## -- Y: %9.2e, ######## " % \
+                          (sind, parsx[ipar], parsy[ipar]))
+                else:
+                    print("%s - X: %9.2e, ########,  ######## -- Y: %9.2e, ########, ######## " % (sind, parsx[ipar], parsy[ipar]) )
                 continue
+
+            if nolsq:
+                print("%s - X: %9.2e, %9.2e -- Y: %9.2e, %9.2e" % \
+                      (sind, \
+                       parsx[ipar], parsxf[ipar], \
+                       parsy[ipar], parsyf[ipar]))
+            else:
+                print("%s - X: %9.2e, %9.2e, %9.2e -- Y: %9.2e, %9.2e, %9.2e" % \
+                      (sind,\
+                       parsx[ipar], \
+                       parsxf[ipar] - parsx[ipar], \
+                       parsxlsq[glsq] - parsx[ipar], \
+                       parsy[ipar], \
+                       parsyf[ipar] - parsy[ipar], \
+                       parsylsq[glsq]-parsy[ipar]))
                 
-            print("X: %.2e, %.2e -- Y: %.2e, %.2e" % \
-                  (parsx[ipar], parsxf[ipar], parsy[ipar], parsyf[ipar]))

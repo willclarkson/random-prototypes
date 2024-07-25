@@ -398,7 +398,7 @@ data, 2d input, 2d output"""
                 return
 
         # 3. wts = [N,1], [N,2] or [N,3]
-        if np.dim(wts) == 2:
+        if np.ndim(wts) == 2:
             wshape = wts.shape
 
             # if 2x2 array
