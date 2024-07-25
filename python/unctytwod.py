@@ -6,6 +6,8 @@
 # Methods to transform astrometric uncertainties between frames
 #
 
+import time
+
 import numpy as np
 from covstack import CovStack
 
@@ -22,6 +24,185 @@ plt.ion()
 # for occasional fitting
 from weightedDeltas import NormalEqs, Stack2x2
 
+class Patternmatrix(object):
+
+    """Sets up the pattern matrix for linear least squares fitting to
+linear model
+
+    """
+
+    def __init__(self, deg=2, x=np.array([]), y=np.array([]), \
+                 kind='Polynomial'):
+
+        # degree
+        self.deg = deg
+
+        # points
+        self.x = np.copy(x)
+        self.y = np.copy(y)
+        
+        # Method selection
+        self.kind=kind[:]
+        self.methvander = polynomial.polynomial.polyvander2d
+        self.meths = \
+            { 'Polynomial':polynomial.polynomial.polyvander2d, \
+              'Chebyshev':polynomial.chebyshev.chebvander2d, \
+              'Legendre':polynomial.legendre.legvander2d, \
+              'Hermite':polynomial.hermite.hermvander2d, \
+              'HermiteE':polynomial.hermite_e.hermevander2d}
+
+        self.setmethvander()
+                
+        # powers following the convention of numpy's polynomial model
+        self.ipow = np.array([])
+        self.jpow = np.array([])
+        self.bpow = np.array([]) # boolean for powers <= deg
+
+        # selected indices
+        self.isel = np.array([])
+        self.jsel = np.array([])
+
+        # selected indices in the vandermonde array
+        self.lvander = np.array([])
+        
+        # vandermonde array, pattern matrix
+        self.vander = np.array([])
+        self.pattern = np.array([])
+        
+        # set the indices
+        self.buildpowers()
+        self.selectpowers()
+
+        # build the vandermonde array and the pattern matrix
+        self.buildvander()
+        self.buildpattern()
+
+        # it's useful to be able to access the debug figure from
+        # outside the instance
+        self.fignum = 1
+        
+    def setmethvander(self):
+
+        """Selects the method for the vandermonde matrix"""
+
+        # Set a default if the selected method is not in the allowed
+        # list
+        if not self.kind in self.meths.keys():
+            self.kind = 'Polynomial'
+
+        self.methvander = self.meths[self.kind]
+            
+    def buildpowers(self):
+
+        """Sets up the powers arrays from the degree"""
+
+        vpow = np.arange(self.deg+1)
+        self.ipow = np.repeat(vpow, self.deg+1)
+        self.jpow = np.tile(vpow, self.deg+1)
+
+    def selectpowers(self):
+
+        """Sets boolean for powers of the proper degree"""
+
+        self.bpow = self.ipow + self.jpow <= self.deg    
+
+        self.isel = self.ipow[self.bpow]
+        self.jsel = self.jpow[self.bpow]
+
+        ldum = np.arange(np.size(self.ipow))
+        self.lvander = ldum[self.bpow]
+        
+    def buildvander(self):
+
+        """Makes vandermonde array"""
+
+        if np.size(self.x) < 1:
+            return
+        
+        deg2 = (self.deg, self.deg)
+        self.vander = self.methvander(self.x, self.y, deg2)
+
+    def initpattern(self):
+
+        """Initialize the pattern matrix"""
+
+        npoints = np.size(self.x)
+        ncols = 2*np.sum(self.bpow)
+        nrows = 2
+
+        self.pattern = np.zeros(( npoints, nrows, ncols))
+        
+    def buildpattern(self):
+
+        """Builds the pattern matrix given the selected powers"""
+
+        self.initpattern()
+        nbases = np.size(self.lvander)
+
+        self.pattern[:,0, 0:nbases] = self.vander[:,self.lvander]
+        self.pattern[:,1, nbases::] = self.vander[:,self.lvander]
+        
+    def showbases(self, fignum=1, showcolorbar=False, \
+                  showindices=True, fsz=6, cmap='viridis'):
+
+        """Shows the bases"""
+
+        # record the figure number in the instance so that we can
+        # access it later
+        self.fignum = fignum
+        
+        # index for subplots
+        ldum = np.arange(np.size(self.ipow))
+        lplot = ldum[self.bpow]+1
+
+        # scale the fontsize by the degree
+        fontsize=9
+        if self.deg > 7:
+            fontsize=6
+        
+        fig1=plt.figure(fignum, figsize=(fsz,fsz))
+        fig1.clf()
+        axes = []
+        for iax in range(np.size(lplot)):
+            ax = fig1.add_subplot(self.deg+1, self.deg+1, lplot[iax])
+
+            basis = self.pattern[:, 0, iax]
+            dum = ax.scatter(self.x, self.y, c=basis, s=2, cmap=cmap)
+
+            # hide the vertical axis if j < 1
+            if self.isel[iax] < self.deg:            
+                ax.get_yaxis().set_ticklabels([])            
+            if self.jsel[iax] < 1:
+                ax.set_ylabel('Y', rotation=0.)
+                
+            if self.jsel[iax] + self.isel[iax] < self.deg:
+                ax.get_xaxis().set_ticklabels([])
+            else:
+                ax.set_xlabel('X')
+                
+            # show which term this is
+            if showindices:
+                stitl = '%i,%i' % (self.isel[iax], self.jsel[iax])
+                dum = ax.annotate(stitl, (0.05,0.95), \
+                                  fontsize=fontsize, \
+                                  zorder=25, \
+                                  ha='left', va='top', \
+                                  xycoords='axes fraction', \
+                                  color='w')
+    
+            # add a colorbar
+            if showcolorbar:
+                cb = fig1.colorbar(dum, ax=ax)
+
+        # tighten up the panels
+        fig1.subplots_adjust(hspace=0.02, wspace=0.02, \
+                             left=0.1, right=0.9, \
+                             bottom=0.1, top=0.9)
+
+        # supertitle
+        ssup = '%s (degree %i)' % (self.kind, self.deg)
+        fig1.suptitle(ssup)
+        
 class Polycoeffs(object):
 
     """Object and methods to translate between flat array of polynomial
@@ -1625,7 +1806,7 @@ naming convention as the Polynom() object. Updates quantities self.xtran, self.y
         self.tan2sky()
         self.xtran = self.possky[:,0]
         self.ytran = self.possky[:,1]
-        
+
 # utility - return a grid of xi, eta points
 def gridxieta(sidelen=2.1, ncoarse=11, nfine=41, llzero=False):
 
@@ -2694,3 +2875,72 @@ dyarcsec, returning the rotation angle from the pointing test. Example call:
     leg8 = ax8.legend()
     
     fig8.subplots_adjust(bottom=0.2, left=0.2)
+
+def testpattern(deg=2, kind='Polynomial', sidelen=1., ncoarse=41, \
+                showbases=True, listpars=False, cmap='viridis'):
+
+    """Test the psttern matrix construction. Example call:
+
+    unctytwod.testpattern(2, kind='Polynomial', ncoarse=41, showbases=True)
+
+    """
+
+    # Generate points
+    x, y = gridxieta(sidelen, ncoarse, ncoarse)
+
+    # For timing
+    t0 = time.time()
+    
+    PM = Patternmatrix(deg, x, y, kind=kind)
+
+    # Now check that our convention matches what we expect by applying
+    # this to a randomly generated parameter set
+    pars = np.random.uniform(-.02, .02, PM.pattern.shape[-1])
+    epsilon = np.matmul(PM.pattern, pars)
+
+    W = np.zeros((x.size, 2, 2))
+    W[:,0,0] = 1.
+    W[:,1,1] = 1.
+
+    # lhs
+    WE = np.matmul(W, epsilon[:,:,np.newaxis]).squeeze()
+
+    # Now for the transposed pattern matrix multiplied by this
+    PT = np.transpose(PM.pattern, axes=(0,2,1) )
+    lhs = np.matmul(PT, WE[:,:,np.newaxis]).squeeze()
+
+    print("LHS shape:", lhs.shape)
+
+    # now for the right hand side
+    WP = np.matmul(W, PM.pattern)
+    rhs = np.matmul(PT, WP)
+
+    print("RHS shape:", rhs.shape)
+
+    # now use the normal eqs
+    beta = np.sum(lhs, axis=0)
+    Hess = np.sum(rhs, axis=0)
+
+    Hinv = np.linalg.inv(Hess)
+    
+    parsrecov = np.matmul(Hinv, beta)
+
+    t1 = time.time()
+    print("Time elapsed constructing and solving: %.2e sec" % (t1-t0))
+    
+    if listpars:
+        for ipar in range(parsrecov.size):
+            print("%.2e : %.2e" % (pars[ipar], parsrecov[ipar]))
+    else:
+        print("Generated:", pars)
+        print("Recovered:", parsrecov)
+            
+    # Show the bases
+    if showbases:
+        PM.showbases(cmap=cmap)
+
+        # add a panel showing the transformed positions
+        ilast = (PM.deg+1)**2
+        thisfig = plt.figure(PM.fignum)
+        ax = thisfig.add_subplot(PM.deg+1, PM.deg+1, ilast)
+        dum = ax.scatter(epsilon[:,0], epsilon[:,1], s=1)
