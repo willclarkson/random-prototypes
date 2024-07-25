@@ -550,8 +550,6 @@ def gridxy(sidelen=1., nside=31, llzero=False, nfine=None):
     xv = np.linspace(0.-sidelen, sidelen, nside, endpoint=True)
     yv = np.linspace(0.-sidelen, sidelen, nfine, endpoint=True)
 
-    print("INFO:", xv.shape, yv.shape)
-    
     if llzero:
         xv -= np.min(xv)
         yv -= np.min(yv)
@@ -597,7 +595,8 @@ def testoneline(sidelen=1., nside=41, llcorner=False, \
                 showbasis=True, cmap='inferno', \
                 showproj=True, \
                 nfine=None, unweighted=True, \
-                expfac=1., quivquant=0.95):
+                expfac=1., quivquant=0.95, \
+                tellpars=False):
 
     """Tests one-line version of fitter. Example call:
 
@@ -640,13 +639,12 @@ def testoneline(sidelen=1., nside=41, llcorner=False, \
     # OK now we can try our fitter in one line
     LSQ = Leastsq2d(x, y, w=wts, deg=fitdeg, kind=fitkind, xytarg=xytarg)
 
-    print("Generated pars: ", fpars)
-    print("LSQ fitted pars:", LSQ.pars)
+    if tellpars:
+        print("Generated pars: ", fpars)
+        print("LSQ fitted pars:", LSQ.pars)
 
     # evaluate the best-fit model
     xyeval = LSQ.ev()
-
-    print("LSQ eval:", xyeval.shape)
 
     # plot the projection to see how well this actually did...
     if showproj:
@@ -693,4 +691,4 @@ def testoneline(sidelen=1., nside=41, llcorner=False, \
 
     print("testoneline INFO - plotting basis...")
     LSQ.pattern.showbases(1, cmap=cmap)
-    
+    print("testoneline INFO - ... done.")
