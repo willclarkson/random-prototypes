@@ -32,14 +32,25 @@ linear model
     """
 
     def __init__(self, deg=2, x=np.array([]), y=np.array([]), \
-                 kind='Polynomial'):
+                 kind='Polynomial', norescale=False):
 
         # degree
         self.deg = deg
 
-        # points
+        # input points
         self.x = np.copy(x)
         self.y = np.copy(y)
+        
+        # control variable for rescaling
+        self.norescale = norescale
+        self.xmin = -1. # default leads to no rescaling
+        self.xmax =  1.
+        self.ymin = -1.
+        self.ymax =  1.
+
+        # points: x, y --> xr, yr 
+        self.setlims()
+        self.rescalexy()
         
         # Method selection
         self.kind=kind[:]
@@ -80,6 +91,30 @@ linear model
         # it's useful to be able to access the debug figure from
         # outside the instance
         self.fignum = 1
+
+    def setlims(self):
+
+        """Sets the domain limits for rescaling"""
+
+        # Don't reset the limits if we're not rescaling
+        if self.norescale:
+            return
+        
+        self.xmin = np.min(self.x)
+        self.xmax = np.max(self.x)
+
+        self.ymin = np.min(self.y)
+        self.ymax = np.max(self.y)
+        
+    def rescalexy(self):
+
+        """Utility - rescales x, y to the [-1,1] domain"""
+
+        self.xr = (2.0*self.x - (self.xmax + self.xmin))\
+            /(self.xmax - self.xmin)
+        self.yr = (2.0*self.y - (self.ymax + self.ymin))\
+            /(self.ymax - self.ymin)
+        
         
     def setmethvander(self):
 
@@ -116,17 +151,19 @@ linear model
 
         """Makes vandermonde array"""
 
-        if np.size(self.x) < 1:
+        # Note that this works on the rescaled x, y
+        
+        if np.size(self.xr) < 1:
             return
         
         deg2 = (self.deg, self.deg)
-        self.vander = self.methvander(self.x, self.y, deg2)
+        self.vander = self.methvander(self.xr, self.yr, deg2)
 
     def initpattern(self):
 
         """Initialize the pattern matrix"""
 
-        npoints = np.size(self.x)
+        npoints = np.size(self.xr)
         ncols = 2*np.sum(self.bpow)
         nrows = 2
 
@@ -167,7 +204,7 @@ linear model
             ax = fig1.add_subplot(self.deg+1, self.deg+1, lplot[iax])
 
             basis = self.pattern[:, 0, iax]
-            dum = ax.scatter(self.x, self.y, c=basis, s=2, cmap=cmap)
+            dum = ax.scatter(self.xr, self.yr, c=basis, s=2, cmap=cmap)
 
             # hide the vertical axis if j < 1
             if self.isel[iax] < self.deg:            
@@ -202,7 +239,7 @@ linear model
         # supertitle
         ssup = '%s (degree %i)' % (self.kind, self.deg)
         fig1.suptitle(ssup)
-        
+
 class Polycoeffs(object):
 
     """Object and methods to translate between flat array of polynomial
@@ -2877,7 +2914,8 @@ dyarcsec, returning the rotation angle from the pointing test. Example call:
     fig8.subplots_adjust(bottom=0.2, left=0.2)
 
 def testpattern(deg=2, kind='Polynomial', sidelen=1., ncoarse=41, \
-                showbases=True, listpars=False, cmap='viridis'):
+                showbases=True, listpars=False, cmap='viridis', \
+                norescale=False):
 
     """Test the psttern matrix construction. Example call:
 
@@ -2891,7 +2929,7 @@ def testpattern(deg=2, kind='Polynomial', sidelen=1., ncoarse=41, \
     # For timing
     t0 = time.time()
     
-    PM = Patternmatrix(deg, x, y, kind=kind)
+    PM = Patternmatrix(deg, x, y, kind=kind, norescale=norescale)
 
     # Now check that our convention matches what we expect by applying
     # this to a randomly generated parameter set
@@ -2937,6 +2975,7 @@ def testpattern(deg=2, kind='Polynomial', sidelen=1., ncoarse=41, \
             
     # Show the bases
     if showbases:
+        print("testpattern INFO - plotting...")
         PM.showbases(cmap=cmap)
 
         # add a panel showing the transformed positions
@@ -2944,3 +2983,5 @@ def testpattern(deg=2, kind='Polynomial', sidelen=1., ncoarse=41, \
         thisfig = plt.figure(PM.fignum)
         ax = thisfig.add_subplot(PM.deg+1, PM.deg+1, ilast)
         dum = ax.scatter(epsilon[:,0], epsilon[:,1], s=1)
+
+        print("testpattern INFO - ... done.")

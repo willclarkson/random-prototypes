@@ -21,7 +21,6 @@ from weightedDeltas import CovarsNx2x2
 # The minimizer
 from scipy.optimize import minimize
 
-
 def uTVu(u, V):
 
     """Returns u^T.V.u where
