@@ -144,6 +144,9 @@ linear model
 
         ldum = np.arange(np.size(self.ipow))
         self.lvander = ldum[self.bpow]
+
+        # note that self.lvander controls the order in which the
+        # patterns are ordered
         
     def buildvander(self):
 

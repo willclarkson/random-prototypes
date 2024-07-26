@@ -515,6 +515,16 @@ def testpoly(npts=2000, \
         i_lsq = LSQ.pattern.isel
         j_lsq = LSQ.pattern.jsel
 
+        print("INDICES INFO:")
+        print("i_min      ", i_min)
+        print("j_min      ", j_min)
+        
+        #print("i_lsq[::-1]", i_lsq[::-1])
+        #print("j_lsq[::-1]", j_lsq[::-1])
+
+        print("i_lsq      ", i_lsq)
+        print("j_lsq      ", j_lsq)
+
         
         for ipar in range(npars):
 
