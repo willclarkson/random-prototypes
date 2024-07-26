@@ -525,6 +525,20 @@ def testpoly(npts=2000, \
         print("i_lsq      ", i_lsq)
         print("j_lsq      ", j_lsq)
 
+        # now make these into 2D arrays
+        c2dmin = np.zeros(( i_min.max()+1, i_min.max()+1))
+        c2dlsq = np.zeros(( i_lsq.max()+1, i_lsq.max()+1))
+
+        lmin = np.arange(i_min.size)
+        c2dmin[i_min[lmin], j_min[lmin]] = lmin
+
+        llsq = np.arange(i_lsq.size)
+        c2dlsq[i_lsq[llsq], j_lsq[llsq]] = llsq
+
+        print("c2d: min")
+        print(c2dmin)
+        print("c2d: lsq")
+        print(c2dlsq)
         
         for ipar in range(npars):
 
