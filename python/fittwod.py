@@ -527,7 +527,7 @@ def testpoly(npts=2000, \
 
         # now make these into 2D arrays
         c2dmin = np.zeros(( i_min.max()+1, i_min.max()+1))
-        c2dlsq = np.zeros(( i_lsq.max()+1, i_lsq.max()+1))
+        c2dlsq = np.zeros(( i_lsq.max()+1, i_lsq.max()+1), dtype='int')
 
         lmin = np.arange(i_min.size)
         c2dmin[i_min[lmin], j_min[lmin]] = lmin
@@ -539,6 +539,13 @@ def testpoly(npts=2000, \
         print(c2dmin)
         print("c2d: lsq")
         print(c2dlsq)
+
+        # try our simple method
+        count_lsq = c2dlsq[i_min[lmin], j_min[lmin]]
+        print(count_lsq)
+
+        # YES this works. We can use this to reorder our lsq pattern
+        # matrix into the same order as the polycoeffs() object.
         
         for ipar in range(npars):
 
@@ -550,6 +557,9 @@ def testpoly(npts=2000, \
                 glsq = np.where((i_lsq == i_min[ipar]) & \
                                 (j_lsq == j_min[ipar]))[0]
 
+                # try our simple reordering
+                print("Reorder check:", glsq, count_lsq[ipar])
+                
                 # indices track: do these indices line up?
                 sind = 'i,j: %i, %i' % (PCheck.pars2x.i[ipar], \
                                         PCheck.pars2x.j[ipar])
