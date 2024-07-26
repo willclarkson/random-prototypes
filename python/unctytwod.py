@@ -1591,9 +1591,12 @@ jacobian. Updates self.covtran in the instance.
         dv = np.matmul(self.jac, dx)
 
         return dv
-        
+
 class Sky(object):
 
+    ### REPLACED by Tan2equ() and Equ2tan(), in order to have
+    ### transformation objects that work exclusively in one direction.
+    
     def __init__(self, possky=np.array([]), covsky=np.array([]), \
                  tpoint=np.array([]), \
                  postan=np.array([]), covtan=np.array([]) ):

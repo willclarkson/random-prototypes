@@ -22,7 +22,11 @@ from weightedDeltas import CovarsNx2x2
 from scipy.optimize import minimize
 
 # For initial guess by linear least squares
-from fitpoly2d import Leastsq2d
+from fitpoly2d import Leastsq2d, Patternmatrix
+
+# For sampling and plotting
+import emcee
+import corner
 
 def uTVu(u, V):
 
@@ -40,6 +44,31 @@ def uTVu(u, V):
     Vu = np.einsum('ijk,ik -> ij', V, u)
     return np.einsum('ij,ji -> j', u.T, Vu)
 
+def lnprior_unif(pars):
+
+    """ln uniform prior"""
+
+    return 0.
+
+def lnprob(pars, transf, xytarg, covtarg=np.array([]), \
+           methprior=lnprior_unif, \
+           methlike=sumlnlike):
+
+    """Evaluates ln(posterior). Takes the method to compute the ln(prior)
+and ln(likelihood) as arguments.
+    """
+
+    # Evaluate the ln prior
+    lnprior = methprior(pars)
+    if not np.isfinite(lnprior):
+        return -np.inf
+
+    # evaluate ln likelihood
+    lnlike = methlike(pars, transf, xytarg, covtarg) 
+
+    # return the ln posterior
+    return lnprior + lnlike
+    
 def sumlnlike(pars, transf, xytarg, covtarg):
 
     """Returns sum(log-likelihood) for a single-population model"""
@@ -222,6 +251,46 @@ def quivresid(xy=np.array([]), dxy=np.array([]),  ax=None, \
     
 ########## "Test" routines that use these pieces. Some are messy.
 
+def split1dpars(pars1d=np.array):
+
+    """Utility - split 1D params into 2x1d expected by Poly() objects"""
+
+    npars = int(np.size(pars1d)/2)
+    return pars1d[0:npars], pars1d[npars::]
+
+def plotsamplescolumn(samples, fignum=2, slabels=[]):
+
+    """Utiltity - plots samples"""
+
+    sshape = samples.shape
+    sdim = np.size(sshape)
+
+    ssho = samples
+    if sdim < 3:
+        ssho = samples[:,np.newaxis,:]
+    
+    fig=plt.figure(fignum)
+    fig.clf()
+    lsampl = np.arange(ssho.shape[0])
+    iplot = 0
+    for ipar in range(ssho.shape[-1]):
+        iplot += 1        
+        ax21 = fig.add_subplot(samples.shape[-1], 1, iplot)        
+        for j in range(ssho.shape[1]):
+            dum21 = ax21.plot(lsampl, ssho[lsampl,j,ipar], \
+                              alpha=0.5)
+
+        if len(slabels) == ssho.shape[-1]:
+            ax21.set_ylabel(r'$%s$' % (slabels[ipar]))
+            
+    ax21.set_xlabel('Sample number')
+
+    # Ensure there is room for our nice labels
+    fig.subplots_adjust(left=0.2)
+    
+    # return the figure as an obejct we can work with
+    return fig
+    
 def testpoly(npts=2000, \
              deg=3, degfit=-1, \
              xmin=-1., xmax=1., ymin=-1., ymax=1., \
@@ -605,3 +674,186 @@ def testpoly(npts=2000, \
                        parsyf[ipar] - parsy[ipar], \
                        parsylsq[glsq]-parsy[ipar]))
                 
+
+def testmcmc_linear(npts=200, \
+                    deg=2, degfit=-1, \
+                    xmin=-1., xmax=1., ymin=-1., ymax=1., \
+                    sigx=0.001, sigy=0.0007, sigr=0.0, \
+                    polytransf='Polynomial', polyfit=None, \
+                    seed=None, expfac=1., scale=1.,\
+                    covscale=1., \
+                    unctysrc=True, unctytarg=True, \
+                    nchains=32, chainlen=1000, ntau=10):
+
+    """Tests the MCMC approach on a linear transformation"""
+
+    # Fit degree, type
+    if degfit < 0:
+        degfit = deg
+        
+    if polyfit is None:
+        polyfit = polytransf[:]
+        
+    # Transformation object, synthetic data
+    transf = unctytwod.Poly
+    xy = makefakedata(npts, xmin, xmax, ymin, ymax)
+    Cxy = makefakecovars(xy.shape[0], sigx, sigy, sigr)
+
+    # Use the pattern object to make fake parameters for generating
+    PM = Patternmatrix(deg, xy[:,0], xy[:,1], kind=polytransf, \
+                       orderbypow=True)
+    fpars = PM.getfakeparams(scale=scale, seed=seed, expfac=expfac)
+    fparsx, fparsy = split1dpars(fpars)
+
+    # Transform the truth postions and covariances
+    PTruth = transf(xy[:,0], xy[:,1], Cxy.covars, fparsx, fparsy, \
+                    kind=polytransf)
+
+    PTruth.propagate()
+    xytran = np.copy(PTruth.xytran)
+    covtran = np.copy(PTruth.covtran)*covscale 
+
+    # Index labeling
+    #print("Poly labels: i", PTruth.pars2x.i)
+    #print("Poly labels: j", PTruth.pars2x.j)
+
+    #slabels = [r'a_{%i%i}' % \
+    #    (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
+
+    #print(slabels)
+    
+    #return
+    
+    # create covstack object from the target covariances so that we
+    # can draw samples
+    Ctran = CovarsNx2x2(covtran)
+
+    # initialise the perturbations to zero
+    nudgexy = xy * 0.
+    nudgexytran = xytran * 0.
+
+    if unctysrc:
+        nudgexy = Cxy.getsamples()
+    if unctytarg:
+        nudgexytran = Ctran.getsamples()
+
+    xyobs  = xy + nudgexy
+    xytarg = xytran + nudgexytran
+
+    #### NOTE 2024-07-26 - the above syntax could all be refactored
+    #### into a separate data-generation method. Come back to that
+    #### later.
+    
+    # Since our model is linear, we can use linear least squares to
+    # get an initial guess for the parameters. Go unweighted.
+    LSQ = Leastsq2d(xyobs[:,0], xyobs[:,1], deg=degfit, kind=polyfit, \
+                    xytarg=xytarg)
+
+    guess = LSQ.pars # in case we want to do things to guess
+    guessx, guessy = split1dpars(guess)
+
+    # Now we arrange things for our mcmc exploration. The
+    # transformation object...
+    PFit = transf(xyobs[:,0], xyobs[:,1], Cxy.covars, guessx, guessy, \
+                  kind=polyfit)
+
+    # ... and the arguments for ln(prob)
+    args = (PFit, xytarg, covtran)
+
+    # Take a look at the data we generated... do these look
+    # reasonable?
+    fig1 = plt.figure(1, figsize=(5,5))
+    fig1.clf()
+    ax1=fig1.add_subplot(221)
+    ax2=fig1.add_subplot(222)
+    ax3=fig1.add_subplot(223)
+    ax4=fig1.add_subplot(224)
+
+    blah1=ax1.scatter(xy[:,0], xy[:,1], s=1)
+    blah2=ax2.scatter(xyobs[:,0], xyobs[:,1], c='g', s=1)
+    blah3=ax3.scatter(xytran[:,0], xytran[:,1], s=1)
+    blah4=ax4.scatter(xytarg[:,0], xytarg[:,1], c='g', s=1)
+
+    # how about our initial guess parameters...
+    PFit.propagate()
+    blah5 = ax4.scatter(PFit.xytran[:,0], PFit.xytran[:,1], \
+                        c='r', s=1)
+    
+    ax1.set_title('Generated')
+    ax2.set_title('Perturbed')
+    ax3.set_title('Transformed')
+    ax4.set_title('Target')
+
+    for ax in [ax1, ax2]:
+        ax.set_xlabel(r'X')
+        ax.set_ylabel(r'Y')
+
+    for ax in [ax3, ax4]:
+        ax.set_xlabel(r'$\xi$')
+        ax.set_ylabel(r'$\eta$')
+
+    # now (drumroll) set up the sampler:
+    methpost = lnprob
+    ndim = np.size(guess)
+
+    # set up the walkers, each with perturbed guesses
+    pertn = np.random.randn(nchains, np.size(guess))
+    magn  = 0.01 * guess
+    pos = guess + pertn * magn[np.newaxis,:]
+    nwalkers, ndim = pos.shape
+
+    print("INFO: pos", pos.shape)
+    print("nwalkers, ndim", nwalkers, ndim)
+    
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, \
+                                    methpost, \
+                                    args=args)
+
+    sampler.run_mcmc(pos, chainlen, progress=True);
+
+    # look at the results
+    samples = sampler.get_chain()
+    
+    print("SAMPLES INFO - SAMPLES:", np.shape(samples))
+
+    # Generate labels to plot
+    slabelsx = [r'a_{%i%i}' % \
+        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
+    slabelsy = [r'b_{%i%i}' % \
+        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
+    slabels = slabelsx + slabelsy
+    
+    # Plot the unthinned samples
+    fig2 = plotsamplescolumn(samples, 2, slabels=slabels)
+    
+    # get the autocorrelation time
+    try:
+        tau = sampler.get_autocorr_time()
+        tauto = tau.max()
+    except:
+        print("testmcmc_linear warn: long autocorrelation time")
+        tauto = 50
+
+    nThrow = int(tauto * ntau)
+    nThin = int(tauto * 0.5)
+
+    flat_samples = sampler.get_chain(discard=nThrow, thin=nThin, flat=True)
+    print("FLAT SAMPLES INFO:", flat_samples.shape, nThrow, nThin)
+
+    fig3 = plotsamplescolumn(flat_samples, 3, slabels=slabels)
+
+    # Try a corner plot
+    fig4 = plt.figure(4, figsize=(9,7))
+    fig4.clf()
+    dum4 = corner.corner(flat_samples, labels=slabels, truths=fpars, \
+                         truth_color='b', fig=fig4, labelpad=0.7)
+    
+    return
+
+    tau = sampler.get_autocorr_time()
+    tauto = tau.max()
+    nThrow = int(tauto * ntau)
+    nThin = int(tauto * 0.5)
+    flat_samples = sampler.get_chain(discard=nThrow, thin=nThin, flat=True)
+
+    print("SAMPLES INFO - FLAT:", np.shape(flat_samples))
