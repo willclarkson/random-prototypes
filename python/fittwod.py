@@ -541,7 +541,8 @@ def testpoly(npts=2000, \
         print(c2dlsq)
 
         # try our simple method
-        count_lsq = c2dlsq[i_min[lmin], j_min[lmin]]
+        #count_lsq = c2dlsq[i_min[lmin], j_min[lmin]]
+        count_lsq = c2dlsq[i_min, j_min]
         print(count_lsq)
 
         # YES this works. We can use this to reorder our lsq pattern

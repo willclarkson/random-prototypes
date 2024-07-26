@@ -24,7 +24,8 @@ linear model
     def __init__(self, deg=2, x=np.array([]), y=np.array([]), \
                  kind='Polynomial', norescale=False, \
                  xmin=-1., xmax=1., ymin=-1., ymax=1., \
-                 seed=None, Verbose=True):
+                 seed=None, Verbose=True, \
+                 orderbypow=True):
 
         # degree
         self.deg = deg
@@ -45,6 +46,10 @@ linear model
 
         # Control variable for screen output
         self.Verbose = Verbose
+
+        # Control variable - order the patterns by convention (1, x,
+        # y, x2, xy, y2, ...)
+        self.orderbypow = orderbypow
         
         # points: x, y --> xr, yr 
         self.setlims()
@@ -73,7 +78,7 @@ linear model
 
         # selected indices in the vandermonde array
         self.lvander = np.array([])
-        
+
         # vandermonde array, pattern matrix
         self.vander = np.array([])
         self.pattern = np.array([])
@@ -146,7 +151,41 @@ linear model
         self.lvander = ldum[self.bpow]
 
         # note that self.lvander controls the order in which the
-        # patterns are ordered
+        # patterns are ordered. Apply this reordering if set at the
+        # instance level
+        self.reordervander()
+        
+    def reordervander(self):
+
+        """Sets the ordering to follow (1, x, y, x2, xy, y2 ...), if the
+instance has this option activated"""
+
+        if not self.orderbypow:
+            return
+        
+        # There's probably a clever iterator-based way to do this. For
+        # the moment, since this is only done once per pattern matrix,
+        # we live with the loop...
+        iarr = np.array([], dtype='int')
+        jarr = np.array([], dtype='int')
+
+        for iterm in range(self.deg+1):
+            count = np.arange(iterm+1, dtype='int')
+            jarr = np.hstack(( jarr, count ))
+            iarr = np.hstack(( iarr, count[::-1] ))
+
+        # Construct the 2D array giving the indices in the
+        # pattern-matrix ordering
+        c2dlsq = np.zeros(( self.deg+1, self.deg+1), dtype='int')
+        llsq = np.arange(self.ipow.size)
+        c2dlsq[self.ipow[llsq], self.jpow[llsq]] = llsq
+
+        count_lsq = c2dlsq[iarr, jarr]
+
+        # Actually update the views
+        self.lvander = count_lsq
+        self.isel = self.ipow[self.lvander]
+        self.jsel = self.jpow[self.lvander]
         
     def buildvander(self):
 
@@ -180,7 +219,8 @@ linear model
         self.pattern[:,0, 0:nbases] = self.vander[:,self.lvander]
         self.pattern[:,1, nbases::] = self.vander[:,self.lvander]
 
-    def getfakeparams(self, scale=1., seed=None, expfac=1.):
+    def getfakeparams(self, scale=1., seed=None, expfac=1., \
+                      Debug=False):
 
         """Utility - generate random fake parameters following the conventions
 of the pattern matrix. Parameters are returned rather than getting
@@ -192,7 +232,7 @@ passed up to the instance to avoid confusion later on.
         if np.size(self.isel) < 1:
             if self.Verbose:
                 print("Patternmatrix.getfakeparams WARN - array self.isel not set")                
-            return
+            return np.array([])
 
         # remember, this is TWO dimensional data, so the powers arrays
         # are repeated. tile not repeat!! 
@@ -215,6 +255,9 @@ passed up to the instance to avoid confusion later on.
         
         pars = sampls * sfacs * scale
 
+        if Debug:
+            print(sumpow)
+        
         return pars
         
         
@@ -228,8 +271,8 @@ passed up to the instance to avoid confusion later on.
         self.fignum = fignum
         
         # index for subplots
-        ldum = np.arange(np.size(self.ipow))
-        lplot = ldum[self.bpow]+1
+        #ldum = np.arange(np.size(self.ipow))
+        #lplot = ldum[self.bpow]+1
 
         # scale the fontsize by the degree
         fontsize=9
@@ -239,8 +282,8 @@ passed up to the instance to avoid confusion later on.
         fig1=plt.figure(fignum, figsize=(fsz,fsz))
         fig1.clf()
         axes = []
-        for iax in range(np.size(lplot)):
-            ax = fig1.add_subplot(self.deg+1, self.deg+1, lplot[iax])
+        for iax in range(np.size(self.isel)):
+            ax = fig1.add_subplot(self.deg+1, self.deg+1, self.lvander[iax]+1)
 
             basis = self.pattern[:, 0, iax]
             dum = ax.scatter(self.xr, self.yr, c=basis, s=2, cmap=cmap)
@@ -258,7 +301,8 @@ passed up to the instance to avoid confusion later on.
                 
             # show which term this is
             if showindices:
-                stitl = '%i,%i' % (self.isel[iax], self.jsel[iax])
+                stitl = '%i: %i,%i' % \
+                    (iax, self.isel[iax], self.jsel[iax])
                 dum = ax.annotate(stitl, (0.05,0.95), \
                                   fontsize=fontsize, \
                                   zorder=25, \
@@ -277,6 +321,8 @@ passed up to the instance to avoid confusion later on.
 
         # supertitle
         ssup = '%s (degree %i)' % (self.kind, self.deg)
+        if self.orderbypow:
+            ssup = "%s - indexed by xy" % (ssup)
         fig1.suptitle(ssup)
 
 class Leastsq2d(object):
@@ -591,6 +637,44 @@ def testfit(sidelen=1., nside=41, llcorner=False, seed=None, deg=2, kind='Polyno
     print("Madeup params:", fpars)
     print("Fitted params:", LSQ.pars)
 
+def testpattern(deg=4, kind='Polynomial', sidelen=1., nside=41, \
+                showbases=True, listpars=False, cmap='viridis', \
+                reorder=False, \
+                seed=12345, expfac=1.):
+
+    """Test the pattern matrix construction. Example call:
+
+    testpattern(2, kind='Polynomial', ncoarse=41, showbases=True)
+
+    """
+
+    # Generate points, generate pattern matrix object
+    x, y = gridxy(sidelen, nside)
+    PM = Patternmatrix(deg, x, y, kind=kind, orderbypow=reorder)
+
+    # <Syntax for interrogating the PM object comes here>
+
+    # try generating fake parameters:
+    fpars = PM.getfakeparams(seed=seed, expfac=expfac)
+    print("fake params INFO:", fpars)
+    
+    # show the basis?
+    if not showbases:
+        return
+
+    print("testpattern INFO - plotting...")        
+    PM.showbases(cmap=cmap)
+
+    ## add a panel showing the transformed positions
+    #ilast = (PM.deg+1)**2
+    #thisfig = plt.figure(PM.fignum)
+    #ax = thisfig.add_subplot(PM.deg+1, PM.deg+1, ilast)
+    #dum = ax.scatter(epsilon[:,0], epsilon[:,1], s=1)
+
+    #print("testpattern INFO - ... done.")
+
+    
+    
 def testoneline(sidelen=1., nside=41, llcorner=False, \
                 gendeg=2, genkind='Polynomial', \
                 fitdeg=None, fitkind=None, \
@@ -695,3 +779,4 @@ def testoneline(sidelen=1., nside=41, llcorner=False, \
     print("testoneline INFO - plotting basis...")
     LSQ.pattern.showbases(1, cmap=cmap)
     print("testoneline INFO - ... done.")
+
