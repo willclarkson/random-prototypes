@@ -836,6 +836,14 @@ set doruns=True to actually do the runs.
     print("INFO: pos", pos.shape)
     print("nwalkers, ndim", nwalkers, ndim)
 
+    # Set up labels for plots
+    slabelsx = [r'$a_{%i%i}$' % \
+        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
+    slabelsy = [r'$b_{%i%i}$' % \
+        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
+    slabels = slabelsx + slabelsy
+
+    
     # set up the backend to save the samples
     if os.access(samplefile, os.R_OK):
         os.remove(samplefile)
@@ -846,39 +854,52 @@ set doruns=True to actually do the runs.
         print("testmcmc_linear INFO - look at the data, then rerun setting doruns=True.")
         print(fpars)
         print(fpars.size)
+        
         return
 
-    # try returning this so we can run from the command line
-    #
-    # this SEEMS to work - at least it now breaks at pickle errors
-    # issue, which I need to fix somewhere else...
+    # if multiprocessing, then we'll want to run from the python
+    # interpreter.
     if domulti:
-        print("Returned arguments for multiprocessing")
-        return nwalkers, ndim, methpost, args, pos, chainlen
+
+        # Could wrap the returns into an object for clarity?
+
+        # Watchout - the backend may need to be set at the
+        # interpreter. Test this!
+        print("Returning arguments for multiprocessing:")
+        print("nwalkers, ndim, methpost, args, pos, chainlen, slabels, fpars, guess")
+
+        print("Now run:")
+        print("sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, pool=pool)")
+        print("sampler.run_mcmc(initial, nsteps, progress=True)")
+        print("fittwod.showsamples(sampler, slabels, fpars, guess")
+        return nwalkers, ndim, methpost, args, pos, chainlen, slabels, fpars, guess
+
     
     # Run without multiprocessing
     sampler = emcee.EnsembleSampler(nwalkers, ndim, \
                                     methpost, \
                                     args=args, \
                                     backend=backend)
+
     t0 = time.time()
     sampler.run_mcmc(pos, chainlen, progress=True);
     t1 = time.time()
-    print("testmcmc_linear INFO - samples took %.2e minutes" \
-          % (t1-t0)/60.)
+        
+    print("testmcmc INFO - samples took %.2e seconds" % (t1 - t0))
+
+    showsamples(sampler, slabels, ntau, fpars, guess)
+    
+def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
+                guess=np.array([]) ):
+
+    """Ported the methods to use the samples into a separate method so
+that we can run this from the interpreter."""
     
     # look at the results
     samples = sampler.get_chain()
     
     print("SAMPLES INFO - SAMPLES:", np.shape(samples))
 
-    # Generate labels to plot
-    slabelsx = [r'$a_{%i%i}$' % \
-        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
-    slabelsy = [r'$b_{%i%i}$' % \
-        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
-    slabels = slabelsx + slabelsy
-    
     # Plot the unthinned samples
     fig2 = plotsamplescolumn(samples, 2, slabels=slabels)
     
@@ -910,7 +931,7 @@ set doruns=True to actually do the runs.
     fig4.subplots_adjust(bottom=0.2, left=0.2)
 
     # set supertitle
-    fig4.suptitle(polyfit)
+    # fig4.suptitle(polyfit)   # need this to get passed
     
     print("INFO: generated parameters:")
     print(fpars)
