@@ -894,6 +894,9 @@ def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
 
     """Ported the methods to use the samples into a separate method so
 that we can run this from the interpreter."""
+
+    # Might be better to have this work on samples so that they could
+    # be read in from disk. Not sure if sampler() is serialized.
     
     # look at the results
     samples = sampler.get_chain()
