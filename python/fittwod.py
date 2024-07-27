@@ -8,6 +8,7 @@
 # 
 
 import os, time
+from multiprocessing import cpu_count, Pool
 
 import numpy as np
 import matplotlib.pylab as plt
@@ -686,9 +687,15 @@ def testmcmc_linear(npts=200, \
                     unctysrc=True, unctytarg=True, \
                     nchains=32, chainlen=1000, ntau=10, \
                     checknudge=False, \
-                    samplefile='testmcmc.h5'):
+                    samplefile='testmcmc.h5', \
+                    doruns=False, \
+                    domulti=False):
 
-    """Tests the MCMC approach on a linear transformation"""
+    """Tests the MCMC approach on a linear transformation.
+
+set doruns=True to actually do the runs.
+
+    """
 
     # To check: are the perturbations actually applying the right
     # covariance?
@@ -834,14 +841,32 @@ def testmcmc_linear(npts=200, \
         os.remove(samplefile)
     backend = emcee.backends.HDFBackend(samplefile)
     backend.reset(nwalkers, ndim)
+
+    if not doruns:
+        print("testmcmc_linear INFO - look at the data, then rerun setting doruns=True.")
+        print(fpars)
+        print(fpars.size)
+        return
+
+    # try returning this so we can run from the command line
+    #
+    # this SEEMS to work - at least it now breaks at pickle errors
+    # issue, which I need to fix somewhere else...
+    if domulti:
+        print("Returned arguments for multiprocessing")
+        return nwalkers, ndim, methpost, args, pos, chainlen
     
+    # Run without multiprocessing
     sampler = emcee.EnsembleSampler(nwalkers, ndim, \
                                     methpost, \
                                     args=args, \
                                     backend=backend)
-
+    t0 = time.time()
     sampler.run_mcmc(pos, chainlen, progress=True);
-
+    t1 = time.time()
+    print("testmcmc_linear INFO - samples took %.2e minutes" \
+          % (t1-t0)/60.)
+    
     # look at the results
     samples = sampler.get_chain()
     
@@ -884,6 +909,9 @@ def testmcmc_linear(npts=200, \
                          use_math_text=True)
     fig4.subplots_adjust(bottom=0.2, left=0.2)
 
+    # set supertitle
+    fig4.suptitle(polyfit)
+    
     print("INFO: generated parameters:")
     print(fpars)
     print("INFO: lsq parameters")
