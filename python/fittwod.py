@@ -7,7 +7,7 @@
 # unctytwod.py
 # 
 
-import time
+import os, time
 
 import numpy as np
 import matplotlib.pylab as plt
@@ -50,25 +50,6 @@ def lnprior_unif(pars):
 
     return 0.
 
-def lnprob(pars, transf, xytarg, covtarg=np.array([]), \
-           methprior=lnprior_unif, \
-           methlike=sumlnlike):
-
-    """Evaluates ln(posterior). Takes the method to compute the ln(prior)
-and ln(likelihood) as arguments.
-    """
-
-    # Evaluate the ln prior
-    lnprior = methprior(pars)
-    if not np.isfinite(lnprior):
-        return -np.inf
-
-    # evaluate ln likelihood
-    lnlike = methlike(pars, transf, xytarg, covtarg) 
-
-    # return the ln posterior
-    return lnprior + lnlike
-    
 def sumlnlike(pars, transf, xytarg, covtarg):
 
     """Returns sum(log-likelihood) for a single-population model"""
@@ -124,6 +105,26 @@ i.e.
     
     # Return the two terms, but DO NOT SUM THEM YET.
     return term_expon, term_dets, term_2pi
+
+def lnprob(pars, transf, xytarg, covtarg=np.array([]), \
+           methprior=lnprior_unif, \
+           methlike=sumlnlike):
+
+    """Evaluates ln(posterior). Takes the method to compute the ln(prior)
+and ln(likelihood) as arguments.
+    """
+
+    # Evaluate the ln prior
+    lnprior = methprior(pars)
+    if not np.isfinite(lnprior):
+        return -np.inf
+
+    # evaluate ln likelihood
+    lnlike = methlike(pars, transf, xytarg, covtarg) 
+
+    # return the ln posterior
+    return lnprior + lnlike
+
 
 def feval(pars, transf):
 
@@ -281,7 +282,7 @@ def plotsamplescolumn(samples, fignum=2, slabels=[]):
                               alpha=0.5)
 
         if len(slabels) == ssho.shape[-1]:
-            ax21.set_ylabel(r'$%s$' % (slabels[ipar]))
+            ax21.set_ylabel(slabels[ipar])
             
     ax21.set_xlabel('Sample number')
 
@@ -678,15 +679,24 @@ def testpoly(npts=2000, \
 def testmcmc_linear(npts=200, \
                     deg=2, degfit=-1, \
                     xmin=-1., xmax=1., ymin=-1., ymax=1., \
-                    sigx=0.001, sigy=0.0007, sigr=0.0, \
+                    sigx=1e-4, sigy=7e-5, sigr=0.0, \
                     polytransf='Polynomial', polyfit=None, \
                     seed=None, expfac=1., scale=1.,\
                     covscale=1., \
                     unctysrc=True, unctytarg=True, \
-                    nchains=32, chainlen=1000, ntau=10):
+                    nchains=32, chainlen=1000, ntau=10, \
+                    checknudge=False, \
+                    samplefile='testmcmc.h5'):
 
     """Tests the MCMC approach on a linear transformation"""
 
+    # To check: are the perturbations actually applying the right
+    # covariance?
+    #
+    # Can do this by plotting the deltas and finding the covariance,
+    # since we're using the same covariance for all the input frame
+    # here.
+    
     # Fit degree, type
     if degfit < 0:
         degfit = deg
@@ -740,6 +750,17 @@ def testmcmc_linear(npts=200, \
     xyobs  = xy + nudgexy
     xytarg = xytran + nudgexytran
 
+    # check the nudges
+    if checknudge:
+        print("Nudge DEBUG:")
+        print(Cxy.covars[0], np.linalg.det(Cxy.covars[0]) )
+        CC = np.cov(nudgexy, rowvar=False)
+        print(CC, np.linalg.det(CC) )
+        print("###")
+        print(Ctran.covars[0], np.linalg.det(Ctran.covars[0]) )
+        CD = np.cov(nudgexytran, rowvar=False)
+        print(CD, np.linalg.det(CD))
+
     #### NOTE 2024-07-26 - the above syntax could all be refactored
     #### into a separate data-generation method. Come back to that
     #### later.
@@ -754,7 +775,10 @@ def testmcmc_linear(npts=200, \
 
     # Now we arrange things for our mcmc exploration. The
     # transformation object...
-    PFit = transf(xyobs[:,0], xyobs[:,1], Cxy.covars, guessx, guessy, \
+    covsrc = Cxy.covars
+    #if not unctysrc:  ### WATCHOUT
+    #    covsrc *= 0.
+    PFit = transf(xyobs[:,0], xyobs[:,1], covsrc, guessx, guessy, \
                   kind=polyfit)
 
     # ... and the arguments for ln(prob)
@@ -798,16 +822,23 @@ def testmcmc_linear(npts=200, \
 
     # set up the walkers, each with perturbed guesses
     pertn = np.random.randn(nchains, np.size(guess))
-    magn  = 0.01 * guess
+    magn  = 0.02 * guess  # was 0.01
     pos = guess + pertn * magn[np.newaxis,:]
     nwalkers, ndim = pos.shape
 
     print("INFO: pos", pos.shape)
     print("nwalkers, ndim", nwalkers, ndim)
+
+    # set up the backend to save the samples
+    if os.access(samplefile, os.R_OK):
+        os.remove(samplefile)
+    backend = emcee.backends.HDFBackend(samplefile)
+    backend.reset(nwalkers, ndim)
     
     sampler = emcee.EnsembleSampler(nwalkers, ndim, \
                                     methpost, \
-                                    args=args)
+                                    args=args, \
+                                    backend=backend)
 
     sampler.run_mcmc(pos, chainlen, progress=True);
 
@@ -817,9 +848,9 @@ def testmcmc_linear(npts=200, \
     print("SAMPLES INFO - SAMPLES:", np.shape(samples))
 
     # Generate labels to plot
-    slabelsx = [r'a_{%i%i}' % \
+    slabelsx = [r'$a_{%i%i}$' % \
         (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
-    slabelsy = [r'b_{%i%i}' % \
+    slabelsy = [r'$b_{%i%i}$' % \
         (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
     slabels = slabelsx + slabelsy
     
@@ -830,6 +861,9 @@ def testmcmc_linear(npts=200, \
     try:
         tau = sampler.get_autocorr_time()
         tauto = tau.max()
+        print("testmcmc_linear info: autocorrelation time:", tauto)
+        ntau = int(ntau*0.5) # maybe a little risky? When this works,
+                             # tau typically comes out to about 80.
     except:
         print("testmcmc_linear warn: long autocorrelation time")
         tauto = 50
@@ -846,7 +880,20 @@ def testmcmc_linear(npts=200, \
     fig4 = plt.figure(4, figsize=(9,7))
     fig4.clf()
     dum4 = corner.corner(flat_samples, labels=slabels, truths=fpars, \
-                         truth_color='b', fig=fig4, labelpad=0.7)
+                         truth_color='b', fig=fig4, labelpad=0.7, \
+                         use_math_text=True)
+    fig4.subplots_adjust(bottom=0.2, left=0.2)
+
+    print("INFO: generated parameters:")
+    print(fpars)
+    print("INFO: lsq parameters")
+    print(guess)
+    print("INFO: 50th pctile mcmc samples")
+    print(np.percentile(flat_samples, 50., axis=0))
+
+    print("INFO: 16th, 84th pctile MCMC:")
+    print(np.percentile(flat_samples, 16., axis=0))
+    print(np.percentile(flat_samples, 84., axis=0))
     
     return
 
