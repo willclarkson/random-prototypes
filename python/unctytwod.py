@@ -462,7 +462,7 @@ choose."""
 
         
         # Polynomial object and methods to use
-        self.polysallowed = self.methder.keys()
+        self.polysallowed = list(self.methder.keys()) # 2024-07-27 made a list
         self.kind = kind[:]
         self.checkpolysupported()
         self.setmethods()

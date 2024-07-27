@@ -2734,7 +2734,7 @@ class NormWithMonteCarlo(object):
 
         # dictionary of parameters we'd dump to or read from disk
         self.ddump = {}
-        self.lkeys = self.ddump.keys()
+        self.lkeys = list(self.ddump.keys()) # 2024-07-27 made into a list
 
         # coords, if given
         self.x = np.copy(x)
