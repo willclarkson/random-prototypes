@@ -783,8 +783,8 @@ set doruns=True to actually do the runs.
     # Now we arrange things for our mcmc exploration. The
     # transformation object...
     covsrc = Cxy.covars
-    #if not unctysrc:  ### WATCHOUT
-    #    covsrc *= 0.
+    if not unctysrc:
+        covsrc *= 0.
     PFit = transf(xyobs[:,0], xyobs[:,1], covsrc, guessx, guessy, \
                   kind=polyfit)
 
@@ -843,6 +843,11 @@ set doruns=True to actually do the runs.
         (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
     slabels = slabelsx + slabelsy
 
+    # set up run information dictionary to pass back. The aim is that
+    # this will hold arguments we may or may not need when reading and
+    # viewing the samples.
+    runinfo = {'chainlen':chainlen, 'slabels':slabels, 'fpars':fpars, \
+               'guess':guess}
     
     # set up the backend to save the samples
     if os.access(samplefile, os.R_OK):
@@ -871,7 +876,8 @@ set doruns=True to actually do the runs.
         print("Now run:")
         print("sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, pool=pool)")
         print("sampler.run_mcmc(initial, nsteps, progress=True)")
-        print("fittwod.showsamples(sampler, slabels, fpars, guess")
+        print("samples = sampler.get_chain()")
+        print("fittwod.showsamples(samples, slabels, fpars, guess")
         return nwalkers, ndim, methpost, args, pos, chainlen, slabels, fpars, guess
 
     
@@ -887,6 +893,7 @@ set doruns=True to actually do the runs.
         
     print("testmcmc INFO - samples took %.2e seconds" % (t1 - t0))
 
+    # samples = sampler.get_chain()
     showsamples(sampler, slabels, ntau, fpars, guess)
     
 def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
