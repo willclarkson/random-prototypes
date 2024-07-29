@@ -1154,7 +1154,7 @@ def testmcmc_linear(npts=200, \
     runargs = {'initial_state':pos, 'nsteps':chainlen, 'progress':True}
     
     showargs = {'slabels':slabels, 'ntau':ntau, 'fpars':fpars, \
-                'guess':guess}
+                'guess':guess, 'basis':PFit.kind}
     
     # if multiprocessing, then we'll want to run from the python
     # interpreter.
@@ -1195,7 +1195,7 @@ def testmcmc_linear(npts=200, \
     showsamples(sampler, **showargs)
     
 def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
-                guess=np.array([]) ):
+                guess=np.array([]), basis=''):
 
     """Ported the methods to use the samples into a separate method so
 that we can run this from the interpreter."""
@@ -1239,7 +1239,8 @@ that we can run this from the interpreter."""
     fig4.subplots_adjust(bottom=0.2, left=0.2)
 
     # set supertitle
-    # fig4.suptitle(polyfit)   # need this to get passed
+    if len(basis) > 0:
+        fig4.suptitle(basis)   # need this to get passed
     
     print("INFO: generated parameters:")
     print(fpars)
