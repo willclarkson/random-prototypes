@@ -791,7 +791,8 @@ def testmcmc_linear(npts=200, \
                     addcov2d=False, \
                     addvar=False, \
                     extravar=5.0e-12, \
-                    forgetcovars=False):
+                    forgetcovars=False, \
+                    guessextra=True):
 
     """Tests the MCMC approach on a linear transformation.
 
@@ -877,8 +878,10 @@ def testmcmc_linear(npts=200, \
         npars_extravar = np.size(var_extra)
 
         # entries are: [stdx, stdy, corrxy]
-        
+
+        # At minimum we must have stdx; initialize off-diagonals too.
         stdx = np.repeat(np.sqrt(var_extra[0]), xy.shape[0])
+        corrxy = stdx * 0.
         if np.size(var_extra) > 1:
             stdy = np.repeat(np.sqrt(var_extra[1]), xy.shape[0])
 
@@ -890,7 +893,6 @@ def testmcmc_linear(npts=200, \
                 corrxy = np.repeat(covoff, xy.shape[0])
         else:
             stdy = np.copy(stdx)
-            corrxy = stdx * 0.
         
         # Conditional because we might want to make this more complex later.
         CExtra = CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=corrxy)
@@ -1025,14 +1027,42 @@ def testmcmc_linear(npts=200, \
         # case, a more sensible guess is probably the residuals after
         # fitting. So
         if forgetcovars:
-            covtran *= 0.
+            covtran *= 0.  # is passed to the sampler
+
+            # Ensure the pfit object has forgotten the
+            # model covariance
+            PFit.covxy = np.zeros(2)
+            PFit.covtran = np.zeros(2)
+
+        # This may get spun out into a separate method
+        if guessextra or forgetcovars:
             
             # Estimate the covariance after applying the initial-guess
             # transformation
             gxy = PFit.xytran - xytarg
             cg = np.cov(gxy, rowvar=False)
-            vguess = np.array([cg[0,0], cg[1,1], cg[0,1]])
-            print("testmcmc_linear INFO - forgetting covariances. Initial vars guess:")
+
+            # guess the extra covariance
+            covguess = cg - covtran - PFit.covtran
+            cf = np.mean(covguess, axis=0)
+
+            # We need to ensure that our guess has the right number of
+            # entries. If we're assuming scalar or 1d input variance,
+            # we only want the first entry.  Here's one way to do the
+            # ordering - it's a little stupid, but it works.
+            lx = np.array([0,1,0])
+            ly = np.array([0,1,1])
+            vguess = cf[lx, ly][0:npars_extravar]
+            
+            # vguess = np.array([cf[0,0], cf[1,1], cf[0,1]] )
+            
+            # Now slot in the guesses depending on how many covariance
+            # guess parameters we want
+            print("testmcmc_linear INFO - mean excess covariance:")
+            print(np.mean(covguess, axis=0))
+            
+            #vguess = np.array([cg[0,0], cg[1,1], cg[0,1]])
+            print("testmcmc_linear INFO - Initial vars guess:")
             print("testmcmc_linear INFO - ", vguess)
             
         # Ensure the "truth" and guess parameters have the right
@@ -1083,6 +1113,11 @@ def testmcmc_linear(npts=200, \
     args = (PFit, xytarg, covtran, addcov2d, addvar, npars_extravar)
     ndim = np.size(guess)
 
+    # adjust the nchains to match ndim
+    if nchains < 1:
+        nchains = int(ndim*2)+2
+        print("testmcmc_linear - scaling nchains from ndim to %i" % (nchains))
+    
     # set up the walkers, each with perturbed guesses
     pertn = np.random.randn(nchains, np.size(guess))
     magn  = 0.02 * guess  # was 0.01
