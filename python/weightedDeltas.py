@@ -1880,7 +1880,7 @@ class CovarsNx2x2(object):
         self.minors = w[:,0]
 
         # the eigenvectors are already normalized. We'll keep them so
-        # that we can use them in plots
+        # that we can use them in plots # WATCHOUT SIGNS
         self.axMajors = v[:,:,1]
         self.axMinors = v[:,:,0]  # Not needed?
         

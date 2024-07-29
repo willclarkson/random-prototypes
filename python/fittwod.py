@@ -45,28 +45,53 @@ def uTVu(u, V):
     Vu = np.einsum('ijk,ik -> ij', V, u)
     return np.einsum('ij,ji -> j', u.T, Vu)
 
+def skimvar1d(pars, nrows, islog10=False):
+
+    """Utility - if an additive scalar variance is included with the
+parameters, split it off from the parameters, returning the parameters
+and an [N,2,2] covariance matrix from the supplied extra variance
+
+    islog10 = additive variance is supplied as
+    log10(variance). (WATCHOUT - this doesn't work as well in tests as
+    islog10=False...)
+
+    """
+
+    parsmodel = pars[0:-1]
+    if islog10:
+        addvar = 10.0**pars[-1]
+    else:
+        addvar = pars[-1]
+
+    extracov = np.zeros((nrows, 2, 2))
+    extracov[:,0,0] = addvar
+    extracov[:,1,1] = addvar
+
+    return parsmodel, extracov
+    
 def lnprior_unif(pars):
 
     """ln uniform prior"""
 
     return 0.
 
-def sumlnlike(pars, transf, xytarg, covtarg):
+def sumlnlike(pars, transf, xytarg, covtarg, covextra=0. ):
 
     """Returns sum(log-likelihood) for a single-population model"""
 
-    expon, det, piterm = lnlike(pars, transf, xytarg, covtarg)
+    expon, det, piterm = lnlike(pars, transf, xytarg, covtarg, covextra)
     return np.sum(expon) + np.sum(det) + np.sum(piterm)
 
-def lnlikestat(pars, transf, xytarg, covtarg):
+def lnlikestat(pars, transf, xytarg, covtarg, covextra=0.):
 
     """Returns the sum of all three terms on a per-object basis"""
 
-    expon, det, piterm = lnlike(pars, transf, xytarg, covtarg)
+    expon, det, piterm = lnlike(pars, transf, xytarg, covtarg, covextra)
 
     return expon + det + piterm
     
-def lnlike(pars, transf, xytarg=np.array([]), covtarg=np.array([]) ):
+def lnlike(pars, transf, xytarg=np.array([]), covtarg=np.array([]), \
+           covextra=0. ):
 
     """(log-) badness-of-fit statistic for transformation. Evaluates the
 logarithm of the gaussian badness-of-fit statistic for each point,
@@ -85,7 +110,7 @@ i.e.
 
     # Now form the deltas array and covariances-sum arrays.
     deltas = xytarg - xytran
-    covars = covtran + covtarg
+    covars = covtran + covtarg + covextra
 
     # Reminder that there are two pieces in lnlike to evaluate! The
     # exponential term (delta x^T . V^-1. delta x) and the determinant
@@ -107,22 +132,81 @@ i.e.
     # Return the two terms, but DO NOT SUM THEM YET.
     return term_expon, term_dets, term_2pi
 
-def lnprob(pars, transf, xytarg, covtarg=np.array([]), \
+def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
+           addcov2d=False, \
+           addvar=False, \
            methprior=lnprior_unif, \
            methlike=sumlnlike):
 
     """Evaluates ln(posterior). Takes the method to compute the ln(prior)
 and ln(likelihood) as arguments.
+
+    addcov2d [T/F] = the last three entries in [pars] refer to an
+    extra covariance that forms part of the model. In order: major
+    axis, minor/major ratio, and position angle in degrees
+
+    addvar [T/F] = interpret the [-1]th parameter as extra variance to
+    be added in both target dimensions equally.
+
     """
 
+    if not addcov2d:
+        pars = parsIn
+        covextra = 0. 
+    else:
+        pars = parsIn[0:-3]  # transformation
+        covpars = parsIn[-3::] # extra covariance        
+        npts = xytarg.shape[0]
+
+        # Evaluate the prior on the extra variance components. For the
+        # moment, we forbid only the axis ratio from being outside 0 <
+        # ratio < 1.
+        if covpars[1] <= 0 or covpars[1] > 1.:
+            return -np.inf
+
+        # Try making the first covars argument np.log10(sigma) to
+        # ensure positivity. (Should help ensure the sum of the three
+        # covariances is never singular.)
+        majorax = 10.0**covpars[0]
+        # majorax = covpars[0]
+        Cextra = CovarsNx2x2(majors=np.repeat(majorax, npts), \
+                             minors=np.repeat(covpars[1]*majorax, npts), \
+                             rotDegs=np.repeat(covpars[2], npts))
+        covextra = Cextra.covars
+
+        #print("TEST:", pars)
+        #print("TEST:", covpars)
+        #print("TEST:", npts)
+        #print("TEST:", majorax, covpars[1]/majorax, covpars[2])
+        #print("TEST:", covextra.shape, covtarg.shape, transf.covxy.shape)
+        #print("TEST:", covextra[0])
+        #print("TEST:", covextra[1])
+        #print("TEST:", np.linalg.det(covextra)[0])
+
+        # ^^^ THIS NEEDS TO BE FIXED AND CLEANED UP ^^^
+
+    if addvar:
+        pars, covextra = skimvar1d(parsIn, xytarg.shape[0])
+        
     # Evaluate the ln prior
     lnprior = methprior(pars)
     if not np.isfinite(lnprior):
         return -np.inf
 
     # evaluate ln likelihood
-    lnlike = methlike(pars, transf, xytarg, covtarg) 
+    lnlike = methlike(pars, transf, xytarg, covtarg, covextra) 
 
+    # any places where this is NaN? Can we trap this condition?
+    if np.any(np.isnan(lnlike)):
+        print("lnlike warn: probability NaN")
+        print(covtarg[0])
+        print(covextra[0])
+        print(covpars)
+        cinv = np.linalg.inv(covextra)
+        print(cinv[0])
+        print(np.linalg.det(cinv)[0])
+        print("#############")
+    
     # return the ln posterior
     return lnprior + lnlike
 
@@ -689,11 +773,19 @@ def testmcmc_linear(npts=200, \
                     checknudge=False, \
                     samplefile='testmcmc.h5', \
                     doruns=False, \
-                    domulti=False):
+                    domulti=False, \
+                    addcov2d=False, \
+                    addvar=0.):
 
     """Tests the MCMC approach on a linear transformation.
 
-set doruns=True to actually do the runs.
+    set doruns=True to actually do the runs.
+
+    addcov2d=True to include additive covariance IN THE TARGET FRAME
+    in the model
+
+    addvar = 1D variance to add to the datapoints in target space. FOr
+    testing, 5.0e-12 seems sensible (it's about 10x the covtran)
 
     """
 
@@ -754,8 +846,16 @@ set doruns=True to actually do the runs.
     if unctytarg:
         nudgexytran = Ctran.getsamples()
 
+    # If we are adding more noise, do so here
+    nudgexyextra = xy * 0.
+    if addvar > 0:
+        
+        # Conditional because we might want to make this more complex later.
+        CExtra = CovarsNx2x2(majors=np.repeat(addvar, xy.shape[0]))
+        nudgexyextra = CExtra.getsamples()
+        
     xyobs  = xy + nudgexy
-    xytarg = xytran + nudgexytran
+    xytarg = xytran + nudgexytran + nudgexyextra
 
     # check the nudges
     if checknudge:
@@ -789,17 +889,19 @@ set doruns=True to actually do the runs.
                   kind=polyfit)
 
     # ... and the arguments for ln(prob)
-    args = (PFit, xytarg, covtran)
+    # args = (PFit, xytarg, covtran)
 
     # Take a look at the data we generated... do these look
     # reasonable?
-    fig1 = plt.figure(1, figsize=(5,5))
+    fig1 = plt.figure(1, figsize=(8,5))
     fig1.clf()
-    ax1=fig1.add_subplot(221)
-    ax2=fig1.add_subplot(222)
-    ax3=fig1.add_subplot(223)
-    ax4=fig1.add_subplot(224)
+    ax1=fig1.add_subplot(231)
+    ax2=fig1.add_subplot(232)
+    ax3=fig1.add_subplot(234)
+    ax4=fig1.add_subplot(235)
+    ax5=fig1.add_subplot(236)
 
+    
     blah1=ax1.scatter(xy[:,0], xy[:,1], s=1)
     blah2=ax2.scatter(xyobs[:,0], xyobs[:,1], c='g', s=1)
     blah3=ax3.scatter(xytran[:,0], xytran[:,1], s=1)
@@ -810,10 +912,20 @@ set doruns=True to actually do the runs.
     blah5 = ax4.scatter(PFit.xytran[:,0], PFit.xytran[:,1], \
                         c='r', s=1)
     
+    # Since we're simulating, we know what the generated parameters
+    # were. Use this to plot the residuals under the truth parameters.
+    fxy = PTruth.xytran - xytarg
+    blah5 = ax5.scatter(fxy[:,0], fxy[:,1], s=.1)
+    sanno = "%.2e, %.2e" % (np.std(fxy[:,0]), np.std(fxy[:,1]))
+    anno5 = ax5.annotate(sanno, (0.05,0.05), \
+                         xycoords='axes fraction', \
+                         ha='left', va='bottom')
+    
     ax1.set_title('Generated')
     ax2.set_title('Perturbed')
     ax3.set_title('Transformed')
     ax4.set_title('Target')
+    ax5.set_title('Residuals, generated')
 
     for ax in [ax1, ax2]:
         ax.set_xlabel(r'X')
@@ -823,8 +935,72 @@ set doruns=True to actually do the runs.
         ax.set_xlabel(r'$\xi$')
         ax.set_ylabel(r'$\eta$')
 
-    # now (drumroll) set up the sampler:
+    ax5.set_xlabel(r'$\Delta \xi$')
+    ax5.set_ylabel(r'$\Delta \eta$')
+        
+    # Set up labels for plots
+    slabelsx = [r'$a_{%i%i}$' % \
+        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
+    slabelsy = [r'$b_{%i%i}$' % \
+        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
+    slabels = slabelsx + slabelsy
+
+    # If we added 1d variance, accommodate this here.
+    if addvar > 0:
+        slabels = slabels + [r'$V_{\xi\eta}$']
+
+        # Come up with a guess for the added variance. For the moment
+        # use a relatively soft test, where we know the truth going
+        # in... Make these vectors from the start so that we can
+        # smoothly adjust later.
+
+        vguess = np.random.uniform(low=0.8, high=1.2, size=1)*addvar* 0.01
+
+        # Ensure the "truth" and guess parameters have the right
+        # dimensions
+        guess = np.hstack(( guess, vguess ))
+        fpars = np.hstack(( fpars, addvar )) 
+        
+    # If we are including additive nose in the model, abut this to the
+    # end of the "model" parameters here.
+    if addcov2d:
+
+        # our initial guess has to actually pass the prior...
+        vguess = np.array([sigx*0.1, sigy/sigx, 30.])
+
+        # next test: get vguess from covtran
+        CDUM = CovarsNx2x2(covtran[0])
+        CDUM.eigensFromCovars()
+        vguess = np.array([np.log10(CDUM.majors[0]), \
+                           CDUM.minors[0]/CDUM.majors[0], \
+                           CDUM.rotDegs[0]])
+
+        print("testmcmc_linear addcov2d INFO: vguess", vguess)
+        print(covtran[0])
+        
+        guess = np.hstack(( guess, vguess ))
+        fpars = np.hstack(( fpars, np.zeros(3) ))
+        slabels = slabels + [r'$\log_{10}a_v$', r'$b_v$', r'$\phi_v$']
+
+        # test the probability function
+        #print("Trying the probability function:")
+        #dum = lnprob(guess, PFit, xytarg, covtran, addcov2d=True)
+        #print(dum)
+        
+        #return
+        
+        # While testing, scale the target covariances down so that
+        # there actually is an extra covariance to include in the
+        # model. We should probably be a bit more purposeful here, and
+        # actually add extra covariance for our MCMC to recover. Then
+        # the "truths" would make sense in the corner plot...
+        covtran *= 0.0001
+
+        print("testmcmc_linear INFO - testing additive covariance")
+        
+    # now (drumroll) set up the sampler.
     methpost = lnprob
+    args = (PFit, xytarg, covtran, addcov2d, addvar > 0)
     ndim = np.size(guess)
 
     # set up the walkers, each with perturbed guesses
@@ -835,13 +1011,6 @@ set doruns=True to actually do the runs.
 
     print("INFO: pos", pos.shape)
     print("nwalkers, ndim", nwalkers, ndim)
-
-    # Set up labels for plots
-    slabelsx = [r'$a_{%i%i}$' % \
-        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
-    slabelsy = [r'$b_{%i%i}$' % \
-        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
-    slabels = slabelsx + slabelsy
 
     # set up run information dictionary to pass back. The aim is that
     # this will hold arguments we may or may not need when reading and
