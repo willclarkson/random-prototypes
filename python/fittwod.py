@@ -144,7 +144,6 @@ i.e.
     return term_expon, term_dets, term_2pi
 
 def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
-           addcov2d=False, \
            addvar=False, nvar=1, \
            methprior=lnprior_unif, \
            methlike=sumlnlike):
@@ -152,50 +151,16 @@ def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
     """Evaluates ln(posterior). Takes the method to compute the ln(prior)
 and ln(likelihood) as arguments.
 
-    addcov2d [T/F] = the last three entries in [pars] refer to an
-    extra covariance that forms part of the model. In order: major
-    axis, minor/major ratio, and position angle in degrees
-
     addvar [T/F] = interpret the [-1]th parameter as extra variance to
     be added in both target dimensions equally.
 
+    nvar = number of entries corresponding to covariance. Maximum 3,
+    in the order [Vxx, Vyy, Vxy]
+
     """
 
-    if not addcov2d:
-        pars = parsIn
-        covextra = 0. 
-    else:
-        pars = parsIn[0:-3]  # transformation
-        covpars = parsIn[-3::] # extra covariance        
-        npts = xytarg.shape[0]
-
-        # Evaluate the prior on the extra variance components. For the
-        # moment, we forbid only the axis ratio from being outside 0 <
-        # ratio < 1.
-        if covpars[1] <= 0 or covpars[1] > 1.:
-            return -np.inf
-
-        # Try making the first covars argument np.log10(sigma) to
-        # ensure positivity. (Should help ensure the sum of the three
-        # covariances is never singular.)
-        majorax = 10.0**covpars[0]
-        # majorax = covpars[0]
-        Cextra = CovarsNx2x2(majors=np.repeat(majorax, npts), \
-                             minors=np.repeat(covpars[1]*majorax, npts), \
-                             rotDegs=np.repeat(covpars[2], npts))
-        covextra = Cextra.covars
-
-        #print("TEST:", pars)
-        #print("TEST:", covpars)
-        #print("TEST:", npts)
-        #print("TEST:", majorax, covpars[1]/majorax, covpars[2])
-        #print("TEST:", covextra.shape, covtarg.shape, transf.covxy.shape)
-        #print("TEST:", covextra[0])
-        #print("TEST:", covextra[1])
-        #print("TEST:", np.linalg.det(covextra)[0])
-
-        # ^^^ THIS NEEDS TO BE FIXED AND CLEANED UP ^^^
-
+    pars = parsIn
+    covextra = 0. 
     if addvar:
         pars, covextra = skimvar(parsIn, xytarg.shape[0], nvar)
         
@@ -207,17 +172,6 @@ and ln(likelihood) as arguments.
     # evaluate ln likelihood
     lnlike = methlike(pars, transf, xytarg, covtarg, covextra) 
 
-    # any places where this is NaN? Can we trap this condition?
-    if np.any(np.isnan(lnlike)):
-        print("lnlike warn: probability NaN")
-        print(covtarg[0])
-        print(covextra[0])
-        print(covpars)
-        cinv = np.linalg.inv(covextra)
-        print(cinv[0])
-        print(np.linalg.det(cinv)[0])
-        print("#############")
-    
     # return the ln posterior
     return lnprior + lnlike
 
@@ -788,7 +742,6 @@ def testmcmc_linear(npts=200, \
                     samplefile='testmcmc.h5', \
                     doruns=False, \
                     domulti=False, \
-                    addcov2d=False, \
                     addvar=False, \
                     extravar=5.0e-12, \
                     forgetcovars=False, \
@@ -797,9 +750,6 @@ def testmcmc_linear(npts=200, \
     """Tests the MCMC approach on a linear transformation.
 
     set doruns=True to actually do the runs.
-
-    addcov2d=True to include additive covariance IN THE TARGET FRAME
-    in the model
 
     addvar = 1D variance to add to the datapoints in target space. FOr
     testing, 5.0e-12 seems sensible (it's about 10x the covtran)
@@ -1071,46 +1021,9 @@ def testmcmc_linear(npts=200, \
         fpars = np.hstack(( fpars, var_extra )) 
 
         
-    # If we are including additive nose in the model, abut this to the
-    # end of the "model" parameters here.
-    if addcov2d:
-
-        # our initial guess has to actually pass the prior...
-        vguess = np.array([sigx*0.1, sigy/sigx, 30.])
-
-        # next test: get vguess from covtran
-        CDUM = CovarsNx2x2(covtran[0])
-        CDUM.eigensFromCovars()
-        vguess = np.array([np.log10(CDUM.majors[0]), \
-                           CDUM.minors[0]/CDUM.majors[0], \
-                           CDUM.rotDegs[0]])
-
-        print("testmcmc_linear addcov2d INFO: vguess", vguess)
-        print(covtran[0])
-        
-        guess = np.hstack(( guess, vguess ))
-        fpars = np.hstack(( fpars, np.zeros(3) ))
-        slabels = slabels + [r'$\log_{10}a_v$', r'$b_v$', r'$\phi_v$']
-
-        # test the probability function
-        #print("Trying the probability function:")
-        #dum = lnprob(guess, PFit, xytarg, covtran, addcov2d=True)
-        #print(dum)
-        
-        #return
-        
-        # While testing, scale the target covariances down so that
-        # there actually is an extra covariance to include in the
-        # model. We should probably be a bit more purposeful here, and
-        # actually add extra covariance for our MCMC to recover. Then
-        # the "truths" would make sense in the corner plot...
-        covtran *= 0.0001
-
-        print("testmcmc_linear INFO - testing additive covariance")
-        
     # now (drumroll) set up the sampler.
     methpost = lnprob
-    args = (PFit, xytarg, covtran, addcov2d, addvar, npars_extravar)
+    args = (PFit, xytarg, covtran, addvar, npars_extravar)
     ndim = np.size(guess)
 
     # adjust the nchains to match ndim
@@ -1240,7 +1153,7 @@ that we can run this from the interpreter."""
 
     # set supertitle
     if len(basis) > 0:
-        fig4.suptitle(basis)   # need this to get passed
+        fig4.suptitle('Basis: %s' % (basis))
     
     print("INFO: generated parameters:")
     print(fpars)
