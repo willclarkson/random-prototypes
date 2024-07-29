@@ -1108,7 +1108,8 @@ def testmcmc_linear(npts=200, \
     showsamples(sampler, **showargs)
     
 def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
-                guess=np.array([]), basis=''):
+                guess=np.array([]), basis='', \
+                flatfile='test_flatsamples.npy'):
 
     """Ported the methods to use the samples into a separate method so
 that we can run this from the interpreter."""
@@ -1141,6 +1142,13 @@ that we can run this from the interpreter."""
     flat_samples = sampler.get_chain(discard=nThrow, thin=nThin, flat=True)
     print("FLAT SAMPLES INFO:", flat_samples.shape, nThrow, nThin)
 
+    # ^^^ This is the important part. We now have our flat
+    # samples. These should be written to disk or returned to do
+    # analysis on. Using np.save because that's supposed to work well
+    # for multidimensional numpy arrays. Need to think a bit on how to
+    # handle metadata.
+    np.save(flatfile, flat_samples)
+    
     fig3 = plotsamplescolumn(flat_samples, 3, slabels=slabels)
 
     # Try a corner plot
