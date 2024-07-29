@@ -45,7 +45,7 @@ def uTVu(u, V):
     Vu = np.einsum('ijk,ik -> ij', V, u)
     return np.einsum('ij,ji -> j', u.T, Vu)
 
-def skimvar1d(pars, nrows, islog10=False):
+def skimvar(pars, nrows, npars=1, islog10=False):
 
     """Utility - if an additive scalar variance is included with the
 parameters, split it off from the parameters, returning the parameters
@@ -55,18 +55,29 @@ and an [N,2,2] covariance matrix from the supplied extra variance
     log10(variance). (WATCHOUT - this doesn't work as well in tests as
     islog10=False...)
 
+    npars = number of parameters that are covariances.
+
     """
 
-    parsmodel = pars[0:-1]
+    parsmodel = pars[0:-npars]
+    addvars = pars[-npars::]
+    
     if islog10:
-        addvar = 10.0**pars[-1]
-    else:
-        addvar = pars[-1]
+        addvars = 10.0**addvars
 
     extracov = np.zeros((nrows, 2, 2))
-    extracov[:,0,0] = addvar
-    extracov[:,1,1] = addvar
+    extracov[:,0,0] = addvars[0]
 
+    # Populate the rest of the addvars entries
+    if np.size(addvars) > 1:
+        extracov[:,1,1] = addvars[1]
+        if np.size(addvars) > 2:
+            offdiag = addvars[2]
+            extracov[:,0,1] = offdiag
+            extracov[:,1,0] = offdiag
+    else:
+        extracov[:,1,1] = addvars[0]
+        
     return parsmodel, extracov
     
 def lnprior_unif(pars):
@@ -134,7 +145,7 @@ i.e.
 
 def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
            addcov2d=False, \
-           addvar=False, \
+           addvar=False, nvar=1, \
            methprior=lnprior_unif, \
            methlike=sumlnlike):
 
@@ -186,7 +197,7 @@ and ln(likelihood) as arguments.
         # ^^^ THIS NEEDS TO BE FIXED AND CLEANED UP ^^^
 
     if addvar:
-        pars, covextra = skimvar1d(parsIn, xytarg.shape[0])
+        pars, covextra = skimvar(parsIn, xytarg.shape[0], nvar)
         
     # Evaluate the ln prior
     lnprior = methprior(pars)
@@ -775,7 +786,8 @@ def testmcmc_linear(npts=200, \
                     doruns=False, \
                     domulti=False, \
                     addcov2d=False, \
-                    addvar=0.):
+                    addvar=False, \
+                    extravar=5.0e-12):
 
     """Tests the MCMC approach on a linear transformation.
 
@@ -848,11 +860,42 @@ def testmcmc_linear(npts=200, \
 
     # If we are adding more noise, do so here
     nudgexyextra = xy * 0.
-    if addvar > 0:
+    npars_extravar = 1 # default, even if not used in the modeling
+    if addvar:
+
+        # Parse the additional variance
+        if np.isscalar(extravar):
+            var_extra = np.array([extravar])
+        else:
+            var_extra = np.copy(extravar)
+
+        # Number of extra parameters to include in the modeling
+        npars_extravar = np.size(var_extra)
+
+        # entries are: [stdx, stdy, corrxy]
+        
+        stdx = np.repeat(np.sqrt(var_extra[0]), xy.shape[0])
+        if np.size(var_extra) > 1:
+            stdy = np.repeat(np.sqrt(var_extra[1]), xy.shape[0])
+
+            # WATCHOUT - CovarsNx2x2 expects the correlation
+            # coefficient, whereas we specify the actual off-diagonal
+            # covariance. So:
+            if np.size(var_extra) > 2:
+                covoff = var_extra[2] / (stdx[0] * stdy[0])
+                corrxy = np.repeat(covoff, xy.shape[0])
+        else:
+            stdy = np.copy(stdx)
+            corrxy = stdx * 0.
         
         # Conditional because we might want to make this more complex later.
-        CExtra = CovarsNx2x2(majors=np.repeat(addvar, xy.shape[0]))
+        CExtra = CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=corrxy)
         nudgexyextra = CExtra.getsamples()
+
+        # For information, look at the extra covariance
+        print("testmcmc_linear info - additional covariance:")
+        print(CExtra.covars[0])
+        print(npars_extravar)
         
     xyobs  = xy + nudgexy
     xytarg = xytran + nudgexytran + nudgexyextra
@@ -915,11 +958,16 @@ def testmcmc_linear(npts=200, \
     # Since we're simulating, we know what the generated parameters
     # were. Use this to plot the residuals under the truth parameters.
     fxy = PTruth.xytran - xytarg
+
     blah5 = ax5.scatter(fxy[:,0], fxy[:,1], s=.1)
-    sanno = "%.2e, %.2e" % (np.std(fxy[:,0]), np.std(fxy[:,1]))
+    cc = np.cov(fxy, rowvar=False)
+    sanno = "%.2e, %.2e, %.2e" % (cc[0,0], cc[1,1], cc[0,1])
     anno5 = ax5.annotate(sanno, (0.05,0.05), \
                          xycoords='axes fraction', \
-                         ha='left', va='bottom')
+                         ha='left', va='bottom', fontsize=6)
+
+    # Enforce equal aspect ratio for the residuals axes
+    ax5.set_aspect('equal', adjustable='box')
     
     ax1.set_title('Generated')
     ax2.set_title('Perturbed')
@@ -946,20 +994,32 @@ def testmcmc_linear(npts=200, \
     slabels = slabelsx + slabelsy
 
     # If we added 1d variance, accommodate this here.
-    if addvar > 0:
-        slabels = slabels + [r'$V_{\xi\eta}$']
+    if addvar:
 
+        lextra = [r'$V_{\xi\eta}$']
+        if npars_extravar > 1:
+            lextra = [r'$V_{\xi}$', r'$V_{\eta}$']
+            if npars_extravar > 2:
+                lextra = [r'$V_{\xi}$', r'$V_{\eta}$', r'$V_{\xi \eta}$']
+                
+        slabels = slabels + lextra
+                    
         # Come up with a guess for the added variance. For the moment
         # use a relatively soft test, where we know the truth going
         # in... Make these vectors from the start so that we can
         # smoothly adjust later.
+        
+        vguess = np.random.uniform(low=0.8, high=1.2, \
+                                   size=np.size(var_extra)) \
+                                   * var_extra
 
-        vguess = np.random.uniform(low=0.8, high=1.2, size=1)*addvar* 0.01
-
+        # Pull the initial guess away harder
+        vguess *= 0.01
+        
         # Ensure the "truth" and guess parameters have the right
         # dimensions
         guess = np.hstack(( guess, vguess ))
-        fpars = np.hstack(( fpars, addvar )) 
+        fpars = np.hstack(( fpars, var_extra )) 
         
     # If we are including additive nose in the model, abut this to the
     # end of the "model" parameters here.
@@ -1000,7 +1060,7 @@ def testmcmc_linear(npts=200, \
         
     # now (drumroll) set up the sampler.
     methpost = lnprob
-    args = (PFit, xytarg, covtran, addcov2d, addvar > 0)
+    args = (PFit, xytarg, covtran, addcov2d, addvar, npars_extravar)
     ndim = np.size(guess)
 
     # set up the walkers, each with perturbed guesses
