@@ -382,6 +382,9 @@ def plotsamplescolumn(samples, fignum=2, slabels=[]):
             
     ax21.set_xlabel('Sample number')
 
+    # try deactivating the axis label offset
+    ax21.yaxis.get_major_formatter().set_useOffset(False)
+    
     # Ensure there is room for our nice labels
     fig.subplots_adjust(left=0.2)
     
@@ -787,7 +790,8 @@ def testmcmc_linear(npts=200, \
                     domulti=False, \
                     addcov2d=False, \
                     addvar=False, \
-                    extravar=5.0e-12):
+                    extravar=5.0e-12, \
+                    forgetcovars=False):
 
     """Tests the MCMC approach on a linear transformation.
 
@@ -926,7 +930,7 @@ def testmcmc_linear(npts=200, \
     # Now we arrange things for our mcmc exploration. The
     # transformation object...
     covsrc = Cxy.covars
-    if not unctysrc:
+    if forgetcovars or not unctysrc:
         covsrc *= 0.
     PFit = transf(xyobs[:,0], xyobs[:,1], covsrc, guessx, guessy, \
                   kind=polyfit)
@@ -1014,12 +1018,28 @@ def testmcmc_linear(npts=200, \
                                    * var_extra
 
         # Pull the initial guess away harder
-        vguess *= 0.01
-        
+        # vguess *= 0.01
+
+        # Now try pretending we don't know the covariances in either
+        # frame, leaving *all* the covariance to the model. In that
+        # case, a more sensible guess is probably the residuals after
+        # fitting. So
+        if forgetcovars:
+            covtran *= 0.
+            
+            # Estimate the covariance after applying the initial-guess
+            # transformation
+            gxy = PFit.xytran - xytarg
+            cg = np.cov(gxy, rowvar=False)
+            vguess = np.array([cg[0,0], cg[1,1], cg[0,1]])
+            print("testmcmc_linear INFO - forgetting covariances. Initial vars guess:")
+            print("testmcmc_linear INFO - ", vguess)
+            
         # Ensure the "truth" and guess parameters have the right
         # dimensions
         guess = np.hstack(( guess, vguess ))
         fpars = np.hstack(( fpars, var_extra )) 
+
         
     # If we are including additive nose in the model, abut this to the
     # end of the "model" parameters here.
@@ -1091,6 +1111,16 @@ def testmcmc_linear(npts=200, \
         
         return
 
+    # Now we set the arguments for the sampler and for the plotter, so
+    # that we can call them from the interpreter if needed
+    esargs = {'nwalkers':nwalkers, 'ndim':ndim, 'log_prob_fn':methpost, \
+              'args':args, 'backend':backend}
+
+    runargs = {'initial_state':pos, 'nsteps':chainlen, 'progress':True}
+    
+    showargs = {'slabels':slabels, 'ntau':ntau, 'fpars':fpars, \
+                'guess':guess}
+    
     # if multiprocessing, then we'll want to run from the python
     # interpreter.
     if domulti:
@@ -1100,30 +1130,34 @@ def testmcmc_linear(npts=200, \
         # Watchout - the backend may need to be set at the
         # interpreter. Test this!
         print("Returning arguments for multiprocessing:")
-        print("nwalkers, ndim, methpost, args, pos, chainlen, slabels, fpars, guess")
+        print("esargs, runargs, showargs")
 
-        print("Now run:")
-        print("sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, pool=pool)")
-        print("sampler.run_mcmc(initial, nsteps, progress=True)")
-        print("samples = sampler.get_chain()")
-        print("fittwod.showsamples(samples, slabels, fpars, guess")
-        return nwalkers, ndim, methpost, args, pos, chainlen, slabels, fpars, guess
+        print("Now execute:")
+        print("with Pool() as pool:")
+        print("      sampler = emcee.EnsembleSampler(**esargs, pool=pool)")
+        print("      sampler.run_mcmc(**runargs)")
+        print("      fittwod.showsamples(sampler, **showargs")
+        return esargs, runargs, showargs
 
-    
     # Run without multiprocessing
-    sampler = emcee.EnsembleSampler(nwalkers, ndim, \
-                                    methpost, \
-                                    args=args, \
-                                    backend=backend)
+    #sampler = emcee.EnsembleSampler(nwalkers, ndim, \
+    #                                methpost, \
+    #                                args=args, \
+    #                                backend=backend)
 
+    sampler = emcee.EnsembleSampler(**esargs)
+    
     t0 = time.time()
-    sampler.run_mcmc(pos, chainlen, progress=True);
+    # sampler.run_mcmc(pos, chainlen, progress=True);
+    sampler.run_mcmc(**runargs);
+
     t1 = time.time()
         
     print("testmcmc INFO - samples took %.2e seconds" % (t1 - t0))
 
     # samples = sampler.get_chain()
-    showsamples(sampler, slabels, ntau, fpars, guess)
+    #showsamples(sampler, slabels, ntau, fpars, guess)
+    showsamples(sampler, **showargs)
     
 def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
                 guess=np.array([]) ):
