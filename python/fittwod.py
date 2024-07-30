@@ -1109,7 +1109,11 @@ def testmcmc_linear(npts=200, \
     
 def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
                 guess=np.array([]), basis='', \
-                flatfile='test_flatsamples.npy'):
+                flatfile='test_flatsamples.npy', \
+                filfig3='test_thinned.png', \
+                filfig2='test_allsamp.png', \
+                filfig4='test_corner.png', \
+                nminclose=20):
 
     """Ported the methods to use the samples into a separate method so
 that we can run this from the interpreter."""
@@ -1124,6 +1128,12 @@ that we can run this from the interpreter."""
 
     # Plot the unthinned samples
     fig2 = plotsamplescolumn(samples, 2, slabels=slabels)
+    fig2.savefig(filfig2)
+
+    # close the figure if we have more than, say, 20 params
+    if samples.shape[-1] > nminclose:
+        fig2.close()
+    
     
     # get the autocorrelation time
     try:
@@ -1150,7 +1160,10 @@ that we can run this from the interpreter."""
     np.save(flatfile, flat_samples)
     
     fig3 = plotsamplescolumn(flat_samples, 3, slabels=slabels)
-
+    fig3.savefig(filfig3)
+    if flat_samples.shape[-1] > nminclose:
+        fig3.close()
+    
     # Try a corner plot
     fig4 = plt.figure(4, figsize=(9,7))
     fig4.clf()
@@ -1162,7 +1175,12 @@ that we can run this from the interpreter."""
     # set supertitle
     if len(basis) > 0:
         fig4.suptitle('Basis: %s' % (basis))
-    
+    fig4.savefig(filfig4)
+
+    # if lots of figure panels, close the figure
+    if flat_samples.shape[-1] > nminclose:
+        fig4.close()
+        
     print("INFO: generated parameters:")
     print(fpars)
     print("INFO: lsq parameters")
