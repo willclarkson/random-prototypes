@@ -149,7 +149,65 @@ them as [stdx, stdy/stdx, corrcoef]"""
         corrcoef = v[2]/(stdx * stdy)
 
     return np.array([stdx, ryx, corrcoef])
-        
+
+def mags2cov(parsmag=np.array([]), mags=np.array([]), \
+             parscov=np.array([]) ):
+    
+    """Returns an [N,2,2] covariance matrix set. The stdx of each 2x2
+plane is computed from the model 
+
+    stdx = a + b.exp(c.mags) 
+
+    Inputs:
+
+    parsmag = [log10(a), log10(b), c]   in the above model
+
+    mags = vector of magnitudes used to assign stdx
+
+    parscov = [stdy/stdx, corrxy]
+
+    
+    """
+
+    # N-element arrays giving stdx, stdy/stdx, corrxy for each plane
+    # in the N,2,2 covariance matrix stack
+    stdxs = noisescale(parsmag, mags)
+    rxys = stdxs*0. + 1.
+    corrs = stdxs*0.
+
+    # Slot in the ratio of stdev(y) / stdev(x)
+    if np.isscalar(parscov):
+        rxys[:] = parscov
+    else:
+        sz = np.size(parscov)
+        if sz > 0:
+            rxys[:] = parscov[0]
+        if sz > 1:
+            corrs[:] = parscov[1]
+
+    # Now convert these to covariances, taking advantage of the way
+    # corr2cov1d handles array shapes:
+    corrpars = np.vstack(( stdxs, rxys, corrs ))  # shape  3,N
+    covs3xN = corr2cov1d(corrpars)      # output has shape 3,N
+
+    # OK this *is* our covariance array, it just needs reshaping into
+    # the order we expect. Do so like this:
+    covsNx2x2 = np.zeros(( covs3xN.shape[-1], 2, 2 ))
+    covsNx2x2[:,0,0] = covs3xN[0]
+    covsNx2x2[:,1,1] = covs3xN[1]
+    covsNx2x2[:,0,1] = covs3xN[2]
+    covsNx2x2[:,1,0] = covs3xN[2]
+
+    print("mags2cov INFO:", stdxs.shape, rxys.shape, corrs.shape)
+    print(stdxs[0:3], rxys[0:3], corrs[0:3])
+    print("mags2cov INFO:", corrpars.shape)
+    print("mags2cov INFO:", covs3xN.shape)
+    print(covs3xN.T[0:3])
+
+    print(covsNx2x2[0:3])
+
+    return covsNx2x2
+    
 def skimvar(pars, nrows, npars=1, fromcorr=False, islog10=False):
 
     """Utility - if an additive scalar variance is included with the
@@ -1432,7 +1490,8 @@ that we can run this from the interpreter."""
 
     print("SAMPLES INFO - FLAT:", np.shape(flat_samples))
 
-def test_mags(npts=200, loga=-6., logb=-23.5, c=2., expon=3., maglo=16.):
+def test_mags(npts=200, loga=-6., logb=-23.5, c=2., expon=3., maglo=16., \
+              parscov=[]):
 
     """Generate fake magnitudes and show the noise scale factor vs
 magnitude. The noise model used is
@@ -1454,6 +1513,10 @@ magnitude. The noise model used is
     mags = makefakemags(npts, expon, maglo=maglo)
     sigm = noisescale(magpars, mags)
 
+    # now try assigning covariance matrices from this
+    covsnx2x2 = mags2cov(magpars, mags, parscov)
+
+    # Show the noise covariances
     fig2=plt.figure(2)
     fig2.clf()
     ax21 = fig2.add_subplot(211)
