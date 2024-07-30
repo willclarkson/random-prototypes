@@ -1132,7 +1132,7 @@ that we can run this from the interpreter."""
 
     # close the figure if we have more than, say, 20 params
     if samples.shape[-1] > nminclose:
-        fig2.close()
+        plt.close(fig2)
     
     
     # get the autocorrelation time
@@ -1162,7 +1162,7 @@ that we can run this from the interpreter."""
     fig3 = plotsamplescolumn(flat_samples, 3, slabels=slabels)
     fig3.savefig(filfig3)
     if flat_samples.shape[-1] > nminclose:
-        fig3.close()
+        plt.close(fig3)
     
     # Try a corner plot
     fig4 = plt.figure(4, figsize=(9,7))
@@ -1179,7 +1179,7 @@ that we can run this from the interpreter."""
 
     # if lots of figure panels, close the figure
     if flat_samples.shape[-1] > nminclose:
-        fig4.close()
+        plt.close(fig4)
         
     print("INFO: generated parameters:")
     print(fpars)
