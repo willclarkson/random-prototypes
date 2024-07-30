@@ -45,6 +45,52 @@ def uTVu(u, V):
     Vu = np.einsum('ijk,ik -> ij', V, u)
     return np.einsum('ij,ji -> j', u.T, Vu)
 
+def noisescale(noisepars=np.array([]), mags=np.array([]) ):
+
+    """Magnitude-dependent scaling for noise. Returns a 1d array of noise
+scale factors with same length as the input apparent magnitudes mags[N]. 
+
+    Inputs: 
+
+    noisepars = [log10(A), log10(B), C] 
+                describing noise model A + B.exp(m C)
+
+    mags = N-element array of apparent magnitudes
+
+    Returns:
+
+    noisescales = N-element array of noise scale factors
+
+    """
+
+    # Nothing to return if empty input
+    if np.size(mags) < 1:
+        return np.array([])
+
+    # Initialize the model parameters
+    a = 1.
+    b = 0.
+    c = 0.
+    
+    # Parse the model parameters
+    if np.isscalar(noisepars):
+        a = 10.0**(noisepars)
+
+    else:
+        sz = np.size(noisepars)
+        if sz < 1:
+            return mags*0. + 1.
+
+        if sz > 0:
+            a = 10.0**(noisepars[0])
+        if sz > 1:
+            b = 10.0**(noisepars[1])
+        if sz > 2:
+            c = noisepars[2]
+
+    # OK now we have the a, b, c for our model. Apply it
+    return b * np.exp(mags*c) + a
+    
 def corr2cov1d(s=np.array([]) ):
 
     """Utility - given covariance entries as [stdx, stdy/stdx, corrxy],
@@ -331,7 +377,7 @@ covariances.
 
 #### Example usages of these pieces follow
 
-def makefakedata(npts=2000, \
+def makefakexy(npts=2000, \
                  xmin=-10., xmax=10., ymin=-10., ymax=10.):
 
     """Utility to make unform random sampled datapoints"""
@@ -342,9 +388,24 @@ def makefakedata(npts=2000, \
 
     return xy
 
-def makefakecovars(npts=2000, sigx=0.1, sigy=0.07, sigr=0.2):
+def makefakemags(npts=2000, expon=2.5, maglo=16., maghi=23., \
+                 seed=None):
 
-    """Makes fake covariances"""
+    """Utility - creates array of apparent magnitudes following a
+power-law distribution
+
+    """
+
+    rng = np.random.default_rng(seed)
+    sraw = rng.power(expon, npts)
+
+    return sraw*(maghi - maglo) + maglo
+    
+    
+def makeunifcovars(npts=2000, sigx=0.1, sigy=0.07, sigr=0.2):
+
+    """Makes fake covariances in form [N,2,2] with the same [2,2]
+covariance in each plane"""
 
     vstdxi = np.ones(npts)*sigx
     vstdeta = vstdxi * sigy/sigx
@@ -514,8 +575,8 @@ def testpoly(npts=2000, \
         transf=unctytwod.Poly
     
     # Make up some data and covariances in the source plane
-    xy = makefakedata(npts, xmin, xmax, ymin, ymax)
-    Cxy = makefakecovars(xy.shape[0], sigx, sigy, sigr)
+    xy = makefakexy(npts, xmin, xmax, ymin, ymax)
+    Cxy = makeunifcovars(xy.shape[0], sigx, sigy, sigr)
     
     # make up some parameters, abut them together into the 1D format
     # the various optimizers etc. will expect
@@ -905,10 +966,13 @@ def testmcmc_linear(npts=200, \
     if polyfit is None:
         polyfit = polytransf[:]
         
-    # Transformation object, synthetic data
+    # What family of transformations are we using?
     transf = unctytwod.Poly
-    xy = makefakedata(npts, xmin, xmax, ymin, ymax)
-    Cxy = makefakecovars(xy.shape[0], sigx, sigy, sigr)
+
+    # Generate positions, (magnitudes), and covariances
+    xy = makefakexy(npts, xmin, xmax, ymin, ymax)
+    mags = makefakemags(npts)
+    Cxy = makeunifcovars(xy.shape[0], sigx, sigy, sigr)
 
     # Use the pattern object to make fake parameters for generating
     PM = Patternmatrix(deg, xy[:,0], xy[:,1], kind=polytransf, \
@@ -1034,13 +1098,18 @@ def testmcmc_linear(npts=200, \
     ax3=fig1.add_subplot(234)
     ax4=fig1.add_subplot(235)
     ax5=fig1.add_subplot(236)
+    ax6=fig1.add_subplot(233)
 
+    fig1.subplots_adjust(wspace=0.3, hspace=0.3, left=0.15, bottom=0.15)
     
     blah1=ax1.scatter(xy[:,0], xy[:,1], s=1)
     blah2=ax2.scatter(xyobs[:,0], xyobs[:,1], c='g', s=1)
     blah3=ax3.scatter(xytran[:,0], xytran[:,1], s=1)
     blah4=ax4.scatter(xytarg[:,0], xytarg[:,1], c='g', s=1)
 
+    # Show apparent magnitudes
+    blah6=ax6.hist(mags, bins=25, alpha=0.5)
+    
     # how about our initial guess parameters...
     PFit.propagate()
     blah5 = ax4.scatter(PFit.xytran[:,0], PFit.xytran[:,1], \
@@ -1065,6 +1134,7 @@ def testmcmc_linear(npts=200, \
     ax3.set_title('Transformed')
     ax4.set_title('Target')
     ax5.set_title('Residuals, generated')
+    ax6.set_title(r'Magnitude $m$')
 
     for ax in [ax1, ax2]:
         ax.set_xlabel(r'X')
@@ -1076,7 +1146,10 @@ def testmcmc_linear(npts=200, \
 
     ax5.set_xlabel(r'$\Delta \xi$')
     ax5.set_ylabel(r'$\Delta \eta$')
-        
+
+    ax6.set_xlabel(r'$m$')
+    ax6.set_ylabel(r'$N(m)$')
+    
     # Set up labels for plots
     slabelsx = [r'$a_{%i%i}$' % \
         (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
@@ -1358,3 +1431,72 @@ that we can run this from the interpreter."""
     flat_samples = sampler.get_chain(discard=nThrow, thin=nThin, flat=True)
 
     print("SAMPLES INFO - FLAT:", np.shape(flat_samples))
+
+def test_mags(npts=200, loga=-6., logb=-23.5, c=2., expon=3., maglo=16.):
+
+    """Generate fake magnitudes and show the noise scale factor vs
+magnitude. The noise model used is
+
+    stdx = a + b.exp(m c)
+
+    
+
+    """
+
+    # Useful to get better intuition about what sort of model
+    # parameters are sensible.
+    #
+    # 
+
+    # convert pars into array
+    magpars = [loga, logb, c]
+    
+    mags = makefakemags(npts, expon, maglo=maglo)
+    sigm = noisescale(magpars, mags)
+
+    fig2=plt.figure(2)
+    fig2.clf()
+    ax21 = fig2.add_subplot(211)
+    ax22 = fig2.add_subplot(212)
+
+    blah21 = ax21.hist(mags, bins=25, alpha=0.5)
+    blah22 = ax22.scatter(mags, sigm, s=3, zorder=10, alpha=0.5, color='k')
+
+    # Show the model components
+    mfine = np.linspace(np.min(mags), np.max(mags), 100)
+    ymod1 = np.repeat(10.0**loga, np.size(mfine))
+    ymod2 = 10.0**logb * np.exp(mfine*c)
+
+    # Labels for legends
+    sleg1 = r'$\log_{10} \sigma = %.1f$' % (loga)
+    #sleg2 = r'$\sigma = 10.0^{%.2f} \times e^{%.2f m}$' % (b, c)
+
+    sleg2 = r'$\sigma = b e^{mc}$ w/ $(\log_{10}(b), c) = (%.1f, %.1f)$' \
+        % (logb,c)
+    
+    blah221 = ax22.plot(mfine, ymod1, ls='--', color='b', zorder=5, \
+                        label=sleg1, lw=1)
+    blah222 = ax22.plot(mfine, ymod2, ls='-', color='r', zorder=5, \
+                        label=sleg2, lw=1)
+
+    leg = ax22.legend(fontsize=8)
+
+    # axis carpentry
+    ax22.set_xlabel(r'$m$')
+    ax21.set_ylabel(r'$N(m)$')
+    ax22.set_ylabel(r'$\sigma$')
+
+    ax21.get_xaxis().set_ticklabels([])    
+    fig2.subplots_adjust(hspace=0.01)
+
+    ax21.set_title(r'Magnitudes: $N(m) \propto m^{%.1f}$' % (expon))
+    
+    # vertical axis logarithmic
+    ax22.set_yscale('log')
+
+    # The vertical scale tends to go very low at the bright
+    # end. Adjust the scale accordingly.
+    yscale = np.copy(ax22.get_ylim())
+    yadj = np.array([ymod1[0]*0.2, yscale[-1]])
+    ax22.set_ylim(yadj)
+
