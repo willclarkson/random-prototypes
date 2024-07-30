@@ -45,26 +45,123 @@ def uTVu(u, V):
     Vu = np.einsum('ijk,ik -> ij', V, u)
     return np.einsum('ij,ji -> j', u.T, Vu)
 
-def skimvar(pars, nrows, npars=1, islog10=False):
+def corr2cov1d(s=np.array([]) ):
+
+    """Utility - given covariance entries as [stdx, stdy/stdx, corrxy],
+returns them as [varx, vary, covxy]
+
+    """
+
+    # As usual, much of the syntax is parsing input...
+    if np.isscalar(s):
+        varx=s**2
+        return np.array([varx, varx, 0.])
+
+    sz = np.size(s)  # will handle input list as well as np.array
+    
+    if sz < 1:
+        return np.array([])
+
+    varx = s[0]**2
+    
+    if sz < 2:
+        return np.array([varx, varx, 0.])
+
+    vary = (s[0]*s[1])**2
+    covxy = 0.
+
+    if sz > 2:
+        covxy = s[0]**2 * s[1] * s[2]  # sic
+
+    return np.array([varx, vary, covxy])
+
+def cov2corr1d(v=np.array([]) ):
+
+    """Utility - given covariance entries as [varx, vary, covxy], return
+them as [stdx, stdy/stdx, corrcoef]"""
+
+    if np.isscalar(v):
+        stdx = np.sqrt(v)
+        return np.array([stdx, 1., 0.])
+
+    vz = np.size(v)
+
+    if vz < 1:
+        return np.array([])
+
+    stdx = np.sqrt(v[0])
+    
+    if vz < 2:
+        return np.array([stdx, 1., 0.])
+
+    # stddev in y, output ratio
+    stdy = np.sqrt(v[1])
+    ryx = stdy/stdx
+    corrcoef = 0.
+
+    if vz > 2:
+        corrcoef = v[2]/(stdx * stdy)
+
+    return np.array([stdx, ryx, corrcoef])
+        
+def skimvar(pars, nrows, npars=1, fromcorr=False, islog10=False):
 
     """Utility - if an additive scalar variance is included with the
 parameters, split it off from the parameters, returning the parameters
-and an [N,2,2] covariance matrix from the supplied extra variance
+and an [N,2,2] covariance matrix from the supplied extra variance.
+
+    Returns: pars[M], covextra[2,2], cov_is_ok (Boolean)
+
+    npars = number of parameters that are covariances.
+
+    fromcorr [T/F]: additive variance is supplied as [stdx, stdy/stdx,
+    corrcoef]. If False, is assumed to be [varx, vary, covxy].
 
     islog10 = additive variance is supplied as
     log10(variance). (WATCHOUT - this doesn't work as well in tests as
     islog10=False...)
 
-    npars = number of parameters that are covariances.
-
     """
 
     parsmodel = pars[0:-npars]
     addvars = pars[-npars::]
+
+    # Status flag. If we're doing additional translation of the input
+    # covariance forms, we might violate the prior. Enforce that here.
+    cov_ok = True
     
     if islog10:
         addvars = 10.0**addvars
 
+    if fromcorr:
+
+        # If we're building our covariance from [stdx, stdy/stdx,
+        # corrxy], then we have bounds on all the parameters. If our
+        # trial set violates those requirements, ensure the calling
+        # routine is informed.
+
+        # stdx must be >= 0 (I think >= and not >).
+        if addvars[0] < 0:
+            cov_ok = False
+        
+        # The stdy/stdx must be >0
+        if addvars.size > 1:
+            if addvars[1] <= 0.:
+                cov_ok = False
+        
+        # if the correlation coefficient was supplied outside the
+        # range [-1, +1], flag for the calling routine
+        if addvars.size > 2:
+            rho = addvars[-1]
+            if rho < -1. or rho > +1.:
+                cov_ok = False
+
+        # print("skimvar DEBUG 1:", addvars)
+                
+        addvars = corr2cov1d(addvars)
+
+        # print("skimvar DEBUG 2:", addvars)
+        
     extracov = np.zeros((nrows, 2, 2))
     extracov[:,0,0] = addvars[0]
 
@@ -77,8 +174,8 @@ and an [N,2,2] covariance matrix from the supplied extra variance
             extracov[:,1,0] = offdiag
     else:
         extracov[:,1,1] = addvars[0]
-        
-    return parsmodel, extracov
+
+    return parsmodel, extracov, cov_ok
     
 def lnprior_unif(pars):
 
@@ -144,7 +241,7 @@ i.e.
     return term_expon, term_dets, term_2pi
 
 def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
-           addvar=False, nvar=1, \
+           addvar=False, nvar=1, fromcorr=False, \
            methprior=lnprior_unif, \
            methlike=sumlnlike):
 
@@ -157,12 +254,22 @@ and ln(likelihood) as arguments.
     nvar = number of entries corresponding to covariance. Maximum 3,
     in the order [Vxx, Vyy, Vxy]
 
+    fromcorr [T/F] = Any extra variance is supplied as [sx, sy/sx,
+    rho] instead of [vx, vy, covxy].
+
     """
 
     pars = parsIn
     covextra = 0. 
     if addvar:
-        pars, covextra = skimvar(parsIn, xytarg.shape[0], nvar)
+        pars, covextra, covok = \
+            skimvar(parsIn, xytarg.shape[0], nvar, fromcorr)
+
+        # If the supplied parameters led to an improper covariance
+        # (correlation coefficient outside the range [-1., 1.], say),
+        # then reject the sample.
+        if not covok:
+            return -np.inf
         
     # Evaluate the ln prior
     lnprior = methprior(pars)
@@ -309,6 +416,36 @@ def split1dpars(pars1d=np.array):
     npars = int(np.size(pars1d)/2)
     return pars1d[0:npars], pars1d[npars::]
 
+def labelsaddvar(npars_extravar=0, extra_is_corr=False):
+
+    """Utility - returns list of additional variable labels depending on
+what we're doing
+
+    """
+
+    if npars_extravar < 1:
+        return []
+    lextra = [r'$V$']
+    if extra_is_corr:
+        lextra = [r'$s$']
+
+    if npars_extravar < 2:
+        return lextra
+
+    lextra = [r'$V_{\xi}$', r'$V_{\eta}$']
+    if extra_is_corr:
+        lextra = [r'$s_{\xi}$', r'$s_{\eta}/s_{\xi}$']
+
+    if npars_extravar < 3:
+        return lextra
+
+    lextra = [r'$V_{\xi}$', r'$V_{\eta}$', r'$V_{\xi \eta}$']
+    if extra_is_corr:
+        lextra = [r'$s_{\xi}$', r'$s_{\eta}/s_{\xi}$', r'$\rho_{\xi,\eta}$']
+
+    return lextra
+        
+
 def plotsamplescolumn(samples, fignum=2, slabels=[]):
 
     """Utiltity - plots samples"""
@@ -344,7 +481,7 @@ def plotsamplescolumn(samples, fignum=2, slabels=[]):
     
     # return the figure as an obejct we can work with
     return fig
-    
+
 def testpoly(npts=2000, \
              deg=3, degfit=-1, \
              xmin=-1., xmax=1., ymin=-1., ymax=1., \
@@ -745,7 +882,8 @@ def testmcmc_linear(npts=200, \
                     addvar=False, \
                     extravar=5.0e-12, \
                     forgetcovars=False, \
-                    guessextra=True):
+                    guessextra=True, \
+                    extra_is_corr=False):
 
     """Tests the MCMC approach on a linear transformation.
 
@@ -754,16 +892,13 @@ def testmcmc_linear(npts=200, \
     addvar = 1D variance to add to the datapoints in target space. FOr
     testing, 5.0e-12 seems sensible (it's about 10x the covtran)
 
+    extra_is_corr --> extra covariance is modeled internally as [stdx,
+    stdy/stdx, corrcoef]
+
     """
 
-    # To check: are the perturbations actually applying the right
-    # covariance?
-    #
-    # Can do this by plotting the deltas and finding the covariance,
-    # since we're using the same covariance for all the input frame
-    # here.
-    
-    # Fit degree, type
+    # Use the same fit degree and basis as used to construct the data,
+    # unless told otherwise.
     if degfit < 0:
         degfit = deg
         
@@ -952,12 +1087,14 @@ def testmcmc_linear(npts=200, \
     # If we added 1d variance, accommodate this here.
     if addvar:
 
-        lextra = [r'$V_{\xi\eta}$']
-        if npars_extravar > 1:
-            lextra = [r'$V_{\xi}$', r'$V_{\eta}$']
-            if npars_extravar > 2:
-                lextra = [r'$V_{\xi}$', r'$V_{\eta}$', r'$V_{\xi \eta}$']
-                
+        lextra = labelsaddvar(npars_extravar, extra_is_corr)
+        
+        #lextra = [r'$V_{\xi\eta}$']
+        #if npars_extravar > 1:
+        #    lextra = [r'$V_{\xi}$', r'$V_{\eta}$']
+        #    if npars_extravar > 2:
+        #        lextra = [r'$V_{\xi}$', r'$V_{\eta}$', r'$V_{\xi \eta}$']
+
         slabels = slabels + lextra
                     
         # Come up with a guess for the added variance. For the moment
@@ -981,8 +1118,8 @@ def testmcmc_linear(npts=200, \
 
             # Ensure the pfit object has forgotten the
             # model covariance
-            PFit.covxy = np.zeros(2)
-            PFit.covtran = np.zeros(2)
+            PFit.covxy *= 0.
+            PFit.covtran *= 0.
 
         # This may get spun out into a separate method
         if guessextra or forgetcovars:
@@ -1014,16 +1151,30 @@ def testmcmc_linear(npts=200, \
             #vguess = np.array([cg[0,0], cg[1,1], cg[0,1]])
             print("testmcmc_linear INFO - Initial vars guess:")
             print("testmcmc_linear INFO - ", vguess)
+
+        # If extra covariance will be explored as [sx, sy/sx, rho],
+        # update the entries accordingly.
+        if extra_is_corr:
+
+            # WATCHOUT - cov2corr1d returns a 3-element array even if
+            # <3 entries were supplied. This will mess things up
+            # downstream since the labels array knows how many
+            # elements were given. So, we enforce the array length
+            # here.            
+            vguess = cov2corr1d(vguess)[0:npars_extravar]
+            var_extra = cov2corr1d(var_extra)[0:npars_extravar]
+
+            print("testmcmc_linear INFO -  re-expressed vguess as [stdx, stdy/stdx, corrcoef]:")
+            print("testmcmc_linear INFO - ", vguess)
             
         # Ensure the "truth" and guess parameters have the right
         # dimensions
         guess = np.hstack(( guess, vguess ))
         fpars = np.hstack(( fpars, var_extra )) 
-
         
     # now (drumroll) set up the sampler.
     methpost = lnprob
-    args = (PFit, xytarg, covtran, addvar, npars_extravar)
+    args = (PFit, xytarg, covtran, addvar, npars_extravar, extra_is_corr)
     ndim = np.size(guess)
 
     # adjust the nchains to match ndim
@@ -1040,11 +1191,17 @@ def testmcmc_linear(npts=200, \
     print("INFO: pos", pos.shape)
     print("nwalkers, ndim", nwalkers, ndim)
 
-    # set up run information dictionary to pass back. The aim is that
-    # this will hold arguments we may or may not need when reading and
-    # viewing the samples.
-    runinfo = {'chainlen':chainlen, 'slabels':slabels, 'fpars':fpars, \
-               'guess':guess}
+    # send the iniital guess through the ln(prob) to test whether it
+    # returns sensible values
+    check = methpost(guess, *args)
+    print("testmcmc_linear DEBUG - ln(prob) on initial guess:", check)
+
+    if np.isnan(check):
+        print("testmcmc_linear FATAL - initial guess returns nan. Check it!")
+        if not domulti:
+            return
+        
+        return {}, {}, {}
     
     # set up the backend to save the samples
     if os.access(samplefile, os.R_OK):
