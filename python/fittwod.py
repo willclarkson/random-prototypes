@@ -90,6 +90,78 @@ scale factors with same length as the input apparent magnitudes mags[N].
 
     # OK now we have the a, b, c for our model. Apply it
     return b * np.exp(mags*c) + a
+
+def parsecorrpars(stdxs=np.array([]), parscov=np.array([]) ):
+
+    """Takes stdxs and optional covariance shape parameters and returns a
+[3,N] array of [stdx, stdy/stdx, corrxy]. Inputs:
+
+    stdxs [N] = array of stddevs in x for the covariance array
+
+    parscov = up to [2,N] array of parameters [stdy/stdx, corrxy] for
+    covariance
+
+    """
+
+    if np.size(stdxs) < 1:
+        return np.array([])
+
+    # Initialize the output
+    rxys = stdxs*0. + 1.
+    corrs = stdxs*0.
+
+    # Slot in the ratio of stdev(y) / stdev(x) if given
+    if np.isscalar(parscov):
+        rxys[:] = parscov
+    else:
+        sz = np.shape(parscov)[0] # should handle [N,N] input now
+        if sz > 0:
+            rxys[:] = parscov[0]
+        if sz > 1:
+            corrs[:] = parscov[1]
+
+    # Form the [3,N] array of correlation parameters
+    return np.vstack(( stdxs, rxys, corrs ))
+
+def corr3n2covn22(corr3xn=np.array([]), Verbose=False):
+
+    """Converts [3,N] array [stdx, stdy/stdx, corrxy] into [N,2,2]
+covariance matrix stack. Inputs:
+
+    corr3xn = [3,N] array [stdx, stdy/stdx, corrxy]
+
+    """
+
+    covs3xn = corr2cov1d(corr3xn)      # output has shape 3,N
+
+    # OK this *is* our covariance array, it just needs reshaping into
+    # the order we expect. Do so like this:
+    covsnx2x2 = np.zeros(( covs3xn.shape[-1], 2, 2 ))
+    covsnx2x2[:,0,0] = covs3xn[0]
+    covsnx2x2[:,1,1] = covs3xn[1]
+    covsnx2x2[:,0,1] = covs3xn[2]
+    covsnx2x2[:,1,0] = covs3xn[2]
+
+    # Optionally print debug information
+    if Verbose:
+        print("mags2cov INFO:", corrpars.shape)
+        print("mags2cov INFO:", covs3xn.shape)
+        print(covs3xn.T[0:3])
+        print(covsnx2x2[0:3])
+
+    return covsnx2x2
+
+def stdxs2covn22(stdxs=np.array([]), parscov=np.array([]) ):
+
+    """Reshapes stdxs and cov shape arrays into Nx2x2 covariance
+array. Returns: [N,2,2] covariance array. Inputs:
+
+    stdxs = [N] - element array of stdxs
+
+    parscov = up to [N,2] array of stdy/stdx and corrxy"""
+
+    corr3xn = parsecorrpars(stdxs, parscov)
+    return corr3n2covn22(corr3xn)
     
 def corr2cov1d(s=np.array([]) ):
 
@@ -103,12 +175,15 @@ returns them as [varx, vary, covxy]
         varx=s**2
         return np.array([varx, varx, 0.])
 
-    sz = np.size(s)  # will handle input list as well as np.array
-    
-    if sz < 1:
+    # Nothing to do if blank input
+    if np.size(s) < 1:
         return np.array([])
 
     varx = s[0]**2
+
+    # Use shape[0] rather than size so that we correctly handle
+    # [N]-element arrays for each input
+    sz = np.shape(s)[0]
     
     if sz < 2:
         return np.array([varx, varx, 0.])
@@ -130,12 +205,13 @@ them as [stdx, stdy/stdx, corrcoef]"""
         stdx = np.sqrt(v)
         return np.array([stdx, 1., 0.])
 
-    vz = np.size(v)
-
-    if vz < 1:
+    if np.size(v) < 1:
         return np.array([])
 
     stdx = np.sqrt(v[0])
+ 
+    # Use shape[0] rather than size in order to handle [N, N, N] input
+    vz = np.shape(v)[0]
     
     if vz < 2:
         return np.array([stdx, 1., 0.])
@@ -151,7 +227,7 @@ them as [stdx, stdy/stdx, corrcoef]"""
     return np.array([stdx, ryx, corrcoef])
 
 def mags2cov(parsmag=np.array([]), mags=np.array([]), \
-             parscov=np.array([]) ):
+             parscov=np.array([]), Verbose=False):
     
     """Returns an [N,2,2] covariance matrix set. The stdx of each 2x2
 plane is computed from the model 
@@ -166,47 +242,15 @@ plane is computed from the model
 
     parscov = [stdy/stdx, corrxy]
 
+    Verbose = print debug messages
     
     """
 
     # N-element arrays giving stdx, stdy/stdx, corrxy for each plane
     # in the N,2,2 covariance matrix stack
     stdxs = noisescale(parsmag, mags)
-    rxys = stdxs*0. + 1.
-    corrs = stdxs*0.
 
-    # Slot in the ratio of stdev(y) / stdev(x)
-    if np.isscalar(parscov):
-        rxys[:] = parscov
-    else:
-        sz = np.size(parscov)
-        if sz > 0:
-            rxys[:] = parscov[0]
-        if sz > 1:
-            corrs[:] = parscov[1]
-
-    # Now convert these to covariances, taking advantage of the way
-    # corr2cov1d handles array shapes:
-    corrpars = np.vstack(( stdxs, rxys, corrs ))  # shape  3,N
-    covs3xN = corr2cov1d(corrpars)      # output has shape 3,N
-
-    # OK this *is* our covariance array, it just needs reshaping into
-    # the order we expect. Do so like this:
-    covsNx2x2 = np.zeros(( covs3xN.shape[-1], 2, 2 ))
-    covsNx2x2[:,0,0] = covs3xN[0]
-    covsNx2x2[:,1,1] = covs3xN[1]
-    covsNx2x2[:,0,1] = covs3xN[2]
-    covsNx2x2[:,1,0] = covs3xN[2]
-
-    print("mags2cov INFO:", stdxs.shape, rxys.shape, corrs.shape)
-    print(stdxs[0:3], rxys[0:3], corrs[0:3])
-    print("mags2cov INFO:", corrpars.shape)
-    print("mags2cov INFO:", covs3xN.shape)
-    print(covs3xN.T[0:3])
-
-    print(covsNx2x2[0:3])
-
-    return covsNx2x2
+    return stdxs2covn22(stdxs, parscov)
     
 def skimvar(pars, nrows, npars=1, fromcorr=False, islog10=False):
 
@@ -446,7 +490,7 @@ def makefakexy(npts=2000, \
 
     return xy
 
-def makefakemags(npts=2000, expon=2.5, maglo=16., maghi=23., \
+def makefakemags(npts=2000, expon=2.5, maglo=16., maghi=22., \
                  seed=None):
 
     """Utility - creates array of apparent magnitudes following a
@@ -463,7 +507,7 @@ power-law distribution
 def makeunifcovars(npts=2000, sigx=0.1, sigy=0.07, sigr=0.2):
 
     """Makes fake covariances in form [N,2,2] with the same [2,2]
-covariance in each plane"""
+covariance in each plane. Returns a CovarsNx2x2 object."""
 
     vstdxi = np.ones(npts)*sigx
     vstdeta = vstdxi * sigy/sigx
@@ -472,6 +516,28 @@ covariance in each plane"""
     
     return CS
 
+def makemagcovars(parsnoise, mags, parscorr):
+
+    """Makes fake covariances in the form [N,2,2] using the parameters of
+a magnitude-dependent noise model and shape parameters [stdy/stdx,
+corrxy]. Returns a CovarsNx2x2 object. Inputs:
+
+    parsnoise = up to 3-element array of noise model parameters
+
+    mags = [N]-element array of magnitudes"""
+
+    print("=============================")
+    print("makemagcovars DEBUG - inputs:")
+    print(parsnoise, np.shape(parsnoise))
+    print(mags.shape, np.min(mags), np.max(mags))
+    print(parscorr, np.shape(parscorr))
+    print("=============================")
+    
+    covsxy = mags2cov(parsnoise, mags, parscorr)
+    CS = CovarsNx2x2(covars=np.copy(covsxy))
+
+    return CS
+    
 def wtsfromcovars(covars=np.array([]) ):
 
     """Utility - returns inverse covars as weights, scaled to
@@ -563,7 +629,30 @@ what we're doing
         lextra = [r'$s_{\xi}$', r'$s_{\eta}/s_{\xi}$', r'$\rho_{\xi,\eta}$']
 
     return lextra
-        
+
+def anycovbad(covars=np.array([]) ):
+
+    """Returns True if any of the N,2,2 input covariance planes are
+singular, OR if blank input given"""
+
+    if np.size(covars) < 4:
+        return True
+
+    nsingular = np.sum(findcovsingular(covars))
+    if np.sum(findcovsingular(covars)) > 0:
+        return True 
+
+    return False
+    
+def findcovsingular(covars=np.array([])):
+
+    """Utility - given [N,2,2] covariance array, finds if any planes are
+singular. Returns boolean array (True where a plane is singular)"""
+
+    if np.size(covars) < 4:
+        return np.array([])
+
+    return np.linalg.det(covars) <= 0.
 
 def plotsamplescolumn(samples, fignum=2, slabels=[]):
 
@@ -993,7 +1082,7 @@ def testmcmc_linear(npts=200, \
                     seed=None, expfac=1., scale=1.,\
                     covscale=1., \
                     unctysrc=True, unctytarg=True, \
-                    nchains=32, chainlen=1000, ntau=10, \
+                    nchains=-1, chainlen=20000, ntau=50, \
                     checknudge=False, \
                     samplefile='testmcmc.h5', \
                     doruns=False, \
@@ -1002,7 +1091,12 @@ def testmcmc_linear(npts=200, \
                     extravar=5.0e-12, \
                     forgetcovars=False, \
                     guessextra=True, \
-                    extra_is_corr=False):
+                    extra_is_corr=False, \
+                    gen_noise_model=False, \
+                    noise_mag_pars=[-4., -26., 2.5], \
+                    noise_shape_pars=[0.7, 0.1], \
+                    cheat_guess=False, \
+                    maglo=16., maghi=20., magexpon=2.):
 
     """Tests the MCMC approach on a linear transformation.
 
@@ -1013,6 +1107,15 @@ def testmcmc_linear(npts=200, \
 
     extra_is_corr --> extra covariance is modeled internally as [stdx,
     stdy/stdx, corrcoef]
+
+    gen_noise_model --> generate uncertainties using noise model.
+
+    noise_mag_pars [3] --> parameters of the magnitude dependence of
+    the noise model stdx
+
+    noise_shape_pars [2] --> noise model [stdy/stdx, corrxy].
+
+    cheat_guess -- use the generating parameters as the guess.
 
     """
 
@@ -1027,11 +1130,24 @@ def testmcmc_linear(npts=200, \
     # What family of transformations are we using?
     transf = unctytwod.Poly
 
-    # Generate positions, (magnitudes), and covariances
+    # Generate positions and apparent magnitudes
     xy = makefakexy(npts, xmin, xmax, ymin, ymax)
-    mags = makefakemags(npts)
-    Cxy = makeunifcovars(xy.shape[0], sigx, sigy, sigr)
+    mags = makefakemags(npts, maglo=maglo, maghi=maghi, expon=magexpon)
 
+    # Generate covariances in the observed frame. If gen_noise_model
+    # is set, build the covariances using our magnitude-dependent
+    # noise model
+    if gen_noise_model:
+        Cxy = makemagcovars(noise_mag_pars, mags, noise_shape_pars)
+    else:
+        Cxy = makeunifcovars(xy.shape[0], sigx, sigy, sigr)
+
+    # sanity-check on the generated covariances
+    if anycovbad(Cxy.covars):
+        print("testmcmc_linear WARN: singular cov planes:", \
+              np.sum(findcovsingular(Cxy.covars)) )
+        return {}, {}, {}
+        
     # Use the pattern object to make fake parameters for generating
     PM = Patternmatrix(deg, xy[:,0], xy[:,1], kind=polytransf, \
                        orderbypow=True)
@@ -1127,13 +1243,17 @@ def testmcmc_linear(npts=200, \
     #### NOTE 2024-07-26 - the above syntax could all be refactored
     #### into a separate data-generation method. Come back to that
     #### later.
-    
-    # Since our model is linear, we can use linear least squares to
-    # get an initial guess for the parameters. Go unweighted.
-    LSQ = Leastsq2d(xyobs[:,0], xyobs[:,1], deg=degfit, kind=polyfit, \
-                    xytarg=xytarg)
 
-    guess = LSQ.pars # in case we want to do things to guess
+    if cheat_guess:
+        guess = np.copy(fpars)
+    else:
+        # Since our model is linear, we can use linear least squares to
+        # get an initial guess for the parameters. Go unweighted.
+        LSQ = Leastsq2d(xyobs[:,0], xyobs[:,1], deg=degfit, kind=polyfit, \
+                        xytarg=xytarg)
+
+        guess = LSQ.pars # We may want to modify or abut the guess.
+
     guessx, guessy = split1dpars(guess)
 
     # Now we arrange things for our mcmc exploration. The
@@ -1165,8 +1285,15 @@ def testmcmc_linear(npts=200, \
     blah3=ax3.scatter(xytran[:,0], xytran[:,1], s=1)
     blah4=ax4.scatter(xytarg[:,0], xytarg[:,1], c='g', s=1)
 
-    # Show apparent magnitudes
-    blah6=ax6.hist(mags, bins=25, alpha=0.5)
+    # Show apparent magnitudes. Rather than show the histogram, now
+    # show std(x) vs mag, color coded by std(y)
+    blah6=ax6.scatter(mags, np.sqrt(covtran[:,0,0]), \
+                      c=np.log10(np.sqrt(covtran[:,1,1])), \
+                      alpha=0.8, cmap='viridis', \
+                      s=2)
+    ax6.set_yscale('log')
+    cb6 = fig1.colorbar(blah6, ax=ax6)
+    #blah6=ax6.hist(mags, bins=25, alpha=0.5)
     
     # how about our initial guess parameters...
     PFit.propagate()
@@ -1207,6 +1334,7 @@ def testmcmc_linear(npts=200, \
 
     ax6.set_xlabel(r'$m$')
     ax6.set_ylabel(r'$N(m)$')
+    ax6.set_ylabel(r'$\sigma_\xi$')
     
     # Set up labels for plots
     slabelsx = [r'$a_{%i%i}$' % \
@@ -1490,18 +1618,26 @@ that we can run this from the interpreter."""
 
     print("SAMPLES INFO - FLAT:", np.shape(flat_samples))
 
-def test_mags(npts=200, loga=-6., logb=-23.5, c=2., expon=3., maglo=16., \
-              parscov=[]):
+def test_mags(npts=200, loga=-5., logb=-26., c=2.5, \
+              expon=2.5, maglo=16., maghi=22., \
+              parscov=[], showcovs=False):
 
     """Generate fake magnitudes and show the noise scale factor vs
 magnitude. The noise model used is
 
     stdx = a + b.exp(m c)
 
-    
+    Lots of screen output since this was used to debug development
 
     """
 
+    # Parameters that correspond reasonably well to the datasets in
+    # test linear (examples show different exponents):
+    #
+    # x,y: loga = -5., logb=-26., c=2.5  
+    #
+    # xi,eta: loga = -6., logb = -23.5, c = 2.
+    
     # Useful to get better intuition about what sort of model
     # parameters are sensible.
     #
@@ -1510,12 +1646,50 @@ magnitude. The noise model used is
     # convert pars into array
     magpars = [loga, logb, c]
     
-    mags = makefakemags(npts, expon, maglo=maglo)
+    mags = makefakemags(npts, expon, maglo=maglo, maghi=maghi)
     sigm = noisescale(magpars, mags)
 
     # now try assigning covariance matrices from this
-    covsnx2x2 = mags2cov(magpars, mags, parscov)
+    # covsnx2x2 = mags2cov(magpars, mags, parscov)
 
+    # Let's look at the ingredients:
+    corr3xn = parsecorrpars(sigm, parscov)
+    print("DBG: corr3xn:", corr3xn.shape)
+    print(corr3xn[:,0])
+    print(corr3xn[:,1])
+
+    covsnx2x2 = corr3n2covn22(corr3xn)
+    print("DBG: covsnx2x2:", covsnx2x2.shape)
+    print(covsnx2x2[0])
+    print(covsnx2x2[1])
+
+    # is it doing it in one step that's breaking?
+    covsdirect = mags2cov(magpars, mags, parscov)
+    
+    # Are any of the covariances singular?
+    detcovs = np.linalg.det(covsnx2x2)
+    bbad = detcovs <= 0.
+    print("test_mags info: singular planes: ", np.sum(bbad) )
+
+    # Try our simple one-liner to return the object. WTF is going
+    # wrong there?
+    CC = makemagcovars(magpars, mags, parscov)
+    
+    # ^^ That works method-by-method. Is something wrong with
+    # covarsnx2x2?
+    CC = CovarsNx2x2(covars=covsnx2x2)
+
+    print("Object check - method by method:")
+    print(covsnx2x2[0])
+    print("Object check - makemagcovars:")
+    print(CC.covars[0])
+    print("Object check - mag2cov:")
+    print(covsdirect[0])
+
+    print("########")
+    
+    #print(covsnx2x2[0], detcovs[0])
+    
     # Show the noise covariances
     fig2=plt.figure(2)
     fig2.clf()
@@ -1523,13 +1697,24 @@ magnitude. The noise model used is
     ax22 = fig2.add_subplot(212)
 
     blah21 = ax21.hist(mags, bins=25, alpha=0.5)
-    blah22 = ax22.scatter(mags, sigm, s=3, zorder=10, alpha=0.5, color='k')
+    blah22 = ax22.scatter(mags, sigm, s=9, alpha=0.5, \
+                          color='#00274C', zorder=1, label='generated')
 
     # Show the model components
     mfine = np.linspace(np.min(mags), np.max(mags), 100)
     ymod1 = np.repeat(10.0**loga, np.size(mfine))
     ymod2 = 10.0**logb * np.exp(mfine*c)
 
+    # Now get the stdxs of the N,2,2 matrices we just produced.
+    if showcovs:
+        gencov3n = np.vstack(( covsnx2x2[:,0,0], \
+                               covsnx2x2[:,1,1], \
+                               covsnx2x2[:,0,1] ))
+    
+        gencor3n = cov2corr1d(gencov3n)            
+        blah23 = ax22.scatter(mags, gencor3n[0], s=.5, c='#D86018', \
+                              zorder=15, label='Back-converted from Nx2x2')
+    
     # Labels for legends
     sleg1 = r'$\log_{10} \sigma = %.1f$' % (loga)
     #sleg2 = r'$\sigma = 10.0^{%.2f} \times e^{%.2f m}$' % (b, c)
