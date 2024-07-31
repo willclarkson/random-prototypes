@@ -538,15 +538,17 @@ corrxy]. Returns a CovarsNx2x2 object. Inputs:
 
     return CS
     
-def wtsfromcovars(covars=np.array([]) ):
+def wtsfromcovars(covars=np.array([]), scalebydet=True ):
 
-    """Utility - returns inverse covars as weights, scaled to
-median(det)=1
+    """Utility - returns inverse covars as weights, optionally scaled bys sqrt(median determinant)
 
     """
 
     wraw = np.linalg.inv(covars)
-    sfac = np.median(np.sqrt(np.linalg.det(wraw)))
+    sfac = 1.
+    if scalebydet:
+        #sfac = np.median(np.sqrt(np.linalg.det(wraw)))
+        sfac = np.sqrt(np.median(np.linalg.det(wraw)))
 
     return wraw / sfac
 
@@ -1091,6 +1093,7 @@ def testmcmc_linear(npts=200, \
                     extravar=5.0e-12, \
                     forgetcovars=False, \
                     guessextra=True, \
+                    wtlsq=True, \
                     extra_is_corr=False, \
                     gen_noise_model=False, \
                     noise_mag_pars=[-4., -26., 2.5], \
@@ -1248,8 +1251,22 @@ def testmcmc_linear(npts=200, \
         guess = np.copy(fpars)
     else:
         # Since our model is linear, we can use linear least squares to
-        # get an initial guess for the parameters. Go unweighted.
-        LSQ = Leastsq2d(xyobs[:,0], xyobs[:,1], deg=degfit, kind=polyfit, \
+        # get an initial guess for the parameters.
+
+        # Weight by the inverse of the covariances (which we trust to
+        # all be nonsingular). 
+        wts = np.ones(xyobs.shape[0])
+        if wtlsq:
+            wts = wtsfromcovars(covtran, scalebydet=True)
+
+            print("testmcmc_linear DEBUG: weights:", wts.shape)            
+            detwts = np.linalg.det(wts)
+            print("testmcmc_linear DEBUG: det(weights):", \
+                  np.min(detwts), np.max(detwts), np.median(detwts) )
+            
+            
+        LSQ = Leastsq2d(xyobs[:,0], xyobs[:,1], deg=degfit, w=wts, \
+                        kind=polyfit, \
                         xytarg=xytarg)
 
         guess = LSQ.pars # We may want to modify or abut the guess.
@@ -1436,6 +1453,23 @@ def testmcmc_linear(npts=200, \
     args = (PFit, xytarg, covtran, addvar, npars_extravar, extra_is_corr)
     ndim = np.size(guess)
 
+    # Try adjusting the guess scale to cover the offset between our
+    # generated parameters and our guess, but not to swamp it
+    if not cheat_guess:
+        scaleguess = np.abs((guess-fpars)/guess)
+    else:
+        scaleguess = 1.0e-3
+        
+    print("testmcmc_linear INFO - |fractional offset| in guess:")
+    print(scaleguess)
+    print("^^^^^^")
+    # with fake data, those are all VERY small - like 1e-7 to 1e-6
+    # off. So our scaling is enormous. Try bringing the guessing way
+    # down then.
+    scaleguess *= 5. # scale up so we cover the interval and a bit more
+
+    # consider doing one per component, it should work without adjustment.
+    
     # adjust the nchains to match ndim
     if nchains < 1:
         nchains = int(ndim*2)+2
@@ -1443,7 +1477,7 @@ def testmcmc_linear(npts=200, \
     
     # set up the walkers, each with perturbed guesses
     pertn = np.random.randn(nchains, np.size(guess))
-    magn  = 0.02 * guess  # was 0.01
+    magn  = scaleguess * guess  # was 0.01
     pos = guess + pertn * magn[np.newaxis,:]
     nwalkers, ndim = pos.shape
 
