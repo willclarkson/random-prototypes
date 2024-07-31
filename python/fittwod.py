@@ -1529,7 +1529,7 @@ def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
                 filfig3='test_thinned.png', \
                 filfig2='test_allsamp.png', \
                 filfig4='test_corner.png', \
-                nminclose=20):
+                nminclose=20, burnin=-1):
 
     """Ported the methods to use the samples into a separate method so
 that we can run this from the interpreter."""
@@ -1565,6 +1565,10 @@ that we can run this from the interpreter."""
     nThrow = int(tauto * ntau)
     nThin = int(tauto * 0.5)
 
+    # allow overriding nthrown with burnin
+    if burnin > 0:
+        nThrow = np.copy(burnin)
+    
     flat_samples = sampler.get_chain(discard=nThrow, thin=nThin, flat=True)
     print("FLAT SAMPLES INFO:", flat_samples.shape, nThrow, nThin)
 
