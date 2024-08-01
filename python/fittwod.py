@@ -265,9 +265,8 @@ and an [N,2,2] covariance matrix from the supplied extra variance.
     fromcorr [T/F]: additive variance is supplied as [stdx, stdy/stdx,
     corrcoef]. If False, is assumed to be [varx, vary, covxy].
 
-    islog10 = additive variance is supplied as
-    log10(variance). (WATCHOUT - this doesn't work as well in tests as
-    islog10=False...)
+    islog10 = stdx is supplied as np.log10(stdx). Applies only if
+    fromcorr is True.
 
     """
 
@@ -278,9 +277,6 @@ and an [N,2,2] covariance matrix from the supplied extra variance.
     # covariance forms, we might violate the prior. Enforce that here.
     cov_ok = True
     
-    if islog10:
-        addvars = 10.0**addvars
-
     if fromcorr:
 
         # If we're building our covariance from [stdx, stdy/stdx,
@@ -289,9 +285,10 @@ and an [N,2,2] covariance matrix from the supplied extra variance.
         # routine is informed.
 
         # stdx must be >= 0 (I think >= and not >).
-        if addvars[0] < 0:
-            cov_ok = False
-        
+        if not islog10:
+            if addvars[0] < 0:
+                cov_ok = False
+                
         # The stdy/stdx must be >0
         if addvars.size > 1:
             if addvars[1] <= 0.:
@@ -305,7 +302,13 @@ and an [N,2,2] covariance matrix from the supplied extra variance.
                 cov_ok = False
 
         # print("skimvar DEBUG 1:", addvars)
-                
+
+        # Allow the first added variance component to be supplied as
+        # log10. Can modify in-place because addvars was constructed
+        # in this method.
+        if islog10:
+            addvars[0] = 10.0**addvars[0]
+            
         addvars = corr2cov1d(addvars)
 
         # print("skimvar DEBUG 2:", addvars)
@@ -389,7 +392,7 @@ i.e.
     return term_expon, term_dets, term_2pi
 
 def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
-           addvar=False, nvar=1, fromcorr=False, \
+           addvar=False, nvar=1, fromcorr=False, islog10=False, \
            methprior=lnprior_unif, \
            methlike=sumlnlike):
 
@@ -405,13 +408,16 @@ and ln(likelihood) as arguments.
     fromcorr [T/F] = Any extra variance is supplied as [sx, sy/sx,
     rho] instead of [vx, vy, covxy].
 
+    islog10 [T/F] = sx is supplied as log10(sx). Applies only if
+    fromcorr is True.
+
     """
 
     pars = parsIn
     covextra = 0. 
     if addvar:
         pars, covextra, covok = \
-            skimvar(parsIn, xytarg.shape[0], nvar, fromcorr)
+            skimvar(parsIn, xytarg.shape[0], nvar, fromcorr, islog10)
 
         # If the supplied parameters led to an improper covariance
         # (correlation coefficient outside the range [-1., 1.], say),
@@ -603,7 +609,7 @@ def split1dpars(pars1d=np.array):
     npars = int(np.size(pars1d)/2)
     return pars1d[0:npars], pars1d[npars::]
 
-def labelsaddvar(npars_extravar=0, extra_is_corr=False):
+def labelsaddvar(npars_extravar=0, extra_is_corr=False, std_is_log=False):
 
     """Utility - returns list of additional variable labels depending on
 what we're doing
@@ -616,6 +622,9 @@ what we're doing
     if extra_is_corr:
         lextra = [r'$s$']
 
+        if std_is_log:
+            lextra = [r'$log_{10}(s)$']
+
     if npars_extravar < 2:
         return lextra
 
@@ -623,6 +632,9 @@ what we're doing
     if extra_is_corr:
         lextra = [r'$s_{\xi}$', r'$s_{\eta}/s_{\xi}$']
 
+        if std_is_log:
+            lextra[0] = [r'$log_{10}(s_{\xi})$']
+        
     if npars_extravar < 3:
         return lextra
 
@@ -630,6 +642,10 @@ what we're doing
     if extra_is_corr:
         lextra = [r'$s_{\xi}$', r'$s_{\eta}/s_{\xi}$', r'$\rho_{\xi,\eta}$']
 
+        if std_is_log:
+            lextra[0] = [r'$log_{10}(s_{\xi})$']
+
+        
     return lextra
 
 def anycovbad(covars=np.array([]) ):
@@ -1094,7 +1110,7 @@ def testmcmc_linear(npts=200, \
                     forgetcovars=False, \
                     guessextra=True, \
                     wtlsq=True, \
-                    extra_is_corr=False, \
+                    extra_is_corr=False, stdx_is_log=False, \
                     gen_noise_model=False, \
                     noise_mag_pars=[-4., -26., 2.5], \
                     noise_shape_pars=[0.7, 0.1], \
@@ -1110,6 +1126,9 @@ def testmcmc_linear(npts=200, \
 
     extra_is_corr --> extra covariance is modeled internally as [stdx,
     stdy/stdx, corrcoef]
+
+    stdx_is_log --> stdx is supplied as log10(stdx). Applies only if
+    stdx_is_log is True.
 
     gen_noise_model --> generate uncertainties using noise model.
 
@@ -1360,10 +1379,19 @@ def testmcmc_linear(npts=200, \
         (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
     slabels = slabelsx + slabelsy
 
+    # Try adjusting the guess scale to cover the offset between our
+    # generated parameters and our guess, but not to swamp it. We do
+    # this BEFORE we abut any additional noise model parameters onto
+    # the guess.
+    if not cheat_guess:
+        scaleguess = np.abs((guess-fpars)/guess)
+    else:
+        scaleguess = 1.0e-3
+    
     # If we added 1d variance, accommodate this here.
     if addvar:
 
-        lextra = labelsaddvar(npars_extravar, extra_is_corr)
+        lextra = labelsaddvar(npars_extravar, extra_is_corr, stdx_is_log)
         
         #lextra = [r'$V_{\xi\eta}$']
         #if npars_extravar > 1:
@@ -1440,26 +1468,30 @@ def testmcmc_linear(npts=200, \
             vguess = cov2corr1d(vguess)[0:npars_extravar]
             var_extra = cov2corr1d(var_extra)[0:npars_extravar]
 
-            print("testmcmc_linear INFO -  re-expressed vguess as [stdx, stdy/stdx, corrcoef]:")
+            # Is the stdx to be explored as log10(stdx)?
+            sdum = 'stdx'
+            if stdx_is_log:
+                vguess[0] = np.log10(vguess[0])
+                var_extra[0] = np.log10(var_extra[0])
+                sdum = 'log10(stdx)'
+                
+            print("testmcmc_linear INFO -  re-expressed vguess as [%s, stdy/stdx, corrcoef]:" % (sdum))
             print("testmcmc_linear INFO - ", vguess)
             
         # Ensure the "truth" and guess parameters have the right
         # dimensions
         guess = np.hstack(( guess, vguess ))
         fpars = np.hstack(( fpars, var_extra )) 
+
+        scaleguess = np.hstack(( scaleguess, \
+                                 np.repeat(0.01, np.size(vguess)) ))
         
     # now (drumroll) set up the sampler.
     methpost = lnprob
-    args = (PFit, xytarg, covtran, addvar, npars_extravar, extra_is_corr)
+    args = (PFit, xytarg, covtran, addvar, npars_extravar, \
+            extra_is_corr, stdx_is_log)
     ndim = np.size(guess)
 
-    # Try adjusting the guess scale to cover the offset between our
-    # generated parameters and our guess, but not to swamp it
-    if not cheat_guess:
-        scaleguess = np.abs((guess-fpars)/guess)
-    else:
-        scaleguess = 1.0e-3
-        
     print("testmcmc_linear INFO - |fractional offset| in guess:")
     print(scaleguess)
     print("^^^^^^")
