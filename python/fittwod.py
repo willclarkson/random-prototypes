@@ -875,8 +875,8 @@ where
     if transf is None:
         return []
 
-    slabelsx = transf.setplotlabels(sx, True) 
-    slabelsy = transf.setplotlabels(sy, True) 
+    slabelsx = transf.setplotlabels(sx) 
+    slabelsy = transf.setplotlabels(sy) 
 
     return slabelsx + slabelsy
     

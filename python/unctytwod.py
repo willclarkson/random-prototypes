@@ -367,7 +367,7 @@ coefficients and the 2D convention expected by numpy methods"""
         self.updatecoeffs2d()
         return self.p2d
 
-    def setplotlabels(self, slabel='', retvals=False):
+    def setplotlabels(self, slabel='', retvals=True):
 
         """Utility - sets labels formatted for plotting. Not run by
 default."""
