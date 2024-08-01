@@ -251,7 +251,39 @@ plane is computed from the model
     stdxs = noisescale(parsmag, mags)
 
     return stdxs2covn22(stdxs, parscov)
-    
+
+def checkcorrpars(addcorr=np.array([]), islog10=False):
+
+    """Utility - given [stdx, stdy/stdx, corrxy], determines if the supplied parameters violate positivity and other constraints. Inputs:
+
+    addcorr = [3]-element array of parameters
+
+    islog10 [T/F] - first entry of addpars is supplied as
+    log10(value), and thus can be negative.
+
+    Returns True if corr pars are OK, otherwise False.
+
+    """
+
+    # stdx must be positive
+    if not islog10:
+        if addcorr[0] < 0:
+            return False
+
+    # stdy/stdx must be positive nonzero
+    if addcorr.size > 1:
+        if addcorr[1] <= 0.:
+            return False
+
+    # if the correlation coefficient was supplied outside the
+    # range [-1, +1], flag for the calling routine
+    if addcorr.size > 2:
+        if np.abs(addcorr[-1]) > 1.:
+            return False
+
+    # if we got here then the addcorr array passed the tests.
+    return True
+            
 def skimvar(pars, nrows, npars=1, fromcorr=False, islog10=False):
 
     """Utility - if an additive scalar variance is included with the
@@ -274,38 +306,16 @@ and an [N,2,2] covariance matrix from the supplied extra variance.
     addvars = pars[-npars::]
 
     # Status flag. If we're doing additional translation of the input
-    # covariance forms, we might violate the prior. Enforce that here.
+    # covariance forms, we might violate the prior. Set a flag to
+    # report back up if this is happening.
     cov_ok = True
     
     if fromcorr:
 
-        # If we're building our covariance from [stdx, stdy/stdx,
-        # corrxy], then we have bounds on all the parameters. If our
-        # trial set violates those requirements, ensure the calling
-        # routine is informed.
-
-        # stdx must be >= 0 (I think >= and not >).
-        if not islog10:
-            if addvars[0] < 0:
-                cov_ok = False
-                
-        # The stdy/stdx must be >0
-        if addvars.size > 1:
-            if addvars[1] <= 0.:
-                cov_ok = False
+        # Check that [stdx, stdy/stdx, corrxy] are not "unphysical"
+        cov_ok = checkcorrpars(addvars, islog10)
         
-        # if the correlation coefficient was supplied outside the
-        # range [-1, +1], flag for the calling routine
-        if addvars.size > 2:
-            rho = addvars[-1]
-            if rho < -1. or rho > +1.:
-                cov_ok = False
-
-        # print("skimvar DEBUG 1:", addvars)
-
-        # Allow the first added variance component to be supplied as
-        # log10. Can modify in-place because addvars was constructed
-        # in this method.
+        # Allow the first added variance component to be log10.
         if islog10:
             addvars[0] = 10.0**addvars[0]
             
@@ -1468,11 +1478,13 @@ def testmcmc_linear(npts=200, \
             vguess = cov2corr1d(vguess)[0:npars_extravar]
             var_extra = cov2corr1d(var_extra)[0:npars_extravar]
 
-            # Is the stdx to be explored as log10(stdx)?
+            # Is the stdx to be explored as log10(stdx)? NOTE the
+            # np.abs() is there as a safety in case the guess from
+            # data produces a negative stdx...
             sdum = 'stdx'
             if stdx_is_log:
-                vguess[0] = np.log10(vguess[0])
-                var_extra[0] = np.log10(var_extra[0])
+                vguess[0] = np.log10(np.abs(vguess[0]))
+                var_extra[0] = np.log10(np.abs(var_extra[0]))
                 sdum = 'log10(stdx)'
                 
             print("testmcmc_linear INFO -  re-expressed vguess as [%s, stdy/stdx, corrcoef]:" % (sdum))
