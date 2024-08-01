@@ -245,7 +245,7 @@ class Polycoeffs(object):
     """Object and methods to translate between flat array of polynomial
 coefficients and the 2D convention expected by numpy methods"""
 
-    def __init__(self, p=np.array([]), Verbose=True):
+    def __init__(self, p=np.array([]), Verbose=True, slabel='A'):
 
         # flat coefficients
         self.p = p
@@ -264,6 +264,10 @@ coefficients and the 2D convention expected by numpy methods"""
         self.i = np.array([])
         self.j = np.array([])
 
+        # Returning labels
+        self.slabel=slabel[:]
+        self.plotlabels = []
+        
         # Populate on initialization
         self.assigndeg()
         self.assignij()
@@ -362,6 +366,30 @@ coefficients and the 2D convention expected by numpy methods"""
             
         self.updatecoeffs2d()
         return self.p2d
+
+    def setplotlabels(self, slabel='', retvals=False):
+
+        """Utility - sets labels formatted for plotting. Not run by
+default."""
+
+        szi = np.size(self.i)
+        if szi < 1:
+            return
+
+        if len(slabel) < 1:
+            slabel = self.slabel[:]
+            
+        plotlabels = [r'$%s_{%i%i}$' % \
+                      (slabel, self.i[count], self.j[count]) \
+                      for count in range(szi)]
+
+        # either return OR update the instance, but not both.
+        if retvals:
+            return plotlabels
+
+        self.plotlabels = plotlabels[:]
+        self.slabel = slabel[:]
+            
         
 class Poly(object):
 

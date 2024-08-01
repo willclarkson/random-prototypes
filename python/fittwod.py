@@ -252,6 +252,66 @@ plane is computed from the model
 
     return stdxs2covn22(stdxs, parscov)
 
+def cov32covn22(addvars=np.array([]), nrows=1, covn22=np.array([]) ):
+
+    """Utility - populates [N,2,2] covariance matrix from entries of [vx,
+vy, vxy] array. Can pass in the N,2,2 covariance matrix to modify
+in-place. Inputs:
+
+    addvars [1-3] = [vx, vy, vxy] array, each entry assumed scalar.
+
+    nrows = length of desired covariance matrix. Ignored if covn22 is
+    supplied for modification in-place.
+
+    covn22 = [N,2,2] covariance matrix. If supplied, is modified
+    in-place, otherwise is created here.
+
+    """
+
+    # if covn22 not already supplied as a 3D array:
+    if np.ndim(covn22) != 3:
+        covn22 = np.zeros(( nrows, 2, 2 ))
+
+    # now we populate the array depending on what was supplied:
+    covn22[:,0,0] = addvars[0]
+    covn22[:,1,1] = addvars[0]
+    
+    sz = np.size(addvars)
+    if sz > 1:
+        covn22[:,1,1] = addvars[1]
+        if sz > 2:
+            offdiag = addvars[2]
+            covn22[:,0,1] = offdiag
+            covn22[:,1,0] = offdiag
+
+    return covn22
+
+def corr32cov3(addcorr=np.array([]), islog10=False):
+
+    """Given all or a subset of [stdx, stdy/stdx, corrxy],
+returns array [vx, vy, vxy] for use by cov32covn22. Inputs:
+
+    addcorr = [stdx, stdy/stdx, corrxy], or a subset
+
+    islog10 = [T/F]: If the first entry is log10(stdx) instead of stdx
+
+    Returns:
+
+    addcov = array [vx, vy, vxy]
+
+    cov_ok = [T/F] parameters OK: stdx > 0, stdy/stdx >0, |cxy <= 1|
+
+    """
+
+    # Ensure the correlation parameters are not unphysical
+    cov_ok = checkcorrpars(addcorr, islog10)
+    if islog10:
+        addcorr[0] = 10.0**addcorr[0]
+
+    addcov = corr2cov1d(addcorr)
+
+    return addcov, cov_ok
+    
 def checkcorrpars(addcorr=np.array([]), islog10=False):
 
     """Utility - given [stdx, stdy/stdx, corrxy], determines if the supplied parameters violate positivity and other constraints. Inputs:
@@ -283,14 +343,151 @@ def checkcorrpars(addcorr=np.array([]), islog10=False):
 
     # if we got here then the addcorr array passed the tests.
     return True
-            
-def skimvar(pars, nrows, npars=1, fromcorr=False, islog10=False):
 
-    """Utility - if an additive scalar variance is included with the
-parameters, split it off from the parameters, returning the parameters
-and an [N,2,2] covariance matrix from the supplied extra variance.
+def checknoisepars(noisepars=np.array([]), covpars=np.array([]), \
+                   increasing=True):
 
-    Returns: pars[M], covextra[2,2], cov_is_ok (Boolean)
+    """Checks noise model parameters for validity"""
+
+    if np.size(noisepars) < 1:
+        return False
+
+    # If the noise model must increase with magnitude and the exponent
+    # doesn't do this, then this noise model parameter set is 'bad'
+    if np.size(noisepars) > 2 and increasing:
+        if noisepars[2] < -0:
+            return False
+
+    # the covariance parameters are optional. If supplied, they are in
+    # the order [stdy/stdx, corrxy], and we do have requirements on
+    # those:
+    sz = np.size(covpars)
+    if sz > 0:
+        if covpars[0] < 0:
+            return False
+        if sz > 1:
+            if np.abs(covpars[1]) > 1.:
+                return False
+
+    # If here then the noise model and covariance model parameters
+    # both passed the test
+    return True
+        
+    
+def splitmodel(pars=np.array([]), nnoise=0, nvars=0):
+
+    """Split a 1D parameter array into transformation parameters, noise
+model parameters, and covariance parameters. (It's probably better to
+use splitpars(), which this method calls and which is more flexible.)
+
+Inputs:
+
+    pars = [M + nnoise + nvars] 1D array with the parameters
+
+Returns:
+
+    transf = [M] array of transformation parameters
+
+    noise = [nnoise] array of noise model parameters
+
+    covar = [nvars] array of variance shape parameters
+
+    """
+
+    transf, lsplit = splitpars(pars, [nnoise, nvars])
+    return transf, lsplit[0], lsplit[1]
+
+def splitpars(pars, nsplit=[] ):
+
+    """Splits a 1d array into sub-arrays, skimming off the nsplit entries
+from the end at each stage. Like splitpars() but the nsplits are
+generalized into a loop. 
+
+Inputs:
+
+    pars = 1d array of parameters
+
+    nsplit = [n0, n1, ... ] list of last-n indices to split off at each stage.
+
+Returns: 
+
+    allbutsplit = all the pars not split off into a subarray
+
+    [p1, p2, ...] = list of pars split off from the far end, *in the same order as the nsplit list*. 
+
+Example:
+
+    x = np.arange(10)
+    fittwod.splitpars(x,[3,2])
+    
+    returns:
+             (array([0, 1, 2, 3, 4]), [array([7, 8, 9]), array([5, 6])])
+
+    """
+
+    # handle scalar input for nsplit
+    if np.isscalar(nsplit):
+        nsplit = [nsplit]
+    
+    # if no splits, nothing to do
+    if len(nsplit) < 1:
+        return pars
+
+    lsplit = []
+    allbut = np.copy(pars)
+
+    for isplit in range(len(nsplit)):
+        allbut, split = splitlastn(allbut, nsplit[isplit])
+        lsplit = lsplit + [split]
+        
+    return allbut, lsplit
+        
+def splitlastn(pars=np.array([]), nsplit=0):
+
+    """Splits a 1D array into its [0-nsplit] and [-nsplit::] pieces.
+
+    Inputs:
+
+    pars = [M]  array of parameters
+
+    nsplit = number of places from the end of the array that will be
+    split off
+
+    Returns:
+
+    first = [M-nsplit] array before the split
+
+    last = [nsplit] array after the split
+
+    """
+
+    # Nothing to do if nothing provided
+    if np.size(pars) < 1:
+        return np.array([]), np.array([])
+
+    # Cannot do anything if the lengths do not match
+    if np.size(pars) < nsplit:
+        return pars, np.array([])
+    
+    # Nothing to do if no split
+    if nsplit < 1:
+        return pars, np.array([])
+
+    return pars[0:-nsplit], pars[-nsplit::]
+    
+def skimvar(pars, nrows, npars=1, fromcorr=False, islog10=False, \
+            nnoise=0, mags=np.array([]) ):
+
+    """Utility - if an additive variance is included with the parameters,
+split it off from the parameters, returning the parameters and an
+[N,2,2] covariance matrix from the supplied extra variance. 
+
+Inputs:
+
+    pars = [M+mvars] element array with parameters of transformation
+    model and extra variance model
+
+    nrows = number of rows in the dataset
 
     npars = number of parameters that are covariances.
 
@@ -300,41 +497,48 @@ and an [N,2,2] covariance matrix from the supplied extra variance.
     islog10 = stdx is supplied as np.log10(stdx). Applies only if
     fromcorr is True.
 
+    nnoise = number of entries in pars that refer to the noise
+    model. These are always the ones at the end.
+
+    mags = [N-element] array with magnitude values. Used to produce the covariance from the noise model
+
+Returns: 
+
+    pars[M] = transformation parameters only
+
+    covextra [N,2,2] = additional covariance computed from the
+    variance model parameters.
+
+    cov_ok [T/F] = result of parsing the variance model parameters. If
+    False, then the variance model parameters were unphysical
+    (e.g. correlation coefficient greater than unity).
+
     """
 
-    parsmodel = pars[0:-npars]
-    addvars = pars[-npars::]
+    # split the input parameters into the pieces we want:
+    parsmodel, addnoise, addvars = splitmodel(pars, nnoise, npars)
+    
+    #parsmodel = pars[0:-npars]
+    #addvars = pars[-npars::]
 
     # Status flag. If we're doing additional translation of the input
     # covariance forms, we might violate the prior. Set a flag to
     # report back up if this is happening.
     cov_ok = True
-    
-    if fromcorr:
 
-        # Check that [stdx, stdy/stdx, corrxy] are not "unphysical"
-        cov_ok = checkcorrpars(addvars, islog10)
-        
-        # Allow the first added variance component to be log10.
-        if islog10:
-            addvars[0] = 10.0**addvars[0]
-            
-        addvars = corr2cov1d(addvars)
-
-        # print("skimvar DEBUG 2:", addvars)
-        
-    extracov = np.zeros((nrows, 2, 2))
-    extracov[:,0,0] = addvars[0]
-
-    # Populate the rest of the addvars entries
-    if np.size(addvars) > 1:
-        extracov[:,1,1] = addvars[1]
-        if np.size(addvars) > 2:
-            offdiag = addvars[2]
-            extracov[:,0,1] = offdiag
-            extracov[:,1,0] = offdiag
+    # Now we generate the covariances. The noise model is always used
+    # in preference to the flat model, if parameters were supplied.
+    if addnoise.size > 0 and mags.size > 0:
+        cov_ok = checknoisepars(addnoise, addvars)
+        extracov = mags2cov(addnoise, mags, addvars)
     else:
-        extracov[:,1,1] = addvars[0]
+        # If the added variance was supplied as [(log10)stdx, stdy/stdx,
+        # corrxy], parse and convert to [vx, vy, vxy]:
+        if fromcorr:
+            addvars, cov_ok = corr32cov3(addvars, islog10)
+        
+        # Populate the n22 covariance from this
+        extracov = cov32covn22(addvars, nrows)
 
     return parsmodel, extracov, cov_ok
     
@@ -403,6 +607,7 @@ i.e.
 
 def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
            addvar=False, nvar=1, fromcorr=False, islog10=False, \
+           nnoise=0, mags=np.array([]), \
            methprior=lnprior_unif, \
            methlike=sumlnlike):
 
@@ -421,13 +626,19 @@ and ln(likelihood) as arguments.
     islog10 [T/F] = sx is supplied as log10(sx). Applies only if
     fromcorr is True.
 
+    nnoise = number of parameters in parsIn that refer to the noise
+    model
+    
+    mags = array of apparent magnitudes
+
     """
 
     pars = parsIn
     covextra = 0. 
     if addvar:
         pars, covextra, covok = \
-            skimvar(parsIn, xytarg.shape[0], nvar, fromcorr, islog10)
+            skimvar(parsIn, xytarg.shape[0], nvar, fromcorr, islog10, \
+                    nnoise, mags)
 
         # If the supplied parameters led to an improper covariance
         # (correlation coefficient outside the range [-1., 1.], say),
@@ -542,12 +753,14 @@ corrxy]. Returns a CovarsNx2x2 object. Inputs:
 
     mags = [N]-element array of magnitudes"""
 
-    print("=============================")
-    print("makemagcovars DEBUG - inputs:")
-    print(parsnoise, np.shape(parsnoise))
-    print(mags.shape, np.min(mags), np.max(mags))
-    print(parscorr, np.shape(parscorr))
-    print("=============================")
+    # Debug lines no longer needed
+    #
+    #print("=============================")
+    #print("makemagcovars DEBUG - inputs:")
+    #print(parsnoise, np.shape(parsnoise))
+    #print(mags.shape, np.min(mags), np.max(mags))
+    #print(parscorr, np.shape(parscorr))
+    #print("=============================")
     
     covsxy = mags2cov(parsnoise, mags, parscorr)
     CS = CovarsNx2x2(covars=np.copy(covsxy))
@@ -619,6 +832,50 @@ def split1dpars(pars1d=np.array):
     npars = int(np.size(pars1d)/2)
     return pars1d[0:npars], pars1d[npars::]
 
+def labelstransf(transf=None, sx='A', sy='B'):
+
+    """Returns a string of labels for plotting"""
+
+    if transf is None:
+        return []
+
+    slabelsx = transf.setplotlabels(sx, True) 
+    slabelsy = transf.setplotlabels(sy, True) 
+
+    return slabelsx + slabelsy
+    
+def labelsnoisemodel(nparsnoise=0, nparscorr=0):
+
+    """Utility - returns the list of additional variable labels in the
+order [noise shape, noise model].
+
+Inputs:
+
+    nparsnoise = number of parameters for the noise model
+
+    nparscorr = number of parameters for the covariance shape
+
+
+    """
+
+    # Correlation labels
+    lcorr = []
+    if nparscorr > 0:
+        lcorr = [r'$s_\eta/s_\xi$']
+    if nparscorr > 1:
+        lcorr = lcorr + [r'$\rho_{\xi\eta}$']
+
+    # noise model labels
+    lnoise = []
+    if nparsnoise > 0:
+        lnoise = [r'$log_{10}(a)$']
+    if nparsnoise > 1:
+        lnoise = lnoise + [r'$log_{10}(b)$']
+    if nparsnoise > 2:
+        lnoise = lnoise + [r'$c$']
+
+    return lnoise + lcorr
+    
 def labelsaddvar(npars_extravar=0, extra_is_corr=False, std_is_log=False):
 
     """Utility - returns list of additional variable labels depending on
@@ -1122,8 +1379,12 @@ def testmcmc_linear(npts=200, \
                     wtlsq=True, \
                     extra_is_corr=False, stdx_is_log=False, \
                     gen_noise_model=False, \
+                    fit_noise_model=False, \
+                    add_noise_model=False, \
                     noise_mag_pars=[-4., -26., 2.5], \
                     noise_shape_pars=[0.7, 0.1], \
+                    extranoisepars = [-5.], \
+                    extranoiseshape = [], \
                     cheat_guess=False, \
                     maglo=16., maghi=20., magexpon=2.):
 
@@ -1142,11 +1403,20 @@ def testmcmc_linear(npts=200, \
 
     gen_noise_model --> generate uncertainties using noise model.
 
+    fit_noise_model --> use the noise model to "fit" uncertainties
+
+    add_noise_model --> use the noise model for the additive noise.
+
     noise_mag_pars [3] --> parameters of the magnitude dependence of
     the noise model stdx
 
     noise_shape_pars [2] --> noise model [stdy/stdx, corrxy].
 
+    extranoisepars [<3] --> parameters of the noise model for added noise
+
+    extranoiseshape [2] --> shape parameters of added noise. Defaults
+    to symmetric noise.
+    
     cheat_guess -- use the generating parameters as the guess.
 
     """
@@ -1218,10 +1488,20 @@ def testmcmc_linear(npts=200, \
     if unctytarg:
         nudgexytran = Ctran.getsamples()
 
-    # If we are adding more noise, do so here
+    # Some arguments that will be used if fitting the noise model and
+    # ignored if not:
+    npars_noise = 0
+        
+    # If we are adding more noise, do so here.
     nudgexyextra = xy * 0.
-    npars_extravar = 1 # default, even if not used in the modeling
-    if addvar:
+    npars_extravar = 0 # default, even if not used in the modeling
+
+
+    # The two methods I have in mind are complicated but have
+    # diverged, so in order to maintain readability, I use two
+    # conditionals instead!
+    CExtra = None # for later
+    if addvar and not add_noise_model:
 
         # Parse the additional variance
         if np.isscalar(extravar):
@@ -1257,6 +1537,11 @@ def testmcmc_linear(npts=200, \
         print("testmcmc_linear info - additional covariance:")
         print(CExtra.covars[0])
         print(npars_extravar)
+
+    # If we want, we can add noise using the noise model.
+    if addvar and add_noise_model:
+        CExtra = makemagcovars(extranoisepars, mags, extranoiseshape)
+        nudgexyextra = CExtra.getsamples()
         
     xyobs  = xy + nudgexy
     xytarg = xytran + nudgexytran + nudgexyextra
@@ -1315,7 +1600,7 @@ def testmcmc_linear(npts=200, \
 
     # Take a look at the data we generated... do these look
     # reasonable?
-    fig1 = plt.figure(1, figsize=(8,5))
+    fig1 = plt.figure(1, figsize=(9.5,5))
     fig1.clf()
     ax1=fig1.add_subplot(231)
     ax2=fig1.add_subplot(232)
@@ -1333,12 +1618,27 @@ def testmcmc_linear(npts=200, \
 
     # Show apparent magnitudes. Rather than show the histogram, now
     # show std(x) vs mag, color coded by std(y)
-    blah6=ax6.scatter(mags, np.sqrt(covtran[:,0,0]), \
-                      c=np.log10(np.sqrt(covtran[:,1,1])), \
-                      alpha=0.8, cmap='viridis', \
-                      s=2)
+    #blah6=ax6.scatter(mags, np.sqrt(covtran[:,0,0]), \
+    #                  c=np.log10(np.sqrt(covtran[:,1,1])), \
+    #                  alpha=0.8, cmap='viridis', \
+    #                  s=2)
+
+    # update: show the sqrt(det) of the total covariance
+    covres = covtran + covtran
+    dettran = np.linalg.det(covres)**0.25
+    blah61=ax6.scatter(mags, dettran, s=2, label='Covtran', c='b', zorder=2)
+    
+    if CExtra is not None:
+        covext = CExtra.covars
+        detext = np.linalg.det(covext)**0.25
+        detsho = np.linalg.det(covres + covext)**0.25
+        blah62=ax6.scatter(mags, detext, s=2, label='Added', c='r', zorder=4)
+        blah63=ax6.scatter(mags, detsho, s=2, label='Total', c='k', zorder=5)
+
+    leg6=ax6.legend(fontsize=8)
+    
     ax6.set_yscale('log')
-    cb6 = fig1.colorbar(blah6, ax=ax6)
+    ##cb6 = fig1.colorbar(blah6, ax=ax6)
     #blah6=ax6.hist(mags, bins=25, alpha=0.5)
     
     # how about our initial guess parameters...
@@ -1379,15 +1679,14 @@ def testmcmc_linear(npts=200, \
     ax5.set_ylabel(r'$\Delta \eta$')
 
     ax6.set_xlabel(r'$m$')
-    ax6.set_ylabel(r'$N(m)$')
-    ax6.set_ylabel(r'$\sigma_\xi$')
-    
-    # Set up labels for plots
-    slabelsx = [r'$a_{%i%i}$' % \
-        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
-    slabelsy = [r'$b_{%i%i}$' % \
-        (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
-    slabels = slabelsx + slabelsy
+    # ax6.set_ylabel(r'$N(m)$')
+    # ax6.set_ylabel(r'$\sqrt{\sigma_\xi \sigma_\eta}$')
+    ax6.set_ylabel(r'$|V_{\xi\eta}|^{1/4}$')
+
+    fig1.subplots_adjust(wspace=0.4, hspace=0.4)
+
+    # Set up labeling for plots
+    slabels = labelstransf(PTruth.pars2x, 'A', 'B')
 
     # Try adjusting the guess scale to cover the offset between our
     # generated parameters and our guess, but not to swamp it. We do
@@ -1397,9 +1696,15 @@ def testmcmc_linear(npts=200, \
         scaleguess = np.abs((guess-fpars)/guess)
     else:
         scaleguess = 1.0e-3
-    
+
+    # If we want to fit for additional variance, ensure the guesses
+    # etc. are structured so that the MCMC can use them. For the older
+    # method, the simulating and fitting used the same structure, so
+    # there is some ad hoc structure here. I therefore do two separate
+    # conditionals again.
+        
     # If we added 1d variance, accommodate this here.
-    if addvar:
+    if addvar and not fit_noise_model:
 
         lextra = labelsaddvar(npars_extravar, extra_is_corr, stdx_is_log)
         
@@ -1497,11 +1802,44 @@ def testmcmc_linear(npts=200, \
 
         scaleguess = np.hstack(( scaleguess, \
                                  np.repeat(0.01, np.size(vguess)) ))
+
+    # Are we going to be fitting with the more general noise model?
+    if fit_noise_model:
+
+        # Split points that lnprob will use to unpack the parameters
+        npars_noise = np.size(extranoisepars)
+        npars_extravar = np.size(extranoiseshape)
+
+        # labels for the model exploration
+        labels_extra = labelsnoisemodel(npars_noise, npars_extravar)
+        slabels = slabels + labels_extra
+
+        # guess for noise model. Not sure how best to do this, since
+        # linear least squares doesn't handle this errors-in-variables
+        # situation. If estimating from the generating parameters
+        # doesn't work, consider falling back on the minimize method
+        # to find the guess.
+        pertnoise = np.random.normal(size=npars_noise)*0.01
+        guessnoise = extranoisepars + pertnoise
+
+        # These lines should work even if npars_extravar = 0
+        pertshape = np.random.normal(size=npars_extravar)*0.01
+        guessshape = extranoiseshape + pertshape
+
+        # We need to ensure the fpars and guess have the correct
+        # dimension
+        guess = np.hstack(( guess, guessshape, guessnoise ))
+        fpars = np.hstack(( fpars, extranoiseshape, extranoisepars ))
+        
+        # Since we've moved the guess off artificially, we can simply
+        # recalculate scaleguess:
+        scaleguess = np.abs((guess-fpars)/guess)
+
         
     # now (drumroll) set up the sampler.
     methpost = lnprob
     args = (PFit, xytarg, covtran, addvar, npars_extravar, \
-            extra_is_corr, stdx_is_log)
+            extra_is_corr, stdx_is_log, npars_noise, mags)
     ndim = np.size(guess)
 
     print("testmcmc_linear INFO - |fractional offset| in guess:")
@@ -1667,9 +2005,14 @@ that we can run this from the interpreter."""
     fig4.clf()
     dum4 = corner.corner(flat_samples, labels=slabels, truths=fpars, \
                          truth_color='b', fig=fig4, labelpad=0.7, \
-                         use_math_text=True)
+                         use_math_text=True, \
+                         label_kwargs={})
     fig4.subplots_adjust(bottom=0.2, left=0.2)
 
+    # Try adjusting the label size externally:
+    for ax in fig4.get_axes():
+        ax.tick_params(axis='both', labelsize=6)
+    
     # set supertitle
     if len(basis) > 0:
         fig4.suptitle('Basis: %s' % (basis))
