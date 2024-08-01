@@ -834,7 +834,43 @@ def split1dpars(pars1d=np.array):
 
 def labelstransf(transf=None, sx='A', sy='B'):
 
-    """Returns a string of labels for plotting"""
+    """Returns a string of labels for plotting.
+
+Inputs:
+
+    transf = Patternmatrix object. Must have method setplotlabels().
+
+    sx = label string, x
+
+    sy = label string, y
+
+Returns:
+
+    slabels = list of labels, in order [x params, y params]
+
+Example:
+
+    Suppose pars2x is a Patternmatrix object describing a polynomial of order 1. Then:
+
+    slabels = labelstransf(pars2x, 'A', 'B')
+
+would return:
+
+    ['$A_{00}$', '$A_{10}$', '$A_{01}$', '$B_{00}$', '$B_{10}$', '$B_{01}$']
+
+for which the transformation is interpreted as
+
+    xi(x,y) = A_00 + A_10 p(x, 0) + A_01 p(0, y)
+    eta(x,y) = B_00 + B_10 p(x, 0) + B_01 p(0, y)
+
+where 
+
+    p(x, 0) is the polynomial of order 1 in x, order 0 in y
+    p(0, y) is the polynomial of order 0 in x, order 1 in y
+
+    etc.
+
+    """
 
     if transf is None:
         return []
@@ -2011,7 +2047,7 @@ that we can run this from the interpreter."""
 
     # Try adjusting the label size externally:
     for ax in fig4.get_axes():
-        ax.tick_params(axis='both', labelsize=6)
+        ax.tick_params(axis='both', labelsize=5)
     
     # set supertitle
     if len(basis) > 0:
