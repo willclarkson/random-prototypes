@@ -7,7 +7,7 @@
 # unctytwod.py
 # 
 
-import os, time
+import os, time, pickle
 from multiprocessing import cpu_count, Pool
 
 import numpy as np
@@ -1978,6 +1978,7 @@ def testmcmc_linear(npts=200, \
 def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
                 guess=np.array([]), basis='', \
                 flatfile='test_flatsamples.npy', \
+                argsfile='test_flatsamples.pickle', \
                 filfig3='test_thinned.png', \
                 filfig2='test_allsamp.png', \
                 filfig4='test_corner.png', \
@@ -2030,6 +2031,13 @@ that we can run this from the interpreter."""
     # for multidimensional numpy arrays. Need to think a bit on how to
     # handle metadata.
     np.save(flatfile, flat_samples)
+
+    # Useful to save run information. For the moment let's just use
+    # the labels while I work out what info and how to send...
+    with open(argsfile, 'wb') as wobj:
+        dwrite={'slabels':slabels, 'fpars':fpars,'guess':guess, \
+                'basis':basis}
+        pickle.dump(dwrite, wobj)
     
     fig3 = plotsamplescolumn(flat_samples, 3, slabels=slabels)
     fig3.savefig(filfig3)
@@ -2042,7 +2050,8 @@ that we can run this from the interpreter."""
     dum4 = corner.corner(flat_samples, labels=slabels, truths=fpars, \
                          truth_color='b', fig=fig4, labelpad=0.7, \
                          use_math_text=True, \
-                         label_kwargs={})
+                         label_kwargs={'fontsize':8, \
+                                       'rotation':'horizontal'})
     fig4.subplots_adjust(bottom=0.2, left=0.2)
 
     # Try adjusting the label size externally:
