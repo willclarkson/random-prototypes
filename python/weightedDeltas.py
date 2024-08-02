@@ -1883,6 +1883,15 @@ class CovarsNx2x2(object):
         # that we can use them in plots # WATCHOUT SIGNS
         self.axMajors = v[:,:,1]
         self.axMinors = v[:,:,0]  # Not needed?
+
+        # For cases where the major and minor axes are equal (to
+        # rounding error), choose the major axis to point along the
+        # x-axis
+        bEqu = ~(np.abs(self.majors - self.minors) > 0.)
+        if np.sum(bEqu) > 0:
+            majorsCopy = np.copy(self.axMajors)
+            self.axMajors[bEqu] = self.axMinors[bEqu]
+            self.axMinors[bEqu] = majorsCopy[bEqu]
         
         # enforce a convention: if the major axis points in the -x
         # direction, flip both eigenvectors
@@ -1890,9 +1899,14 @@ class CovarsNx2x2(object):
         self.axMajors[bNeg] *= -1.
         self.axMinors[bNeg] *= -1.
 
-        # the rotation angle of the major axis
-        self.rotDegs = np.degrees(np.arctan(\
-                self.axMajors[:,1]/self.axMajors[:,0]))
+        # the rotation angle of the major axis, avoiding annoying
+        # warnings for cases where the major axis points along the
+        # y-axis
+        self.rotDegs = np.zeros(np.size(self.majors))
+        bDeg = self.axMajors[:,0] > 0
+        self.rotDegs[bDeg] = \
+            np.degrees(np.arctan(self.axMajors[bDeg,1]/self.axMajors[bDeg,0]))
+        self.rotDegs[~bDeg] = 90.
 
         # Having done this, we can now generate the diagonal, rotation
         # and transformation matrix should we wish to generate samples
