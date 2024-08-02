@@ -345,19 +345,54 @@ def checkcorrpars(addcorr=np.array([]), islog10=False):
     return True
 
 def checknoisepars(noisepars=np.array([]), covpars=np.array([]), \
-                   increasing=True):
+                   increasing=True, maxlogb=10., maxexpon=10.):
 
-    """Checks noise model parameters for validity"""
+    """Checks noise model parameters for validity.
+
+Inputs:
+
+    noisepars = noise model parameters [loga, logb, c]
+
+    covpars = covariance model parameters [stdy/stdx, corrxy]
+
+    increasing = expon must be >= 0
+
+    maxlogb = maximum allowed value of logb
+
+    maxexpon = maximum value of c
+
+Returns:
+    
+    cov_ok = [T/F]: noise and covariance parameters passed the tests
+
+
+"""
 
     if np.size(noisepars) < 1:
         return False
 
+    # The noise model should not have stupidly high constant...
+    noise_ok = True
+    if np.size(noisepars) > 1:
+        if noisepars[1] >= maxlogb:
+            noisepars[1] = maxlogb
+            noise_ok = False
+            
     # If the noise model must increase with magnitude and the exponent
     # doesn't do this, then this noise model parameter set is 'bad'
     if np.size(noisepars) > 2 and increasing:
         if noisepars[2] < -0:
-            return False
+            noise_ok = False
 
+        # Safety check: np.exp(maxexpon) is too large.
+        if noisepars[2] >= maxexpon:
+            noisepars[2] = maxexpon # WATCHOUT - changing in place
+            noise_ok = False
+
+    # If any of the above noise checks failed, return False
+    if not noise_ok:
+        return False
+        
     # the covariance parameters are optional. If supplied, they are in
     # the order [stdy/stdx, corrxy], and we do have requirements on
     # those:
@@ -513,6 +548,10 @@ Returns:
     False, then the variance model parameters were unphysical
     (e.g. correlation coefficient greater than unity).
 
+    addnoise = additional noise parameters. This is reported back so
+    that the calling routine can report them if the resulting
+    covariance is NaN anywhere.
+
     """
 
     # split the input parameters into the pieces we want:
@@ -530,7 +569,12 @@ Returns:
     # in preference to the flat model, if parameters were supplied.
     if addnoise.size > 0 and mags.size > 0:
         cov_ok = checknoisepars(addnoise, addvars)
-        extracov = mags2cov(addnoise, mags, addvars)
+        if cov_ok:
+            extracov = mags2cov(addnoise, mags, addvars)
+        else:
+            # This is OK as long as lnprob returns -np.inf when not
+            # cov_ok.
+            extracov = np.array([])
     else:
         # If the added variance was supplied as [(log10)stdx, stdy/stdx,
         # corrxy], parse and convert to [vx, vy, vxy]:
@@ -540,7 +584,7 @@ Returns:
         # Populate the n22 covariance from this
         extracov = cov32covn22(addvars, nrows)
 
-    return parsmodel, extracov, cov_ok
+    return parsmodel, extracov, cov_ok, addnoise
     
 def lnprior_unif(pars):
 
@@ -634,9 +678,10 @@ and ln(likelihood) as arguments.
     """
 
     pars = parsIn
-    covextra = 0. 
+    covextra = 0.
+    noisepars = np.array([])
     if addvar:
-        pars, covextra, covok = \
+        pars, covextra, covok, noisepars = \
             skimvar(parsIn, xytarg.shape[0], nvar, fromcorr, islog10, \
                     nnoise, mags)
 
@@ -654,6 +699,14 @@ and ln(likelihood) as arguments.
     # evaluate ln likelihood
     lnlike = methlike(pars, transf, xytarg, covtarg, covextra) 
 
+    # If this is about to return nan, provide a warning and show the
+    # parameters. 
+    if np.any(np.isnan(lnlike)):
+        print("lnprob WARN - at least one NaN entry. Trial params:")
+        print(pars)
+        print(noisepars)
+        # We COULD make this return -np.inf. 
+    
     # return the ln posterior
     return lnprior + lnlike
 
@@ -1878,6 +1931,9 @@ def testmcmc_linear(npts=200, \
             extra_is_corr, stdx_is_log, npars_noise, mags)
     ndim = np.size(guess)
 
+    print("testmcmc_linear INFO - guess:")
+    print(guess)
+    
     print("testmcmc_linear INFO - |fractional offset| in guess:")
     print(scaleguess)
     print("^^^^^^")
