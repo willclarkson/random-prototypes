@@ -509,7 +509,71 @@ def splitlastn(pars=np.array([]), nsplit=0):
         return pars, np.array([])
 
     return pars[0:-nsplit], pars[-nsplit::]
-    
+
+def extracovar(noisepars=np.array([]), mags=np.array([]), \
+               corrpars=np.array([]), fromcorr=True, islog10=False, \
+               nrows=0):
+
+    """Given noise parameters, returns extra covariance to include as part
+of the model.
+
+Inputs:
+
+    noisepars = [<=3]-element array of parameters for the noise
+    model. Assumed [loga, logb, c] where extra noise stdx = a +
+    b.exp(m.c) .
+
+    mags = [N]-element vector of apparent magnitudes to use
+    constructing the additive noise.
+
+    corrpars = [<=3] array of parameters describing covariance shape.
+
+    fromcorr [T/F] = corrpars are [stdx, sydy/stdx, corrxy]. If false,
+    assumed to be [varx, vary, varxy].
+
+    islog10 [T/F] = corrpars[0] = log10(stdx)
+
+    nrows = number of rows in the dataset. Needed if the noise model
+    is not being used. If mags is supplied, its length is used in
+    preference to nrows.
+
+Returns
+
+    extracov = [N,2,2] array of covariances. If no parameters were
+    supplied, returns 0. (so that this can be added to any existing
+    variances without problems).
+
+    cov_ok = result of internal checking on the noise
+    parameters. (Should be redundant if priors were used to enforce
+    positivity, etc.)
+
+    """
+
+    # initialize to blank
+    extracov = 0.
+    cov_ok = True
+
+    # generating this from noise model and shape parameters?
+    if noisepars.size > 0 and mags.size > 0:
+        cov_ok = checknoisepars(noisepars, corrpars)
+        if cov_ok:
+            extracov = mags2cov(noisepars, mags, corrpars)
+
+        return extracov, cov_ok
+
+    # if here then we're using the older model in which a single
+    # covariance is used fo the entire dataset.
+    if fromcorr:
+        addvars, cov_ok = corr32cov3(corrpars, islog10)
+
+    # If magnitude data were supplied, use them instead of nrows.
+    if mags.size > 0:
+        nrows = mags.size
+        
+    extracov = cov32covn22(addvars, nrows)
+    return extracov, cov_ok
+            
+            
 def skimvar(pars, nrows, npars=1, fromcorr=False, islog10=False, \
             nnoise=0, mags=np.array([]) ):
 
@@ -548,18 +612,16 @@ Returns:
     False, then the variance model parameters were unphysical
     (e.g. correlation coefficient greater than unity).
 
-    addnoise = additional noise parameters. This is reported back so
-    that the calling routine can report them if the resulting
-    covariance is NaN anywhere.
+NOTE: this was originally developed to both skim off the parameters
+and generate the additional covariance. Its functionality has now been
+split across splitmodel() and lnprob(), so skimvar() should no longer
+be used.
 
     """
 
     # split the input parameters into the pieces we want:
     parsmodel, addnoise, addvars = splitmodel(pars, nnoise, npars)
     
-    #parsmodel = pars[0:-npars]
-    #addvars = pars[-npars::]
-
     # Status flag. If we're doing additional translation of the input
     # covariance forms, we might violate the prior. Set a flag to
     # report back up if this is happening.
@@ -584,7 +646,7 @@ Returns:
         # Populate the n22 covariance from this
         extracov = cov32covn22(addvars, nrows)
 
-    return parsmodel, extracov, cov_ok, addnoise
+    return parsmodel, extracov, cov_ok
     
 def lnprior_unif(pars):
 
@@ -592,6 +654,160 @@ def lnprior_unif(pars):
 
     return 0.
 
+def lnprior_noisemodel_rect(parsnoise, \
+                            logalo=-50., logahi=2., logblo=-50.,
+                            logbhi=10., clo=0., chi=10.):
+
+    """Expresses positivity constraints etc. on the noise model as a
+(log) prior. Model is assumed to have the form a + b.exp(m.c). Prior
+    is uniform within the limits.
+
+Inputs:
+
+    parsnoise = [log10(a), log10(b), c] noise model. 0-3 components
+    can be supplied, but always parsed left-right.
+
+    logalo, logahi = min, max allowed values for log(a)
+
+    logblo, logbhi = min, max allowed values for log(b)
+    
+    clo, chi = min, max allowed values for c.
+
+    """
+
+    # No judgement if no parameters passed
+    sza = np.size(parsnoise)
+    if sza < 1:
+        return 0.
+
+    # If only scalar (assumed log10(a)) was supplied, judge and
+    # return.
+    if np.isscalar(parsnoise):
+        if not (logalo < parsnoise < logahi):
+            return -np.inf
+        return 0.
+
+    # We only get here if parsnoise has at least one element. So:
+    if not (logalo < parsnoise[0] < logahi):
+        return -np.inf
+
+    # now look for parameters outside the specified ranges
+    if sza > 1:
+        if not(logblo < parsnoise[1] < logbhi):
+            return -np.inf
+
+    if sza > 2:
+        if not(clo < parsnoise[2] < chi):
+            return -np.inf
+
+    # If we got here then the params are all within the range we set.
+    return 0.
+
+def lnprior_corrmodel2_rect(parscorr, \
+                            rlo=0., rhi=10., \
+                            corrlo=0., corrhi=1.):
+
+    """Expresses sanity constraints on the correlation shape model
+    [stdy/stdx, corrxy] as a prior. The prior is assumed uniform
+    within these constraints.
+
+Inputs:
+
+    parscorr = [stdy/stdx, corrxy] parameters of our correlation shape
+    model. 0-2 parameters are parsed, from the left.
+    
+    rlo, rhi = minmax values of stdy/stdx. Evaluated exclusively: rlo < r < rhi
+
+    corrlo, corrhi = minmax values of correlation coefficient rho(x,y). Evaluated inclusively: corrlo <= corr <= corrhi .
+
+    """
+
+    szc = np.size(parscorr) # works on python lists and scalars too
+    if szc < 1:
+        return 0.
+
+    # scalar input parameter assumed to be stdy/stdx.
+    if np.isscalar(parscorr):
+        if not (rlo < parscorr[0] < rhi):
+            return -np.inf
+        return 0.
+
+    # Now we go through the rest of the entries in the correlation
+    # shape parameters. In this case there only is one more...
+    if szc > 1:
+        if not (corrlo <= parscorr[1] <= corrhi):
+            return -np.inf
+
+    return 0.
+
+def lnprior_corrmodel3_rect(parscorr, \
+                            logslo=-50., logshi=10., \
+                            rlo=0., rhi=10., \
+                            corrlo=0., corrhi=1., \
+                            islog10=False):
+
+    """Expresses sanity constraints on [stdx, stdy/stdx, corrxy] as a
+    prior.
+
+Inputs:
+
+    parscorr = [stdx, stdy/stdx, corrxy] parameters of our correlation shape
+    model. 0-3 parameters are parsed, from the left.
+
+    logslo, logshi = minmax values on log10(stdx).
+
+    rlo, rhi = minmax values of stdy/stdx. Evaluated exclusively: rlo < r < rhi
+
+    corrlo, corrhi = minmax values of correlation coefficient
+    rho(x,y). Evaluated inclusively: corrlo <= corr <= corrhi .
+
+    islog10 = stdx argument is supplied as log10(stdx)
+
+    """
+
+    # Most of the syntax here is handling the fact that other routines
+    # have options on the meaning of that first entry, whether it is
+    # stdx or log10(stdx).
+
+    # work out a couple of characteristics up front so that we can
+    # refer to them rather than recalculate:
+    sz = np.size(parscorr)
+    scalar = np.isscalar(parscorr)
+    
+    if sz < 1:
+        return 0.
+
+    # Because we're going to do a couple of checks on the stdx or its
+    # we isolate it first.
+    if scalar:
+        ssx = parscorr
+    else:
+        ssx = parscorr[0]
+
+    # judgement on stdx or log10(stdx). Copy rather than modify
+    # in-place
+    if not islog10:
+        if ssx <= 0.:
+            return -np.inf
+        logsx = np.log10(ssx)
+    else:
+        logsx = ssx
+
+    # now we can finally make our judgement on log10(stdx):
+    if not (logslo <= logsx <= logshi):
+        return -np.inf
+
+    # If only the one entry was provided, and it passed the tests,
+    # then there's nothing more to do.
+    if sz < 2 or scalar:
+        return 0.
+
+    # now apply judgement to the last two entries
+    lnprior_remainder = lnprior_corrmodel2_rect(parscorr[1::], \
+                                                rlo, rhi, corrlo, corrhi)
+
+    return lnprior_remainder
+    
 def sumlnlike(pars, transf, xytarg, covtarg, covextra=0. ):
 
     """Returns sum(log-likelihood) for a single-population model"""
@@ -653,7 +869,8 @@ def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
            addvar=False, nvar=1, fromcorr=False, islog10=False, \
            nnoise=0, mags=np.array([]), \
            methprior=lnprior_unif, \
-           methlike=sumlnlike):
+           methlike=sumlnlike, \
+           methprior_noise=lnprior_noisemodel_rect):
 
     """Evaluates ln(posterior). Takes the method to compute the ln(prior)
 and ln(likelihood) as arguments.
@@ -677,24 +894,47 @@ and ln(likelihood) as arguments.
 
     """
 
-    pars = parsIn
-    covextra = 0.
-    noisepars = np.array([])
-    if addvar:
-        pars, covextra, covok, noisepars = \
-            skimvar(parsIn, xytarg.shape[0], nvar, fromcorr, islog10, \
-                    nnoise, mags)
+    # Split the transformation parameters from noise, etc. parameters.
+    pars, addnoise, addvars = splitmodel(parsIn, nnoise, nvar)
 
-        # If the supplied parameters led to an improper covariance
-        # (correlation coefficient outside the range [-1., 1.], say),
-        # then reject the sample.
-        if not covok:
-            return -np.inf
-        
-    # Evaluate the ln prior
-    lnprior = methprior(pars)
+    # The selection of prior method for the correlation shape should
+    # probably be promoted to the calling method. For the moment we
+    # enforce it here.
+    methprior_corr=lnprior_corrmodel2_rect
+    if nnoise < 1:
+        methprior_corr=lnprior_corrmodel3_rect
+    
+    # Evaluate the prior on the transformation parameter and on any
+    # noise parameters
+    lnprior_transf = methprior(pars)
+    lnprior_noise = methprior_noise(addnoise)
+    lnprior_corr = methprior_corr(addvars)
+
+    lnprior = lnprior_transf + lnprior_noise + lnprior_corr
     if not np.isfinite(lnprior):
         return -np.inf
+
+    # Generate any additional extra covariance.
+    cov_ok = True
+    covextra, cov_ok = extracovar(addnoise, mags, \
+                                  addvars, fromcorr, islog10) 
+
+    ## 2024-08-02 replaced with more targeted routines. Commented out
+    ## for now.    
+    #pars = parsIn
+    #covextra = 0.
+    #noisepars = np.array([])
+    #if addvar:
+    #    pars, covextra, covok = \
+    #        skimvar(parsIn, xytarg.shape[0], nvar, fromcorr, islog10, \
+    #                nnoise, mags)
+
+    #    # If the supplied parameters led to an improper covariance
+    #    # (correlation coefficient outside the range [-1., 1.], say),
+    #    # then reject the sample.
+    #    if not covok:
+    #        return -np.inf
+        
 
     # evaluate ln likelihood
     lnlike = methlike(pars, transf, xytarg, covtarg, covextra) 
@@ -703,9 +943,7 @@ and ln(likelihood) as arguments.
     # parameters. 
     if np.any(np.isnan(lnlike)):
         print("lnprob WARN - at least one NaN entry. Trial params:")
-        print(pars)
-        print(noisepars)
-        # We COULD make this return -np.inf. 
+        print(parsIn)
     
     # return the ln posterior
     return lnprior + lnlike
