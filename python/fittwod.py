@@ -553,6 +553,10 @@ Returns
     extracov = 0.
     cov_ok = True
 
+    # cowardly refuse to proceed further if no parameters given
+    if noisepars.size < 1 and corrpars.size < 1:
+        return extracov, cov_ok
+    
     # generating this from noise model and shape parameters?
     if noisepars.size > 0 and mags.size > 0:
         cov_ok = checknoisepars(noisepars, corrpars)
@@ -564,13 +568,13 @@ Returns
     # if here then we're using the older model in which a single
     # covariance is used fo the entire dataset.
     if fromcorr:
-        addvars, cov_ok = corr32cov3(corrpars, islog10)
+        corrpars, cov_ok = corr32cov3(corrpars, islog10)
 
     # If magnitude data were supplied, use them instead of nrows.
     if mags.size > 0:
         nrows = mags.size
         
-    extracov = cov32covn22(addvars, nrows)
+    extracov = cov32covn22(corrpars, nrows)
     return extracov, cov_ok
             
             
