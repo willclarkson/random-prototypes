@@ -1892,6 +1892,9 @@ def testmcmc_linear(npts=200, \
     #### into a separate data-generation method. Come back to that
     #### later.
 
+    # so that we don't lose the variable later on
+    hinv = np.array([])
+
     if cheat_guess:
         guess = np.copy(fpars)
     else:
@@ -1902,7 +1905,9 @@ def testmcmc_linear(npts=200, \
         # all be nonsingular). 
         wts = np.ones(xyobs.shape[0])
         if wtlsq:
-            wts = wtsfromcovars(covtran, scalebydet=True)
+            # do not scale by det so that the formal covariance will
+            # have meaning.
+            wts = wtsfromcovars(covtran, scalebydet=False)        
 
             print("testmcmc_linear DEBUG: weights:", wts.shape)            
             detwts = np.linalg.det(wts)
@@ -1914,6 +1919,11 @@ def testmcmc_linear(npts=200, \
                         kind=polyfit, \
                         xytarg=xytarg)
 
+        # formal estimate of parameter covariance
+        hinv = np.linalg.inv(LSQ.H)
+        print("testmcmc_linear INFO - inverse of lsstsq hessian:")
+        print(hinv.shape)
+        
         guess = LSQ.pars # We may want to modify or abut the guess.
 
     guessx, guessy = split1dpars(guess)
@@ -2233,7 +2243,7 @@ def testmcmc_linear(npts=200, \
     runargs = {'initial_state':pos, 'nsteps':chainlen, 'progress':True}
     
     showargs = {'slabels':slabels, 'ntau':ntau, 'fpars':fpars, \
-                'guess':guess, 'basis':PFit.kind}
+                'guess':guess, 'basis':PFit.kind, 'lsq_hessian_inv':hinv}
     
     # if multiprocessing, then we'll want to run from the python
     # interpreter.
@@ -2280,7 +2290,8 @@ def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
                 filfig3='test_thinned.png', \
                 filfig2='test_allsamp.png', \
                 filfig4='test_corner.png', \
-                nminclose=20, burnin=-1):
+                nminclose=20, burnin=-1, \
+                lsq_hessian_inv=np.array([])):
 
     """Ported the methods to use the samples into a separate method so
 that we can run this from the interpreter."""
@@ -2330,11 +2341,17 @@ that we can run this from the interpreter."""
     # handle metadata.
     np.save(flatfile, flat_samples)
 
+    # determine the covariance between the parameters
+    parscov = np.cov(flat_samples, rowvar=False)
+    print("fittwod.showsamples INFO - parameter covariance:", parscov.shape)
+    
     # Useful to save run information. For the moment let's just use
     # the labels while I work out what info and how to send...
     with open(argsfile, 'wb') as wobj:
         dwrite={'slabels':slabels, 'fpars':fpars,'guess':guess, \
-                'basis':basis}
+                'basis':basis, \
+                'covpars':parscov, \
+                'lsq_hessian_inv':lsq_hessian_inv}
         pickle.dump(dwrite, wobj)
     
     fig3 = plotsamplescolumn(flat_samples, 3, slabels=slabels)
