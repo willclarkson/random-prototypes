@@ -1127,6 +1127,69 @@ def split1dpars(pars1d=np.array):
     npars = int(np.size(pars1d)/2)
     return pars1d[0:npars], pars1d[npars::]
 
+def splitxypars(pars=np.array([]) ):
+
+    """Given an xy pars array, splits it into two arrays for each of the
+x, y parameters.
+
+Inputs:
+
+    pars = [A_00, A_10, ... , B_00, B_10, ...] parameters
+
+
+Returns:
+
+    parsx = [A_00, A_10, ... ] "x" parameters
+
+    parsy = [B_00, B_10, ... ] "y" parameters
+
+    """
+
+    # Cowardly refuse to split a non-even array
+    szpars = np.size(pars)
+    if szpars % 2 != 0:
+        return np.array([]), np.array([])
+
+    halfsz = int(szpars * 0.5)
+    return pars[0:halfsz], pars[halfsz::]
+
+    
+def scalexyguess(guessxy=np.array([]), simxy=np.array([]) ):
+
+    """Scales initial guesses in x,y parameters by offset from simulation
+x,y parameters, accounting for any differences in degree between the
+two sets.
+
+Inputs:
+
+    guessxy = [A_00, A_10, ... , B_00, B_10, ...] parameters for guess
+
+    simxy = [a_00, a_10, ... , b_00, b_10, ... ] simulated parameters
+
+    """
+
+    # Partition both arrays into x, y sets
+    guessx, guessy = splitxypars(guessxy)
+    simx, simy = splitxypars(simxy)
+
+    # If either of the returned x-arrays have zero length, something
+    # was wrong with the input. Return.
+    if guessx.size < 1 or simx.size < 1:
+        return np.array([])
+    
+    # Because the guessx, simx and guessy, simy arrays now ARE in
+    # increasing order of powers of xy, we can validly compare their
+    # offsets. So treat the x- and y- parameters separately:
+    scalesx = scaleguessbyoffset(guessx, simx)
+    scalesy = scaleguessbyoffset(guessy, simy)
+
+    # Now we abut the two scales arrays back into our 1D
+    # convention. This should ALWAYS be the same length as guess.
+    scalesxy = np.hstack(( scalesx, scalesy ))
+    
+    return scalesxy
+    
+
 def scaleguessbyoffset(guess=np.array([]), pars=np.array([]), \
                        mult=5., defaultscale=1.0e-3, \
                        min_offset=1.0e-50, min_guess=1.0e-50):
@@ -1136,6 +1199,10 @@ range of offsets for walkers from the difference between the guess and
 truth parameters. If the guess has more entries than the simulation
 (e.g. if we are trying to use the 'wrong' model to fit simulated data)
 then argument defaultscale is used.
+
+    WARNING: no parsing at all is done of the entries. They are assumed
+    to have the same meaning in both guess and pars, even if the
+    lengths are different.
 
 Inputs:
 
@@ -1180,7 +1247,7 @@ Returns:
     lboth = np.arange(min([szguess, szpars]) )
     lboth = lboth[np.abs(guesspars[lboth]) > min_guess] 
     guess_scale[lboth] = np.abs( (guesspars[lboth] - simpars[lboth])\
-                                 /guesspars[lboth] )
+                                 /guesspars[lboth] ) * mult
 
     # Do a little checking
     bsmall = (guess_scale < min_offset) | \
@@ -1189,6 +1256,72 @@ Returns:
     guess_scale[bsmall] = defaultscale
 
     return guess_scale
+
+def padxytruths(truthsxy=np.array([]), guessxy=np.array([]) ):
+
+    """Given a 'truthsxy' array of parameters [xpars, ypars] and a guess
+array following the same convention, returns a version of the truths
+array with each of the x, y parameters having the same length as its
+guess counterpart. 
+
+Inputs:
+
+    truthsxy = [A_00, A_10, ..., B_00, B_10, ...] truth parameters
+
+    guessxy  = [a_00, a_10, ..., b_00, b_10, ...] guess parameters
+
+Returns:
+
+    truthsxy_adj = [A_00, A_10, ... , B_00, B_10, ... ] truth
+    parameters of same length as guessxy. Any values in guessxy with
+    no counterparts in truths are assigned None.
+
+    """
+
+    truthsx, truthsy = splitxypars(truthsxy)
+    guessx, guessy = splitxypars(guessxy)
+
+    # If either input has non-even size, return recognizable badvals
+    if np.size(truthsx) < 1 or np.size(guessx) < 1:
+        return np.array([])
+
+    truthsx_adj = padtruths(truthsx, guessx)
+    truthsy_adj = padtruths(truthsy, guessy)
+
+    return np.hstack(( truthsx_adj, truthsy_adj ))
+
+    
+def padtruths(truths=np.array([]), guess=np.array([]) ):
+
+    """Given a 'truths' array and a 'guess' array, returns a version of
+truths that has the same number of elements as 'guess'. If guess is
+larger than truths, the returned truths array is padded with None.
+
+Inputs:
+
+    truths = [M] element array of 'truth' values
+
+    guess = [N] element array of guesses
+
+Returns:
+
+    truths_adj = [N]-element array of truth values, adjusted to the
+    same length as guess.
+
+    """
+
+    sztruths = np.size(truths)
+    szguess = np.size(guess)
+
+    if sztruths == szguess:
+        return np.copy(truths)
+
+    if sztruths > szguess:
+        return truths[0:szguess]
+
+    truths_adj = np.hstack(( truths, np.repeat(None, szguess-sztruths) ))
+    return truths_adj
+    
     
 def labelstransf(transf=None, sx='A', sy='B'):
 
@@ -1859,10 +1992,11 @@ def testmcmc_linear(npts=200, \
     covtran = np.copy(PTruth.covtran)*covscale 
     Ctran = CovarsNx2x2(covtran) # to draw samples
 
-    # initialise the perturbations to zero
+    # Set the perturbations in the observed and target frame, before
+    # any additional noise
     nudgexy = xy * 0.
     nudgexytran = xytran * 0.
-
+    
     if unctysrc:
         nudgexy = Cxy.getsamples()
     if unctytarg:
@@ -1921,7 +2055,9 @@ def testmcmc_linear(npts=200, \
     if addvar and add_noise_model:
         CExtra = makemagcovars(extranoisepars, mags, extranoiseshape)
         nudgexyextra = CExtra.getsamples()
-        
+
+    # Apply the nudges in the observed and target frame to the
+    # positions.
     xyobs  = xy + nudgexy
     xytarg = xytran + nudgexytran + nudgexyextra
 
@@ -1996,10 +2132,15 @@ def testmcmc_linear(npts=200, \
 
     # Set the guess offset scale for the fit parameters
     if not cheat_guess:
-        scaleguess = scaleguessbyoffset(guess, fpars)
+        scaleguess = scalexyguess(guess, fpars)
     else:
-        scaleguess = scaleguessbyoffset(fpars, fpars)
-    
+        scaleguess = scalexyguess(fpars, fpars)
+
+
+    # Ensure the truths array has the same order (and length!) as the
+    # guess array.
+    truths = padxytruths(fpars, guess)
+        
     # Try adjusting the guess scale to cover the offset between our
     # generated parameters and our guess, but not to swamp it. We do
     # this BEFORE we abut any additional noise model parameters onto
@@ -2115,6 +2256,10 @@ def testmcmc_linear(npts=200, \
         scaleguess = np.hstack(( scaleguess, \
                                  np.repeat(0.01, np.size(vguess)) ))
 
+        # Same for the truths array - which now has the same ordering
+        # as the guess array even if the degrees do not match:
+        truths = np.hstack(( truths, var_extra ))
+        
     # Are we going to be fitting with the more general noise model?
     if fit_noise_model:
 
@@ -2142,10 +2287,14 @@ def testmcmc_linear(npts=200, \
         # dimension
         guess = np.hstack(( guess, guessshape, guessnoise ))
         fpars = np.hstack(( fpars, extranoiseshape, extranoisepars ))
+
+        truths = np.hstack(( truths, extranoiseshape, extranoisepars ))
         
+        # 2024-08-05 this is redundant. Comment it out for the moment.
+        #
         # Since we've moved the guess off artificially, we can simply
         # recalculate scaleguess:
-        scaleguess = np.abs((guess-fpars)/guess)
+        # scaleguess = np.abs((guess-fpars)/guess)
 
         
     # now (drumroll) set up the sampler.
@@ -2154,8 +2303,14 @@ def testmcmc_linear(npts=200, \
             extra_is_corr, stdx_is_log, npars_noise, mags)
     ndim = np.size(guess)
 
+    print("testmcmc_linear INFO - fpars:")
+    print(fpars)
+    
     print("testmcmc_linear INFO - guess:")
     print(guess)
+
+    print("testmcmc_linear INFO - truths:")
+    print(truths)
     
     print("testmcmc_linear INFO - |fractional offset| in guess:")
     print(scaleguess)
@@ -2163,7 +2318,7 @@ def testmcmc_linear(npts=200, \
     # with fake data, those are all VERY small - like 1e-7 to 1e-6
     # off. So our scaling is enormous. Try bringing the guessing way
     # down then.
-    scaleguess *= 5. # scale up so we cover the interval and a bit more
+    ##  scaleguess *= 5. # scale up so we cover the interval and a bit more
 
     # consider doing one per component, it should work without adjustment.
     
@@ -2214,7 +2369,10 @@ def testmcmc_linear(npts=200, \
     runargs = {'initial_state':pos, 'nsteps':chainlen, 'progress':True}
     
     showargs = {'slabels':slabels, 'ntau':ntau, 'fpars':fpars, \
-                'guess':guess, 'basis':PFit.kind, 'lsq_hessian_inv':hinv}
+                'truths':truths, \
+                'guess':guess, 'basis':PFit.kind, 'lsq_hessian_inv':hinv, \
+                'basis_gen':PTruth.kind, \
+                'degree_gen':deg, 'degree':degfit}
     
     # if multiprocessing, then we'll want to run from the python
     # interpreter.
@@ -2351,14 +2509,17 @@ def showsimxy(xy=np.array([]), xyobs=np.array([]), \
         ax6.set_ylabel(r'$|V_{\xi\eta}|^{1/4}$')
         
 def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
-                guess=np.array([]), basis='', \
+                guess=np.array([]), \
+                basis='', basis_gen='', \
+                truths=np.array([]), \
                 flatfile='test_flatsamples.npy', \
                 argsfile='test_flatsamples.pickle', \
                 filfig3='test_thinned.png', \
                 filfig2='test_allsamp.png', \
                 filfig4='test_corner.png', \
                 nminclose=20, burnin=-1, \
-                lsq_hessian_inv=np.array([])):
+                lsq_hessian_inv=np.array([]), \
+                degree=-1, degree_gen=-1):
 
     """Ported the methods to use the samples into a separate method so
 that we can run this from the interpreter."""
@@ -2417,6 +2578,7 @@ that we can run this from the interpreter."""
     with open(argsfile, 'wb') as wobj:
         dwrite={'slabels':slabels, 'fpars':fpars,'guess':guess, \
                 'basis':basis, \
+                'truths':truths, \
                 'covpars':parscov, \
                 'lsq_hessian_inv':lsq_hessian_inv}
         pickle.dump(dwrite, wobj)
@@ -2425,11 +2587,27 @@ that we can run this from the interpreter."""
     fig3.savefig(filfig3)
     if flat_samples.shape[-1] > nminclose:
         plt.close(fig3)
+
+    # In preparation for corner plot, ensure truths and samples have
+    # compatible dimensions. This is purely for compatibility, note
+    # that the truths will not generally be asssigned to the correct
+    # parameters if we do this. The most correct way to do this is
+    # probably to send in another array that indicates which of the
+    # input parameters the truths correspond to. That's going to be
+    # annoying.
+    if np.size(truths) < 1:
+        truths = np.copy(fpars)
+        nfit = flat_samples.shape[-1]
+        if truths.size < nfit:
+            fextra = np.repeat(None, nfit - truths.size)
+            truths = np.hstack(( truths, fextra ))
+        if truths.size > nfit:
+            truths = truths[0:nfit]
     
     # Try a corner plot
     fig4 = plt.figure(4, figsize=(9,7))
     fig4.clf()
-    dum4 = corner.corner(flat_samples, labels=slabels, truths=fpars, \
+    dum4 = corner.corner(flat_samples, labels=slabels, truths=truths, \
                          truth_color='b', fig=fig4, labelpad=0.7, \
                          use_math_text=True, \
                          label_kwargs={'fontsize':8, \
@@ -2441,8 +2619,19 @@ that we can run this from the interpreter."""
         ax.tick_params(axis='both', labelsize=5)
     
     # set supertitle
+    ssup=''
+    if len(basis_gen) > 0:
+        ssup = 'Generated: %s' % (basis_gen)
+    if degree_gen > -1:
+        ssup = '%s(%i)' % (ssup, degree_gen)
     if len(basis) > 0:
-        fig4.suptitle('Basis: %s' % (basis))
+        ssup = '%s Fit: %s' % (ssup, basis)
+    if degree < -1:
+        ssup = '%s(%i)' % (ssup, degree)
+
+    if len(ssup) > 0:
+        fig4.suptitle(ssup)
+        
     fig4.savefig(filfig4)
 
     # if lots of figure panels, close the figure
