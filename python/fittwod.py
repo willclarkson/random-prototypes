@@ -2511,7 +2511,7 @@ def showsimxy(xy=np.array([]), xyobs=np.array([]), \
 def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
                 guess=np.array([]), \
                 basis='', basis_gen='', \
-                truths=np.array([]), \
+                truths=None, \
                 flatfile='test_flatsamples.npy', \
                 argsfile='test_flatsamples.pickle', \
                 filfig3='test_thinned.png', \
@@ -2588,21 +2588,6 @@ that we can run this from the interpreter."""
     if flat_samples.shape[-1] > nminclose:
         plt.close(fig3)
 
-    # In preparation for corner plot, ensure truths and samples have
-    # compatible dimensions. This is purely for compatibility, note
-    # that the truths will not generally be asssigned to the correct
-    # parameters if we do this. The most correct way to do this is
-    # probably to send in another array that indicates which of the
-    # input parameters the truths correspond to. That's going to be
-    # annoying.
-    if np.size(truths) < 1:
-        truths = np.copy(fpars)
-        nfit = flat_samples.shape[-1]
-        if truths.size < nfit:
-            fextra = np.repeat(None, nfit - truths.size)
-            truths = np.hstack(( truths, fextra ))
-        if truths.size > nfit:
-            truths = truths[0:nfit]
     
     # Try a corner plot
     fig4 = plt.figure(4, figsize=(9,7))
