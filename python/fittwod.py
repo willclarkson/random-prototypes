@@ -2372,7 +2372,8 @@ def testmcmc_linear(npts=200, \
                 'truths':truths, \
                 'guess':guess, 'basis':PFit.kind, 'lsq_hessian_inv':hinv, \
                 'basis_gen':PTruth.kind, \
-                'degree_gen':deg, 'degree':degfit}
+                'degree_gen':PTruth.pars2x.deg, \
+                'degree':PFit.pars2x.deg}
     
     # if multiprocessing, then we'll want to run from the python
     # interpreter.
