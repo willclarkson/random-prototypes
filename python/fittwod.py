@@ -1442,6 +1442,120 @@ what we're doing
         
     return lextra
 
+def assignnoiseguess(guessnoise=None, guessshape=None, \
+                     simnoise=np.array([]), simshape=np.array([]), \
+                     nudgenoise=0.01, nudgeshape=0.01, mult=5.):
+
+    """Wrapper to either assign noise from input guess or scale it from
+simulated parameters."""
+
+    # assign noise from simulation if guess not given
+    if guessnoise is None:
+        guessnoise, scalesnoise = \
+            guessfromsim(simnoise, nudgenoise, mult)
+    else:
+        scalesnoise = np.repeat(nudgenoise*mult, np.size(guessnoise))
+
+    # assign shape from simulation if guess not given
+    if guessshape is None:
+        guessshape, scalesshape = \
+            guessfromsim(simshape, nudgeshape, mult)
+    else:
+        scalesshape = np.repeat(nudgeshape*mult, np.size(guessshape))
+
+    return guessnoise, guessshape, scalesnoise, scalesshape
+        
+def noiseguessfromsim(parsnoise=np.array([]), \
+                      parsshape=np.array([]), \
+                      nudgenoise=0.01, \
+                      nudgeshape=0.01, \
+                      multscale=5.):
+
+    """Generates guess for noise and shape model by perturbing the
+simulated parameters.
+
+Inputs:
+
+    parsnoise = 1D array of parameters describing the variation of noise stdx with apparent magnitude.
+
+    parsshape = 1D array of parameters describing [stdy/stdx, corrxy]
+
+    nudgenoise = scale of noise perturbations as fraction of values
+
+    nudgeshape = scale of shape perturbations as fraction of values
+
+    multscale = multiple of nudge* to use when generating scale
+    factors for the MCMC initial walker positions
+
+Returns:
+
+    guessnoise = array of 'guesses' for the noise model
+
+    guessshape = array of 'guesses' for the shape model
+
+    scaleguess = array of scale factors for the noise parameters
+
+    """
+
+    # refactored the guess into 1D method again!
+    guessnoise, scalesnoise = \
+        guessfromsim(parsnoise, nudgenoise, multscale)
+    guessshape, scalesshape = \
+        guessfromsim(parsshape, nudgeshape, multscale)
+
+    return guessnoise, guessshape, \
+        np.hstack(( scalesnoise, scalesshape ))
+    
+    ## Note to self: this should all work even if no parameters at all
+    ## were passed.
+    
+    ## Set up the labels for plots
+    #npars_noise = np.size(parsnoise)
+    #npars_extravar = np.size(parsshape)
+
+    ## Set up perturbations on the noise model and shape model
+    #pertnoise = np.random.normal(size=npars_noise)*nudgenoise
+    #guessnoise = parsnoise + pertnoise
+
+    #pertshape = np.random.normal(size=npars_extravar)*nudgeshape
+    #guessshape = parsshape + pertshape
+
+    ## return scale factors for the guesses
+    #scalesnoise = np.repeat(nudgenoise*multscale, guessnoise.size)
+    #scalesshape = np.repeat(nudgeshape*multscale, guessshape.size)
+    #scalesguess = np.hstack(( scalesnoise, scalesshape ))
+    
+    #return guessnoise, guessshape, scalesguess
+
+def guessfromsim(simpars=np.array([]), nudge=0.01, mult=5.):
+
+    """Produces a guess for noise parametrs from simulated parameters.
+
+Inputs:
+
+    simpars = array of noise parameters
+
+    nudge = fraction of parameter value to use when perturbing
+
+    mult = multiple of nudge to use for scale factors
+
+Returns
+
+    guess = array of perturbed initial guess values
+
+    scales = array of scale factors to use when setting walker initial
+    positions using the guess
+
+    """
+
+    sz = np.size(simpars)
+    pert = np.random.normal(size=sz)*nudge
+    guess = simpars + pert
+
+    scales = np.repeat(nudge*mult, sz)
+
+    return guess, scales
+    
 def anycovbad(covars=np.array([]) ):
 
     """Returns True if any of the N,2,2 input covariance planes are
@@ -1913,7 +2027,11 @@ def testmcmc_linear(npts=200, \
                     extranoisepars = [-5.], \
                     extranoiseshape = [], \
                     cheat_guess=False, \
-                    maglo=16., maghi=20., magexpon=2.):
+                    maglo=16., maghi=20., magexpon=2., \
+                    guess_noise_mag=None, \
+                    guess_noise_shape=None, \
+                    nudgenoise = 0.01, \
+                    nudgeshape = 0.01):
 
     """Tests the MCMC approach on a linear transformation.
 
@@ -1945,6 +2063,18 @@ def testmcmc_linear(npts=200, \
     to symmetric noise.
     
     cheat_guess -- use the generating parameters as the guess.
+
+    guess_noise_mag = None --> supplied initial guess for magnitude
+    parameters of extra noise model
+
+    guess_noise_shape = None --> supplied initial guess for shape
+    parameters of extra noise model
+
+    nudgenoise = factor by which to perturb guesses for the noise vs
+    mag model
+
+    nudgeshape = factory by which to perturb guesses for the shape
+    noise model
 
     """
 
@@ -2263,32 +2393,62 @@ def testmcmc_linear(npts=200, \
     # Are we going to be fitting with the more general noise model?
     if fit_noise_model:
 
+        # Initial guess from perturbing the simulated parameters OR
+        # from initial guess supplied when setting this up
+        guessnoise, guessshape, scalesnoise, scalesshape = \
+            assignnoiseguess(guess_noise_mag, \
+                             guess_noise_shape, \
+                             extranoisepars, extranoiseshape, \
+                             nudgenoise, nudgeshape, 5.)
+
+        scaleguess = np.hstack(( scaleguess, scalesnoise, scalesshape ))
+
+        # Ensure the "truth" arrays for the noise model make sense as
+        # guesses
+        # truthsnoise = padtruths(extranoisepars, guessnoise)
+        # truthsshape = padtruths(extranoiseshape, guessshape)
+        
+        # Abut onto our 1D parameter sets for guesses
+        npars_noise = np.size(guessnoise)
+        npars_extravar = np.size(guessshape)
+        labels_extra = labelsnoisemodel(npars_noise, npars_extravar)
+
+        slabels = slabels + labels_extra
+        guess = np.hstack(( guess, guessshape, guessnoise ))
+        fpars = np.hstack(( fpars, extranoiseshape, extranoisepars ))
+
+        # Ensure our 1D master parameter array has the truth entries
+        # in the right places
+        truthsnoise = padtruths(extranoisepars, guessnoise)
+        truthsshape = padtruths(extranoiseshape, guessshape)
+        truths = np.hstack(( truths, truthsnoise, truthsshape ))
+
         # Split points that lnprob will use to unpack the parameters
-        npars_noise = np.size(extranoisepars)
-        npars_extravar = np.size(extranoiseshape)
+        # npars_noise = np.size(extranoisepars)
+        # npars_extravar = np.size(extranoiseshape)
 
         # labels for the model exploration
-        labels_extra = labelsnoisemodel(npars_noise, npars_extravar)
-        slabels = slabels + labels_extra
+        #labels_extra = labelsnoisemodel(npars_noise, npars_extravar)
+        # slabels = slabels + labels_extra
 
         # guess for noise model. Not sure how best to do this, since
         # linear least squares doesn't handle this errors-in-variables
         # situation. If estimating from the generating parameters
         # doesn't work, consider falling back on the minimize method
         # to find the guess.
-        pertnoise = np.random.normal(size=npars_noise)*0.01
-        guessnoise = extranoisepars + pertnoise
+        #pertnoise = np.random.normal(size=npars_noise)*0.01
+        #guessnoise = extranoisepars + pertnoise
 
         # These lines should work even if npars_extravar = 0
-        pertshape = np.random.normal(size=npars_extravar)*0.01
-        guessshape = extranoiseshape + pertshape
+        #pertshape = np.random.normal(size=npars_extravar)*0.01
+        #guessshape = extranoiseshape + pertshape
 
         # We need to ensure the fpars and guess have the correct
         # dimension
-        guess = np.hstack(( guess, guessshape, guessnoise ))
-        fpars = np.hstack(( fpars, extranoiseshape, extranoisepars ))
+        #guess = np.hstack(( guess, guessshape, guessnoise ))
+        #fpars = np.hstack(( fpars, extranoiseshape, extranoisepars ))
 
-        truths = np.hstack(( truths, extranoiseshape, extranoisepars ))
+        #truths = np.hstack(( truths, extranoiseshape, extranoisepars ))
         
         # 2024-08-05 this is redundant. Comment it out for the moment.
         #
