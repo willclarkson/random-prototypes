@@ -1127,6 +1127,69 @@ def split1dpars(pars1d=np.array):
     npars = int(np.size(pars1d)/2)
     return pars1d[0:npars], pars1d[npars::]
 
+def scaleguessbyoffset(guess=np.array([]), pars=np.array([]), \
+                       mult=5., defaultscale=1.0e-3, \
+                       min_offset=1.0e-50, min_guess=1.0e-50):
+
+    """Given initial-guess parameters and simulation parameters, sets the
+range of offsets for walkers from the difference between the guess and
+truth parameters. If the guess has more entries than the simulation
+(e.g. if we are trying to use the 'wrong' model to fit simulated data)
+then argument defaultscale is used.
+
+Inputs:
+
+    guess = [M] element estimate for parameters
+
+    pars = [N] element simulated parameters
+
+    mult = multiple of the |guess - sim| offset to use for the scale
+    factor for each parameter
+
+    defaultscale = default scale factor to use.
+
+    min_offset = minimum offset between guess and scale. If any offset
+    is below this, its scale factor is replaced by defaultscale.
+
+    min_guess = minimum value for input guess (since the offsets are
+    scaled by the guess value). For any guesses below this, the
+    scalefactor is replaced by defaultscale.
+
+Returns:
+
+    guess_scale = [M-] element array of scale factors for the initial
+    guess.
+
+    """
+
+    # Handle possibly scalar input
+    guesspars = np.atleast_1d(guess)
+    simpars = np.atleast_1d(pars)
+    
+    # array (or list) lengths; default return value
+    szguess = np.size(guesspars)
+    szpars = np.size(simpars)
+    guess_scale = guess * 0. + defaultscale
+
+    # Nothing to do if guess or pars has zero length
+    if szguess < 1 or szpars < 1:
+        return guess_scale
+
+    # Abs offset between elements common to both, with nonzero input
+    # guess
+    lboth = np.arange(min([szguess, szpars]) )
+    lboth = lboth[np.abs(guesspars[lboth]) > min_guess] 
+    guess_scale[lboth] = np.abs( (guesspars[lboth] - simpars[lboth])\
+                                 /guesspars[lboth] )
+
+    # Do a little checking
+    bsmall = (guess_scale < min_offset) | \
+        (np.isnan(guess_scale)) | \
+        (np.isinf(guess_scale))
+    guess_scale[bsmall] = defaultscale
+
+    return guess_scale
+    
 def labelstransf(transf=None, sx='A', sy='B'):
 
     """Returns a string of labels for plotting.
@@ -1780,35 +1843,21 @@ def testmcmc_linear(npts=200, \
         print("testmcmc_linear WARN: singular cov planes:", \
               np.sum(findcovsingular(Cxy.covars)) )
         return {}, {}, {}
-        
-    # Use the pattern object to make fake parameters for generating
+
+
+    # Make fake parameters and propagated covariances:
     PM = Patternmatrix(deg, xy[:,0], xy[:,1], kind=polytransf, \
                        orderbypow=True)
     fpars = PM.getfakeparams(scale=scale, seed=seed, expfac=expfac)
     fparsx, fparsy = split1dpars(fpars)
 
-    # Transform the truth postions and covariances
     PTruth = transf(xy[:,0], xy[:,1], Cxy.covars, fparsx, fparsy, \
                     kind=polytransf)
-
     PTruth.propagate()
+    
     xytran = np.copy(PTruth.xytran)
     covtran = np.copy(PTruth.covtran)*covscale 
-
-    # Index labeling
-    #print("Poly labels: i", PTruth.pars2x.i)
-    #print("Poly labels: j", PTruth.pars2x.j)
-
-    #slabels = [r'a_{%i%i}' % \
-    #    (PTruth.pars2x.i[count], PTruth.pars2x.j[count]) for count in range(PTruth.pars2x.i.size)]
-
-    #print(slabels)
-    
-    #return
-    
-    # create covstack object from the target covariances so that we
-    # can draw samples
-    Ctran = CovarsNx2x2(covtran)
+    Ctran = CovarsNx2x2(covtran) # to draw samples
 
     # initialise the perturbations to zero
     nudgexy = xy * 0.
@@ -1826,7 +1875,6 @@ def testmcmc_linear(npts=200, \
     # If we are adding more noise, do so here.
     nudgexyextra = xy * 0.
     npars_extravar = 0 # default, even if not used in the modeling
-
 
     # The two methods I have in mind are complicated but have
     # diverged, so in order to maintain readability, I use two
@@ -1935,108 +1983,31 @@ def testmcmc_linear(npts=200, \
         covsrc *= 0.
     PFit = transf(xyobs[:,0], xyobs[:,1], covsrc, guessx, guessy, \
                   kind=polyfit)
-
-    # ... and the arguments for ln(prob)
-    # args = (PFit, xytarg, covtran)
-
-    # Take a look at the data we generated... do these look
-    # reasonable?
-    fig1 = plt.figure(1, figsize=(9.5,5))
-    fig1.clf()
-    ax1=fig1.add_subplot(231)
-    ax2=fig1.add_subplot(232)
-    ax3=fig1.add_subplot(234)
-    ax4=fig1.add_subplot(235)
-    ax5=fig1.add_subplot(236)
-    ax6=fig1.add_subplot(233)
-
-    fig1.subplots_adjust(wspace=0.3, hspace=0.3, left=0.15, bottom=0.15)
-    
-    blah1=ax1.scatter(xy[:,0], xy[:,1], s=1)
-    blah2=ax2.scatter(xyobs[:,0], xyobs[:,1], c='g', s=1)
-    blah3=ax3.scatter(xytran[:,0], xytran[:,1], s=1)
-    blah4=ax4.scatter(xytarg[:,0], xytarg[:,1], c='g', s=1)
-
-    # Show apparent magnitudes. Rather than show the histogram, now
-    # show std(x) vs mag, color coded by std(y)
-    #blah6=ax6.scatter(mags, np.sqrt(covtran[:,0,0]), \
-    #                  c=np.log10(np.sqrt(covtran[:,1,1])), \
-    #                  alpha=0.8, cmap='viridis', \
-    #                  s=2)
-
-    # update: show the sqrt(det) of the total covariance
-    covres = covtran + covtran
-    dettran = np.linalg.det(covres)**0.25
-    blah61=ax6.scatter(mags, dettran, s=2, label='Covtran', c='b', zorder=2)
-    
-    if CExtra is not None:
-        covext = CExtra.covars
-        detext = np.linalg.det(covext)**0.25
-        detsho = np.linalg.det(covres + covext)**0.25
-        blah62=ax6.scatter(mags, detext, s=2, label='Added', c='r', zorder=4)
-        blah63=ax6.scatter(mags, detsho, s=2, label='Total', c='k', zorder=5)
-
-    leg6=ax6.legend(fontsize=8)
-    
-    ax6.set_yscale('log')
-    ##cb6 = fig1.colorbar(blah6, ax=ax6)
-    #blah6=ax6.hist(mags, bins=25, alpha=0.5)
-    
-    # how about our initial guess parameters...
     PFit.propagate()
-    blah5 = ax4.scatter(PFit.xytran[:,0], PFit.xytran[:,1], \
-                        c='r', s=1)
     
-    # Since we're simulating, we know what the generated parameters
-    # were. Use this to plot the residuals under the truth parameters.
-    fxy = PTruth.xytran - xytarg
+    # Take a look at the data we generated... do these look
+    # reasonable? [Refactored into new method]
+    showsimxy(xy, xyobs, xytran, xytarg, covtran, mags, \
+              CExtra, PFit, PTruth, 1)
 
-    blah5 = ax5.scatter(fxy[:,0], fxy[:,1], s=.1)
-    cc = np.cov(fxy, rowvar=False)
-    sanno = "%.2e, %.2e, %.2e" % (cc[0,0], cc[1,1], cc[0,1])
-    anno5 = ax5.annotate(sanno, (0.05,0.05), \
-                         xycoords='axes fraction', \
-                         ha='left', va='bottom', fontsize=6)
 
-    # Enforce equal aspect ratio for the residuals axes
-    ax5.set_aspect('equal', adjustable='box')
+    # Set up labeling for plots.
+    slabels = labelstransf(PFit.pars2x, 'A', 'B')
+
+    # Set the guess offset scale for the fit parameters
+    if not cheat_guess:
+        scaleguess = scaleguessbyoffset(guess, fpars)
+    else:
+        scaleguess = scaleguessbyoffset(fpars, fpars)
     
-    ax1.set_title('Generated')
-    ax2.set_title('Perturbed')
-    ax3.set_title('Transformed')
-    ax4.set_title('Target')
-    ax5.set_title('Residuals, generated')
-    ax6.set_title(r'Magnitude $m$')
-
-    for ax in [ax1, ax2]:
-        ax.set_xlabel(r'X')
-        ax.set_ylabel(r'Y')
-
-    for ax in [ax3, ax4]:
-        ax.set_xlabel(r'$\xi$')
-        ax.set_ylabel(r'$\eta$')
-
-    ax5.set_xlabel(r'$\Delta \xi$')
-    ax5.set_ylabel(r'$\Delta \eta$')
-
-    ax6.set_xlabel(r'$m$')
-    # ax6.set_ylabel(r'$N(m)$')
-    # ax6.set_ylabel(r'$\sqrt{\sigma_\xi \sigma_\eta}$')
-    ax6.set_ylabel(r'$|V_{\xi\eta}|^{1/4}$')
-
-    fig1.subplots_adjust(wspace=0.4, hspace=0.4)
-
-    # Set up labeling for plots
-    slabels = labelstransf(PTruth.pars2x, 'A', 'B')
-
     # Try adjusting the guess scale to cover the offset between our
     # generated parameters and our guess, but not to swamp it. We do
     # this BEFORE we abut any additional noise model parameters onto
     # the guess.
-    if not cheat_guess:
-        scaleguess = np.abs((guess-fpars)/guess)
-    else:
-        scaleguess = 1.0e-3
+    #if not cheat_guess:
+    #    scaleguess = np.abs((guess-fpars)/guess)
+    #else:
+    #    scaleguess = 1.0e-3
 
     # If we want to fit for additional variance, ensure the guesses
     # etc. are structured so that the MCMC can use them. For the older
@@ -2282,7 +2253,103 @@ def testmcmc_linear(npts=200, \
     # samples = sampler.get_chain()
     #showsamples(sampler, slabels, ntau, fpars, guess)
     showsamples(sampler, **showargs)
+
+def showsimxy(xy=np.array([]), xyobs=np.array([]), \
+              xytran=np.array([]), xytarg=np.array([]), \
+              covtran=np.array([]), \
+              mags=np.array([]), CExtra=None, \
+              PFit=None, PTruth=None, \
+              fignum=1):
+
+    """Show some characteristics of the generated data"""
+
+    # refactored out of testmcmc_linear to try to clean up that method
+
+    fig1 = plt.figure(fignum, figsize=(9.5,5))
+    fig1.clf()
+    ax1=fig1.add_subplot(231)
+    ax2=fig1.add_subplot(232)
+    ax3=fig1.add_subplot(234)
+    ax4=fig1.add_subplot(235)
+    ax5 = None # now set below
+    ax6 = None # now set in a conditional below
     
+    fig1.subplots_adjust(wspace=0.4, hspace=0.4, \
+                         left=0.15, bottom=0.15)
+
+    # generated and perturbed points in original and target frame:
+    blah1=ax1.scatter(xy[:,0], xy[:,1], s=1)
+    blah2=ax2.scatter(xyobs[:,0], xyobs[:,1], c='g', s=1)
+    blah3=ax3.scatter(xytran[:,0], xytran[:,1], s=1)
+    blah4=ax4.scatter(xytarg[:,0], xytarg[:,1], c='g', s=1)
+
+    # Set titles for the first four axes
+    ax1.set_title('Generated')
+    ax2.set_title('Perturbed')
+    ax3.set_title('Transformed')
+    ax4.set_title('Target')
+
+    # Labels for the position plots
+    for ax in [ax1, ax2]:
+        ax.set_xlabel(r'X')
+        ax.set_ylabel(r'Y')
+
+    for ax in [ax3, ax4]:
+        ax.set_xlabel(r'$\xi$')
+        ax.set_ylabel(r'$\eta$')
+
+    
+    # If a fit object has been sent in, use it to show the transformed
+    # positions using the initial guess (or whatever parameters are in
+    # the pfit object):
+    if PFit is not None:
+        blah5 = ax4.scatter(PFit.xytran[:,0], PFit.xytran[:,1], \
+                            c='r', s=1)
+
+    # Show the residuals from truth in the target space on axis 5
+    if PTruth is not None:
+        ax5=fig1.add_subplot(236)
+        fxy = PTruth.xytran - xytarg
+        blah5 = ax5.scatter(fxy[:,0], fxy[:,1], s=.1)
+        cc = np.cov(fxy, rowvar=False)
+        sanno = "%.2e, %.2e, %.2e" % (cc[0,0], cc[1,1], cc[0,1])
+        anno5 = ax5.annotate(sanno, (0.05,0.05), \
+                             xycoords='axes fraction', \
+                             ha='left', va='bottom', fontsize=6)
+
+        # Enforce aspect ratio for residuals plot
+        ax5.set_aspect('equal', adjustable='box')
+        ax5.set_title('Residuals, generated')
+        ax5.set_xlabel(r'$\Delta \xi$')
+        ax5.set_ylabel(r'$\Delta \eta$')
+        
+    # If we have apparent magnitudes, compute and show the uncertainty
+    # wrt magnitude
+    if np.size(mags) > 0:
+        
+        ax6=fig1.add_subplot(233)
+        covres = covtran + covtran
+        dettran = np.linalg.det(covres)**0.25
+        blah61=ax6.scatter(mags, dettran, s=2, \
+                           label='Covtran', c='b', zorder=2)
+
+        # Do we have covariance information for the output frame?
+        if CExtra is not None:
+            covext = CExtra.covars
+            detext = np.linalg.det(covext)**0.25
+            detsho = np.linalg.det(covres + covext)**0.25
+            blah62=ax6.scatter(mags, detext, s=2, label='Added', \
+                               c='r', zorder=4)
+            blah63=ax6.scatter(mags, detsho, s=2, label='Total', \
+                               c='k', zorder=5)
+
+        # ax6 legend is only meaningful if we have magnitudes...
+        leg6 = ax6.legend(fontsize=8)
+        ax6.set_yscale('log')
+        ax6.set_title(r'Magnitude $m$')
+        ax6.set_xlabel(r'$m$')
+        ax6.set_ylabel(r'$|V_{\xi\eta}|^{1/4}$')
+        
 def showsamples(sampler, slabels=[], ntau=10, fpars=np.array([]), \
                 guess=np.array([]), basis='', \
                 flatfile='test_flatsamples.npy', \
