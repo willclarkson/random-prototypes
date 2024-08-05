@@ -2612,22 +2612,25 @@ that we can run this from the interpreter."""
                          use_math_text=True, \
                          label_kwargs={'fontsize':8, \
                                        'rotation':'horizontal'})
-    fig4.subplots_adjust(bottom=0.2, left=0.2)
+    fig4.subplots_adjust(bottom=0.2, left=0.2, top=0.95)
 
     # Try adjusting the label size externally:
     for ax in fig4.get_axes():
         ax.tick_params(axis='both', labelsize=5)
     
-    # set supertitle
+    # Construct supertitle from generation and fit information
     ssup=''
     if len(basis_gen) > 0:
         ssup = 'Generated: %s' % (basis_gen)
     if degree_gen > -1:
-        ssup = '%s(%i)' % (ssup, degree_gen)
+        ssup = '%s (degree %i)' % (ssup, degree_gen)
     if len(basis) > 0:
-        ssup = '%s Fit: %s' % (ssup, basis)
-    if degree < -1:
-        ssup = '%s(%i)' % (ssup, degree)
+        spad = ''
+        if len(ssup) > 0:
+            spad = ' -- '
+        ssup = '%s%s Fit: %s' % (ssup, spad, basis)
+    if degree > -1:
+        ssup = '%s (degree %i)' % (ssup, degree)
 
     if len(ssup) > 0:
         fig4.suptitle(ssup)
