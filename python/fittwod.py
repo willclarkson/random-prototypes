@@ -12,8 +12,6 @@ from multiprocessing import cpu_count, Pool
 
 import numpy as np
 import matplotlib.pylab as plt
-
-# Masked arrays - currently only used for certain plots
 import numpy.ma as ma
 
 import unctytwod
@@ -410,8 +408,7 @@ Returns:
     # If here then the noise model and covariance model parameters
     # both passed the test
     return True
-        
-    
+
 def splitmodel(pars=np.array([]), nnoise=0, nvars=0):
 
     """Split a 1D parameter array into transformation parameters, noise
@@ -1260,6 +1257,62 @@ Returns:
 
     return guess_scale
 
+def padpars(truths=np.array([]), guess=np.array([]), \
+            nnoisetruth=0, nshapetruth=0, \
+            nnoiseguess=0, nshapeguess=0):
+
+    """Given a truths array and a guess array, ensure the indices match
+up. This means unpacking each array into transformation arrays and the
+arrays that communicate the noise model (vs mag) and noise shape,
+updating the entries, then re-packing the results into the correct
+order.
+
+Inputs:
+
+    truths = [transf, noise, shape] array for truths
+
+    guess = [transf, noise, shape] array for guess
+
+    nnoisetruth = number of noise parameters for truth
+
+    nshapetruth = number of shape parameters for truth
+
+    nnoiseguess = number of noise parameters for guess
+
+    nshapeguess = number of shape parameters for guess
+
+Returns:
+
+    scalesret = array of scale factors for MCMC initial guesses
+
+    truthsret = array of 'truth' values with same ordering as guess
+
+    """
+
+    # Step 1: unpack the supplied parameter arrays
+    truthpars, truthnoise, truthshape = \
+        splitmodel(truths, nnoisetruth, nshapetruth)
+
+    guesspars, guessnoise, guessshape = \
+        splitmodel(guess, nnoiseguess, nshapeguess)
+
+    # Step 2: find the offsets and the perturbation scales for the
+    # MCMC walker start positions
+    scalesxy = scalexyguess(guesspars, truthpars)
+    scalesnoise = scaleguessbyoffset(guessnoise, truthnoise)
+    scalesshape = scaleguessbyoffset(guessshape, truthshape)
+    
+    # Step 3: pad the truths for the individual pieces
+    truthsxy = padxytruths(truthpars, guesspars)
+    truthsnoise = padtruths(truthnoise, guessnoise)
+    truthsshape = padtruths(truthshape, guessshape)
+
+    # Step 4: gather the pieces for return
+    scalesret = np.hstack(( scalesxy, scalesnoise, scalesshape ))
+    truthsret = np.hstack(( truthsxy, truthsnoise, truthsshape ))
+
+    return scalesret, truthsret
+    
 def padxytruths(truthsxy=np.array([]), guessxy=np.array([]) ):
 
     """Given a 'truthsxy' array of parameters [xpars, ypars] and a guess
@@ -2035,7 +2088,10 @@ def testmcmc_linear(npts=200, \
                     guess_noise_mag=None, \
                     guess_noise_shape=None, \
                     nudgenoise = 0.01, \
-                    nudgeshape = 0.01):
+                    nudgeshape = 0.01, \
+                    useminimizer=False, \
+                    minimizermethod='Nelder-Mead', \
+                    minimizermaxit=3000):
 
     """Tests the MCMC approach on a linear transformation.
 
@@ -2079,6 +2135,14 @@ def testmcmc_linear(npts=200, \
 
     nudgeshape = factory by which to perturb guesses for the shape
     noise model
+
+    useminimizer = use scipy.optimize.minimize to refine the initial
+    guess
+
+    minimizermethod = if minimizing, the method for the minimizer to
+    use. Recommended choices: 'TNC' or 'Nelder-Mead'
+
+    minimizermaxit = maximum number of iterations for the minimizer
 
     """
 
@@ -2258,7 +2322,7 @@ def testmcmc_linear(npts=200, \
     # Take a look at the data we generated... do these look
     # reasonable? [Refactored into new method]
     showsimxy(xy, xyobs, xytran, xytarg, covtran, mags, \
-              CExtra, PFit, PTruth, 1)
+              CExtra, PFit, PTruth, fignum=1)
 
 
     # Set up labeling for plots.
@@ -2427,39 +2491,11 @@ def testmcmc_linear(npts=200, \
         truthsshape = padtruths(extranoiseshape, guessshape)
         truths = np.hstack(( truths, truthsnoise, truthsshape ))
 
-        # Split points that lnprob will use to unpack the parameters
-        # npars_noise = np.size(extranoisepars)
-        # npars_extravar = np.size(extranoiseshape)
-
-        # labels for the model exploration
-        #labels_extra = labelsnoisemodel(npars_noise, npars_extravar)
-        # slabels = slabels + labels_extra
-
-        # guess for noise model. Not sure how best to do this, since
-        # linear least squares doesn't handle this errors-in-variables
-        # situation. If estimating from the generating parameters
-        # doesn't work, consider falling back on the minimize method
-        # to find the guess.
-        #pertnoise = np.random.normal(size=npars_noise)*0.01
-        #guessnoise = extranoisepars + pertnoise
-
-        # These lines should work even if npars_extravar = 0
-        #pertshape = np.random.normal(size=npars_extravar)*0.01
-        #guessshape = extranoiseshape + pertshape
-
-        # We need to ensure the fpars and guess have the correct
-        # dimension
-        #guess = np.hstack(( guess, guessshape, guessnoise ))
-        #fpars = np.hstack(( fpars, extranoiseshape, extranoisepars ))
-
-        #truths = np.hstack(( truths, extranoiseshape, extranoisepars ))
-        
-        # 2024-08-05 this is redundant. Comment it out for the moment.
-        #
-        # Since we've moved the guess off artificially, we can simply
-        # recalculate scaleguess:
-        # scaleguess = np.abs((guess-fpars)/guess)
-
+    # Ensure the number of "truth" parameters for additional noise are
+    # recorded, they will be needed later. WARNING - this will need to
+    # be updated if we're going to keep our older noise model.
+    ntruths_extranoise = np.size(extranoisepars)
+    ntruths_extrashape = np.size(extranoiseshape)
         
     # now (drumroll) set up the sampler.
     methpost = lnprob
@@ -2467,15 +2503,51 @@ def testmcmc_linear(npts=200, \
             extra_is_corr, stdx_is_log, npars_noise, mags)
     ndim = np.size(guess)
 
+    # Use scipy minimizer to refine the initial guess?
+    if useminimizer:
+        print("testmcmc_linear INFO - refinining initial guess w/optimizer")
+        print("testmcmc_linear INFO - method (maxiter:%i): %s ..." \
+              % (minimizermaxit, minimizermethod))
+
+        # Try specifying the maximum number of iterations
+        options={'maxiter':minimizermaxit}
+        if minimizermethod.find('TNC') > -1:
+            options={'maxfun':minimizermaxit}
+        
+        tm0 = time.time()
+        ufunc = lambda *args: -np.sum(methpost(*args))
+        soln = minimize(ufunc, guess, args=args, \
+                        method=minimizermethod, \
+                        options=options)
+        tm1 = time.time()
+
+        # If the minimizer failed, return and show.
+        if not soln.success:
+            print("testmcmc_linear WARN - minimizer success flag:", \
+                  soln.success)
+            print(soln)
+            return {}, {}, {}
+
+        print("testmcmc_linear INFO - ... done in %.2e seconds." \
+              % (tm1 - tm0) )
+
+        # now update our guess and truths array accordingly.
+        guess = np.copy(soln.x)
+        scaleguess, truths = padpars(fpars, guess, \
+                                     ntruths_extranoise, \
+                                     ntruths_extrashape, \
+                                     npars_noise, \
+                                     npars_extravar)
+
     print("testmcmc_linear INFO - fpars:")
     print(fpars)
-    
-    print("testmcmc_linear INFO - guess:")
-    print(guess)
 
     print("testmcmc_linear INFO - truths:")
     print(truths)
     
+    print("testmcmc_linear INFO - guess:")
+    print(guess)
+
     print("testmcmc_linear INFO - |fractional offset| in guess:")
     print(scaleguess)
     print("^^^^^^")
@@ -2844,6 +2916,10 @@ Inputs:
 
     pathfig = file path to save figure (must contain ".")
 
+    nextramcmc = number of "extra" arguments in mcmc parameters. (For
+    example, might be noise parameters that the lsq array doesn't
+    have).
+
 Returns:
 
     No return quantities. See the figure.
@@ -2872,9 +2948,18 @@ Example call:
 
     # convenience views
     covslsq = dcovs[keylsq]
-    covsmcmc = dcovs[keymcmc]
+    covsmcmc = np.copy(dcovs[keymcmc])
     slabels = dcovs[keylabels]
 
+    # The MCMC may also be exploring noise parameters or mixture model
+    # fractions, which the LSQ approach can't do. In that instance,
+    # take just the model parameters
+    nmcmc = np.shape(covsmcmc)[0]
+    nlsq = np.shape(covslsq)[0]
+    if nmcmc > nlsq:
+        covsmcmc = covsmcmc[0:nlsq, 0:nlsq]
+        slabels = dcovs[keylabels][0:nlsq]
+    
     # Showing a heatmap of one of the quantities
     fig6 = plt.figure(6, figsize=(8,6))
     fig6.clf()
@@ -2886,23 +2971,40 @@ Example call:
     # don't. (Kept out as a separate quantity in case we want to add
     # more conditions here.)
     showtxt = log
+
+    # fontsize for annotations
+    fontsz=5
+    if covsmcmc.shape[0] < 10:
+        fontsz=6
     
     showheatmap(covsmcmc, slabels, ax=ax61, fig=fig6, \
                 log=log, sqrt=sqrt, \
                 cmap='viridis_r', title='MCMC', \
-                showtext=showtxt)
+                showtext=showtxt, fontsz=fontsz)
     showheatmap(covslsq, slabels, ax=ax62, fig=fig6, \
                 log=log, sqrt=sqrt, \
-                cmap='viridis_r', title='LSQ', showtext=showtxt)
+                cmap='viridis_r', title='LSQ', \
+                showtext=showtxt, fontsz=fontsz)
 
-    # find the fractional difference
+    # find the fractional difference. The mcmc has already been cut
+    # down to match the lsq length above, so if the arrays still
+    # mismatch their lengths then something is wrong with the input.
     fdiff = (covslsq - covsmcmc)/covsmcmc
     titlediff = r'(LSQ - MCMC)/MCMC'
-    showheatmap(fdiff, slabels, ax=ax63, fig=fig6, log=False, \
+    showheatmap(fdiff, slabels[0:nlsq], ax=ax63, fig=fig6, log=False, \
                 cmap='RdBu_r', title=titlediff, showtext=True, \
                 symmetriclimits=True, symmquantile=0.99, \
-                fontcolor='#D86018')
+                fontcolor='#D86018', fontsz=fontsz)
 
+    # Warn on the plots if more mcmc parameters were supplied than
+    # used. In all the use cases these should be noise parameters that
+    # the LSQ covariances don't have.
+    if nmcmc > nlsq:
+        ax61.annotate('MCMC params ignored: %i' % (nmcmc-nlsq), \
+                      (0.97,0.97), xycoords='axes fraction', \
+                      ha='right', va='top', fontsize=8, \
+                      color='#9A3324')
+    
     # save figure to disk?
     if len(pathfig) > 0:
         if pathfig.find('.') > 0:
@@ -2928,7 +3030,9 @@ Inputs:
 
     arr = [M,M] array of quantities to plot
 
-    labels = [M] length array or list of quantity labels
+    labels = [M] length array or list of quantity labels. If there are
+    more labels than datapoints, only 0:M are included. This may not
+    be what you want.
 
     ax = axis on which to draw the plot
 
@@ -3014,19 +3118,23 @@ Outputs:
 
     # Ensure labels are set, assuming symmetry
     ncov = np.shape(arrsho)[0]
-    if np.size(labels) != ncov:
-        labels = ['p%i' for i in range(ncov)]
+    nlab = np.size(labels)
+
+    if nlab < ncov:
+        labls = ['p%i' % (i) for i in range(ncov)]
+    else:
+        labls = labels[0:ncov]        
 
     # Now set up the ticks
     ax.set_xticks(np.arange(ncov))
     ax.set_yticks(np.arange(ncov))
-    ax.set_xticklabels(labels)
-    ax.set_yticklabels(labels)
+    ax.set_xticklabels(labls)
+    ax.set_yticklabels(labls)
 
     # Text annotations (this might be messy)
     if showtext:
-        for i in range(len(labels)):
-            for j in range(len(labels)):
+        for i in range(len(labls)):
+            for j in range(len(labls)):
                 if arrsho[i,j] is ma.masked:
                     continue
                 
