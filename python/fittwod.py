@@ -940,13 +940,30 @@ Outputs:
     if not np.isscalar(pbad):
         fbad = pbad[0]
 
-    # Heuristic to avoid bounds problems
+    # Heuristic to get round bounds problems with very small supplied
+    # fraction
     if islog10:
         if fbad < minlog10fbad:
-            return -np.inf
+            return 0.
 
         fbad = 10.0**fbad
-            
+
+    # if supplied is outside the range 0-1, return badval
+    if fbad < 0. or fbad > 1.:
+        return -np.inf
+        
+    # if supplied is very close to 0 or very close to 1, return the
+    # value that ln(prior) would return at those values were it not
+    # for bounds issues.
+    if np.abs(fbad) < 1.0e-50:
+        return 0.
+
+    if np.abs(fbad-1.) < 1.0e-50:
+        return 0.
+
+    # If we got here, then we finally have fbad that won't produce
+    # bounds violations! Compute and return the actual prior we want...
+    
     lnprior = (1.0-fbad)*np.log(1.0-fbad) + fbad * np.log(fbad)
     return lnprior * ndata
         
@@ -982,7 +999,7 @@ Returns:
 
     # Handle the mixture fraction.
     if islog10frac:
-        # if supplied as log10(fraction), must be negative
+        # if supplied as log10(fraction), must be negative.
         if fbad > 0:
             return -np.inf
     else:
@@ -996,8 +1013,8 @@ Returns:
     # prior on the mixture model fraction
     lnprior_mixfrac = lnprior_binomial_mixfrac(fbad, ndata, islog10frac)
 
-    # currently the mixture model fraction is the only model parameter
-    # we have... Others would be added here.
+    # currently the mixture model fraction is the only mixture model
+    # parameter we have... Others would be added here.
     lnprior = lnprior_mixfrac
     
     return lnprior
@@ -1071,6 +1088,22 @@ def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
     """Evaluates ln(posterior). Takes the method to compute the ln(prior)
 and ln(likelihood) as arguments.
 
+Inputs:
+
+    parsIn = 1D array of model parameters, in the order [transfxy,
+    noise, shape, mixture]
+
+    transf = object with methods for performing the transformation and
+    source covariances. The actual datapoints in the source frame and
+    the covariances in that frame are included in this object, as
+    attributes transf.x, transf.y, transf.covxy . 
+
+    xytarg = [N,2] array of positions in the target frame onto which
+    we are trying to map our inputs.
+
+    covtarg = [N,2,2] array of covariances associated with the target
+    positions.
+
     addvar [T/F] = interpret the [-1]th parameter as extra variance to
     be added in both target dimensions equally.
 
@@ -1095,6 +1128,10 @@ and ln(likelihood) as arguments.
     methprior_mixmod = method for evaluating prior on mixture model
 
     nmix = number of parameters describing mixture model
+
+Returns:
+
+    lnprob = ln(posterior probability)
 
     """
 
