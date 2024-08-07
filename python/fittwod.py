@@ -943,6 +943,9 @@ Outputs:
     # Heuristic to get round bounds problems with very small supplied
     # fraction
     if islog10:
+        if fbad > 0.:
+            return -np.inf
+        
         if fbad < minlog10fbad:
             return 0.
 
@@ -997,20 +1000,7 @@ Returns:
     else:
         fbad = parsmix[0]
 
-    # Handle the mixture fraction.
-    if islog10frac:
-        # if supplied as log10(fraction), must be negative.
-        if fbad > 0:
-            return -np.inf
-    else:
-        # if supplied as fraction, must be [0 <= f <= 1]
-        if fbad < 0.:
-            return -np.inf
-        if fbad > 1.:
-            return -np.inf
-
-    # if we got here then our parameters are OK. Evaluate the binomial
-    # prior on the mixture model fraction
+    # Evaluate the binomial prior on the mixture model fraction
     lnprior_mixfrac = lnprior_binomial_mixfrac(fbad, ndata, islog10frac)
 
     # currently the mixture model fraction is the only mixture model
@@ -1018,7 +1008,57 @@ Returns:
     lnprior = lnprior_mixfrac
     
     return lnprior
-    
+
+def lnprior_mixmod_rect(parsmix=np.array([]), islog10frac=False):
+
+    """Enforces validity constraints on mixture model parameters but nothing else. 
+
+Some sources refer to the mixture fractions as prior components. This
+tends to mean evaluating logsumexp of the mixture inside the
+"likelihood" function. That's I think the correct way to do things but
+it can be confusing. This function applies the validity check to the
+mixmod parameters before we do anything to them.
+
+If *any* parameters are bad, this returns -np.inf. Otherwise returns
+0.
+
+Inputs:
+
+    parsmix = input mixture parameters. Order [fbad, ...]
+
+    islog10frac = fbad supplied as log10
+
+Returns:
+
+    lnprior(pars) = ln(prior) enforcing only validity constraints.
+
+    """
+
+    # If no parameters, say nothing about the prior.
+    if np.size(parsmix) < 1:
+        return 0.
+
+    # Allow scalar input
+    if np.isscalar(parsmix):
+        fbad = parsmix
+    else:
+        fbad = parsmix[0]
+
+    # if fbad supplied as log10, cannot be positive. 
+    if islog10frac:
+        # if fbad supplied as log10, it cannot be positive.
+        if fbad > 0.:
+            return -np.inf
+    else:
+
+        # if a fraction, must have [0. <= fbad <= 1.]
+        if fbad < 0. or fbad > 1.:
+            return -np.inf
+
+    # If we reached this point then our prior parameters do not
+    # violate the conditions we set above.
+    return 0.
+        
 def sumlnlike(pars, transf, xytarg, covtarg, covextra=0. ):
 
     """Returns sum(log-likelihood) for a single-population model"""
@@ -1082,7 +1122,7 @@ def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
            methprior=lnprior_unif, \
            methlike=sumlnlike, \
            methprior_noise=lnprior_noisemodel_rect, \
-           methprior_mixmod=lnprior_mixmod_binomial, \
+           methprior_mixmod=lnprior_mixmod_rect, \
            nmix=0):
 
     """Evaluates ln(posterior). Takes the method to compute the ln(prior)
@@ -1162,7 +1202,7 @@ Returns:
     covextra, cov_ok = extracovar(addnoise, mags, \
                                   addvars, fromcorr, islog10) 
 
-    # evaluate ln likelihood
+    # evaluate ln likelihood.
     lnlike = methlike(pars, transf, xytarg, covtarg, covextra) 
 
     # If this is about to return nan, provide a warning and show the
