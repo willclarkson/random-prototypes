@@ -391,7 +391,8 @@ returns array [vx, vy, vxy] for use by cov32covn22. Inputs:
 
 def checkcorrpars(addcorr=np.array([]), islog10=False):
 
-    """Utility - given [stdx, stdy/stdx, corrxy], determines if the supplied parameters violate positivity and other constraints. Inputs:
+    """Utility - given [stdx, stdy/stdx, corrxy], determines if the
+supplied parameters violate positivity and other constraints. Inputs:
 
     addcorr = [3]-element array of parameters
 
@@ -934,6 +935,9 @@ Outputs:
 
     """
 
+    # COMMENT 2024-08-07 - this should really return two entries, one
+    # for foreground, one for background.
+    
     # Just a little parsing (we use fbad not pbad to avoid changing
     # things upstream)
     fbad = np.copy(pbad)
