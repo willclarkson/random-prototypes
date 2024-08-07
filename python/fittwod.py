@@ -1065,6 +1065,7 @@ def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
            methprior=lnprior_unif, \
            methlike=sumlnlike, \
            methprior_noise=lnprior_noisemodel_rect, \
+           methprior_mixmod=lnprior_mixmod_binomial, \
            nmix=0):
 
     """Evaluates ln(posterior). Takes the method to compute the ln(prior)
@@ -1087,6 +1088,12 @@ and ln(likelihood) as arguments.
     
     mags = array of apparent magnitudes
 
+    methprior = method for evaluating prior on transformation parameters
+
+    methprior_noise = method for evaluating prior on noise vs mag model
+    
+    methprior_mixmod = method for evaluating prior on mixture model
+
     nmix = number of parameters describing mixture model
 
     """
@@ -1107,8 +1114,9 @@ and ln(likelihood) as arguments.
     lnprior_transf = methprior(pars)
     lnprior_noise = methprior_noise(addnoise)
     lnprior_corr = methprior_corr(addvars)
+    lnprior_mixmod = methprior_mixmod(addmix)
 
-    lnprior = lnprior_transf + lnprior_noise + lnprior_corr
+    lnprior = lnprior_transf + lnprior_noise + lnprior_corr + lnprior_mixmod
     if not np.isfinite(lnprior):
         return -np.inf
 
