@@ -8,7 +8,11 @@
 # 
 
 import os, time, pickle
-from multiprocessing import cpu_count, Pool
+
+# 2024-08-07 commented THIS import out since we don't call
+# multiprocessing from within this module any more.
+#
+# from multiprocessing import cpu_count, Pool 
 
 import numpy as np
 import matplotlib.pylab as plt
@@ -896,6 +900,107 @@ Inputs:
                                                 rlo, rhi, corrlo, corrhi)
 
     return lnprior_remainder
+
+def lnprior_binomial_mixfrac(pbad=0., ndata=1., islog10=False, \
+                             minlog10fbad=-90.):
+
+    """Computes the binomial prior on the mixture fraction pbad, using the
+following:
+
+    ln(prior) = sum_i q_i ln(1-pbad) + sum_i (1-q_i) ln(pbad)
+
+which, since q_i = 1 for "good" and q_i=0 for "bad" points, simplifies to
+
+    ln(prior) = ndata x ( (1-pbad) ln(1-pbad) + pbad ln (pbad) )
+
+where ndata is the number of datapoints (so nbad = ndata x pbad).
+
+
+
+Inputs:
+
+    pbad = mixture amplitude for the "bad" points. Assumed (0 < pbad < 1.)
+
+    ndata = size of the data sample (defaults to 1. if not set)
+
+    islog10 = log10(pbad) supplied instead of pbad
+
+    minlog10fbad = minimum value of log10(fbad) to count as
+    nonzero. Heuristic to avoid bounds problems later on.
+
+Outputs:
+
+    ln_prob_fmix = evaluation of the prior
+
+    """
+
+    # Just a little parsing (we use fbad not pbad to avoid changing
+    # things upstream)
+    fbad = np.copy(pbad)
+    if not np.isscalar(pbad):
+        fbad = pbad[0]
+
+    # Heuristic to avoid bounds problems
+    if islog10:
+        if fbad < minlog10fbad:
+            return -np.inf
+
+        fbad = 10.0**fbad
+            
+    lnprior = (1.0-fbad)*np.log(1.0-fbad) + fbad * np.log(fbad)
+    return lnprior * ndata
+        
+def lnprior_mixmod_binomial(parsmix=np.array([]), islog10frac=False, ndata=1):
+
+    """ln-prior on mixture model parameters, including a binomial prior on
+the mixture fraction (see docstring for lnprior_binomial_mixfrac for
+more information on the binomial prior).
+
+Inputs:
+
+    parsmix = [fbad] - model parameters for mixture model. 
+
+    islogfrac = fraction supplied as log10(fraction)
+
+    ndata = number of datapoints. If not supplied, defaults to 1.
+
+Returns:
+
+    lnprior_mix = ln(prior) of mixture model.
+
+    """
+
+    # If no parameters, say nothing about the prior.
+    if np.size(parsmix) < 1:
+        return 0.
+
+    # Allow scalar input
+    if np.isscalar(parsmix):
+        fbad = parsmix
+    else:
+        fbad = parsmix[0]
+
+    # Handle the mixture fraction.
+    if islog10frac:
+        # if supplied as log10(fraction), must be negative
+        if fbad > 0:
+            return -np.inf
+    else:
+        # if supplied as fraction, must be [0 <= f <= 1]
+        if fbad < 0.:
+            return -np.inf
+        if fbad > 1.:
+            return -np.inf
+
+    # if we got here then our parameters are OK. Evaluate the binomial
+    # prior on the mixture model fraction
+    lnprior_mixfrac = lnprior_binomial_mixfrac(fbad, ndata, islog10frac)
+
+    # currently the mixture model fraction is the only model parameter
+    # we have... Others would be added here.
+    lnprior = lnprior_mixfrac
+    
+    return lnprior
     
 def sumlnlike(pars, transf, xytarg, covtarg, covextra=0. ):
 
@@ -1011,23 +1116,6 @@ and ln(likelihood) as arguments.
     cov_ok = True
     covextra, cov_ok = extracovar(addnoise, mags, \
                                   addvars, fromcorr, islog10) 
-
-    ## 2024-08-02 replaced with more targeted routines. Commented out
-    ## for now.    
-    #pars = parsIn
-    #covextra = 0.
-    #noisepars = np.array([])
-    #if addvar:
-    #    pars, covextra, covok = \
-    #        skimvar(parsIn, xytarg.shape[0], nvar, fromcorr, islog10, \
-    #                nnoise, mags)
-
-    #    # If the supplied parameters led to an improper covariance
-    #    # (correlation coefficient outside the range [-1., 1.], say),
-    #    # then reject the sample.
-    #    if not covok:
-    #        return -np.inf
-        
 
     # evaluate ln likelihood
     lnlike = methlike(pars, transf, xytarg, covtarg, covextra) 
