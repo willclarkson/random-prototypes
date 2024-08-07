@@ -253,6 +253,78 @@ plane is computed from the model
 
     return stdxs2covn22(stdxs, parscov)
 
+def covn222cov3(covn22=np.array([]) ):
+
+    """Utility - given [N,2,2] covariance matrix, returns [vx, vy, vxy] as
+[N,3] array.
+
+Inputs:
+
+    covn22 = [N,2,2] covariance matrix stack
+
+Returns:
+
+    covn3 = [N,3] array [vxx, vyy, vxy]
+
+    """
+
+    # Must be a 3d array. For the moment we enforce this rather than
+    # reshaping the input to be 3d.
+    if np.ndim(covn22) != 3:
+        return np.array([])
+
+    nrows = np.shape(covn22)[0]
+    covn3 = np.zeros((nrows, 3))
+
+    covn3[:,0] = covn22[:,0,0]
+    covn3[:,1] = covn22[:,1,1]
+    covn3[:,2] = covn22[:,0,1]
+
+    return covn3
+
+def covn32covn22(covn3=np.array([]) ):
+
+    """Utility - given [N, 3] array of vxx, vyy, vxy values, returns an
+N,2,2 covariance mtarix stack.
+
+Inputs:
+
+    covn3 = [N,3] array of [vxx, vyy, vxy values]
+
+Returns:
+
+    covn22 = [N,2,2] array of covariances
+
+    """
+
+    # Possibly redundant with cov32covn22 provided the input is first
+    # transposed then the output transposed again, thus taking
+    # advantage of numpy broadcasting rules. BUT this present method
+    # does do the one thing it needs to do, so we retain it.
+
+    # np.atleast_2d adds the newaxis to the end, I want it at the
+    # beginning. So we do this the other way. Not sure we don't want
+    # this just to outright fail if our supposed [N,3] array was
+    # passed as a scalar... but the below should still work.
+    if np.ndim(covn3) < 2:
+        if np.isscalar(covn3):
+            covn3 = np.array([covn3])
+        covn3 = covn3[:, None]        
+
+    # Now finally the operations on our [N, <=3] array can happen.
+    nrows, ncols = np.shape(covn3)
+    covn22 = np.zeros((nrows, 2, 2))
+    covn22[:,0,0] = covn3[:,0]
+    if ncols < 2:
+        covn22[:,1,1] = covn22[:,0,0]
+    else:
+        covn22[:,1,1] = covn3[:,1]
+        if ncols > 2:
+            covn22[:,0,1] = covn3[:,2]
+            covn22[:,1,0] = covn22[:,0,1]
+            
+    return covn22
+
 def cov32covn22(addvars=np.array([]), nrows=1, covn22=np.array([]) ):
 
     """Utility - populates [N,2,2] covariance matrix from entries of [vx,
@@ -312,7 +384,7 @@ returns array [vx, vy, vxy] for use by cov32covn22. Inputs:
     addcov = corr2cov1d(addcorr)
 
     return addcov, cov_ok
-    
+
 def checkcorrpars(addcorr=np.array([]), islog10=False):
 
     """Utility - given [stdx, stdy/stdx, corrxy], determines if the supplied parameters violate positivity and other constraints. Inputs:
@@ -409,7 +481,7 @@ Returns:
     # both passed the test
     return True
 
-def splitmodel(pars=np.array([]), nnoise=0, nvars=0):
+def splitmodel(pars=np.array([]), nnoise=0, nvars=0, nmix=0):
 
     """Split a 1D parameter array into transformation parameters, noise
 model parameters, and covariance parameters. (It's probably better to
@@ -417,7 +489,14 @@ use splitpars(), which this method calls and which is more flexible.)
 
 Inputs:
 
-    pars = [M + nnoise + nvars] 1D array with the parameters
+    pars = [M + nnoise + nvars + nmix] 1D array with the parameters
+
+    nnoise = number of parameters describing the variation of noise stdx with apparent magnitude
+
+    nvars = number of parameters describing the shape of the noise
+    (stdy/stdx, corrxy)
+
+    nmix = number of parameters describing the mixture model
 
 Returns:
 
@@ -427,10 +506,12 @@ Returns:
 
     covar = [nvars] array of variance shape parameters
 
+    mixt = [nmix] array of mixture model parameters
+
     """
 
-    transf, lsplit = splitpars(pars, [nnoise, nvars])
-    return transf, lsplit[0], lsplit[1]
+    transf, lsplit = splitpars(pars, [nnoise, nvars, nmix])
+    return transf, lsplit[0], lsplit[1], lsplit[2]
 
 def splitpars(pars, nsplit=[] ):
 
@@ -579,7 +660,8 @@ Returns
             
             
 def skimvar(pars, nrows, npars=1, fromcorr=False, islog10=False, \
-            nnoise=0, mags=np.array([]) ):
+            nnoise=0, mags=np.array([]), \
+            nmix=0):
 
     """Utility - if an additive variance is included with the parameters,
 split it off from the parameters, returning the parameters and an
@@ -605,6 +687,8 @@ Inputs:
 
     mags = [N-element] array with magnitude values. Used to produce the covariance from the noise model
 
+    nmix = number of parameters describing the mixture model
+
 Returns: 
 
     pars[M] = transformation parameters only
@@ -624,7 +708,8 @@ be used.
     """
 
     # split the input parameters into the pieces we want:
-    parsmodel, addnoise, addvars = splitmodel(pars, nnoise, npars)
+    parsmodel, addnoise, addvars, addmix = \
+        splitmodel(pars, nnoise, npars, nnmix)
     
     # Status flag. If we're doing additional translation of the input
     # covariance forms, we might violate the prior. Set a flag to
@@ -874,7 +959,8 @@ def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
            nnoise=0, mags=np.array([]), \
            methprior=lnprior_unif, \
            methlike=sumlnlike, \
-           methprior_noise=lnprior_noisemodel_rect):
+           methprior_noise=lnprior_noisemodel_rect, \
+           nmix=0):
 
     """Evaluates ln(posterior). Takes the method to compute the ln(prior)
 and ln(likelihood) as arguments.
@@ -896,10 +982,13 @@ and ln(likelihood) as arguments.
     
     mags = array of apparent magnitudes
 
+    nmix = number of parameters describing mixture model
+
     """
 
     # Split the transformation parameters from noise, etc. parameters.
-    pars, addnoise, addvars = splitmodel(parsIn, nnoise, nvar)
+    pars, addnoise, addvars, addmix = \
+        splitmodel(parsIn, nnoise, nvar, nmix)
 
     # The selection of prior method for the correlation shape should
     # probably be promoted to the calling method. For the moment we
@@ -1259,7 +1348,8 @@ Returns:
 
 def padpars(truths=np.array([]), guess=np.array([]), \
             nnoisetruth=0, nshapetruth=0, \
-            nnoiseguess=0, nshapeguess=0):
+            nnoiseguess=0, nshapeguess=0, \
+            nmixtruth=0, nmixguess=0):
 
     """Given a truths array and a guess array, ensure the indices match
 up. This means unpacking each array into transformation arrays and the
@@ -1281,6 +1371,10 @@ Inputs:
 
     nshapeguess = number of shape parameters for guess
 
+    nmixtruth = number of mixture model parameters for truth
+
+    nmixguess = number of mixture model parameters for guess
+
 Returns:
 
     scalesret = array of scale factors for MCMC initial guesses
@@ -1290,12 +1384,14 @@ Returns:
     """
 
     # Step 1: unpack the supplied parameter arrays
-    truthpars, truthnoise, truthshape = \
-        splitmodel(truths, nnoisetruth, nshapetruth)
+    truthpars, truthnoise, truthshape, truthmix = \
+        splitmodel(truths, nnoisetruth, nshapetruth, nmixtruth)
 
-    guesspars, guessnoise, guessshape = \
-        splitmodel(guess, nnoiseguess, nshapeguess)
+    guesspars, guessnoise, guessshape, guessmix = \
+        splitmodel(guess, nnoiseguess, nshapeguess, nmixguess)
 
+    # 2024-08-07 nothing done with the mixture parameters yet.
+    
     # Step 2: find the offsets and the perturbation scales for the
     # MCMC walker start positions
     scalesxy = scalexyguess(guesspars, truthpars)
@@ -2091,7 +2187,8 @@ def testmcmc_linear(npts=200, \
                     nudgeshape = 0.01, \
                     useminimizer=False, \
                     minimizermethod='Nelder-Mead', \
-                    minimizermaxit=3000):
+                    minimizermaxit=3000, \
+                    pathwritedata='test_simdata.xyxy'):
 
     """Tests the MCMC approach on a linear transformation.
 
@@ -2143,6 +2240,8 @@ def testmcmc_linear(npts=200, \
     use. Recommended choices: 'TNC' or 'Nelder-Mead'
 
     minimizermaxit = maximum number of iterations for the minimizer
+
+    pathwritedata = path to export simulated data
 
     """
 
@@ -2259,6 +2358,10 @@ def testmcmc_linear(npts=200, \
     xyobs  = xy + nudgexy
     xytarg = xytran + nudgexytran + nudgexyextra
 
+    # At this point we have our perturbed data. Try writing it to disk
+    if len(pathwritedata) > 3:
+        writesimdata(pathwritedata, xyobs, xytarg, Cxy.covars, covtran)
+    
     # check the nudges
     if checknudge:
         print("Nudge DEBUG:")
@@ -2531,6 +2634,9 @@ def testmcmc_linear(npts=200, \
         print("testmcmc_linear INFO - ... done in %.2e seconds." \
               % (tm1 - tm0) )
 
+        print("testmcmc_linear INFO - pre-minimizer guess:")
+        print(guess)
+        
         # now update our guess and truths array accordingly.
         guess = np.copy(soln.x)
         scaleguess, truths = padpars(fpars, guess, \
@@ -2649,6 +2755,141 @@ def testmcmc_linear(npts=200, \
     #showsamples(sampler, slabels, ntau, fpars, guess)
     showsamples(sampler, **showargs)
 
+    
+    
+def writesimdata(pathout='test_simdata.dat', \
+                 xyobs=np.array([]), xytarg=np.array([]), \
+                 covsrc=np.array([]), covtran=np.array([]), \
+                 mismatch=np.array([]) ):
+
+    """Writes simulated data pairs to disk. Output columns:
+
+    xobs yobs xtarg ytarg vxxobs vyyobs vxyobs vxxtarg vyytarg vxytarg
+    mismatch
+
+    with missing values filled in with zeros.
+
+    Parsing is rather rudimentary: currently the shape of the xyobs
+    array is always used to determine how long the output should be.
+
+Inputs:
+
+    pathout = path to output file.
+
+    xyobs = [N,2] array of x, y positions in the source frame
+
+    xytarg = [N,2] array of positions in the target frame
+
+    covsrc = [N,2,2] array of covariances in the source frame
+
+    covtarg = [N,2,2] array of covariances in the target frame
+
+    mismatch = [N] array (1 if mismatch, 0 otherwise)
+
+Returns:
+
+    No return
+
+    """
+
+    # Nothing to do if no valid path given
+    if len(pathout) < 3:
+        return
+
+    if pathout.find('.') < 0:
+        return
+
+    # use xyobs to set the expected size of the output. (Note:
+    # np.ndim(np.array([])) = 1.)
+    if np.ndim(xyobs) < 2:
+        print("writesimdata FATAL - xyobs must be 2D array.")
+        return
+    nrows = np.shape(xyobs)[0]
+
+    # we put all the input into a single 2D array for output by
+    # numpy's savetxt method. 
+    aout = np.copy(xyobs)
+
+    # Now we stack on each provided quantity in turn. First the xy
+    # positions in the target frame:
+    add_xytarg = np.zeros((nrows, 2))
+    if np.ndim(xytarg) is 2:
+        if np.shape(xytarg)[0] is nrows:
+            add_xytarg = xytarg
+
+    # Then the covariance components in the source frame:
+    add_covsrc = np.zeros((nrows, 3))
+    if np.ndim(covsrc) is 3:
+        if np.shape(covsrc)[0] is nrows:
+            add_covsrc = covn222cov3(covsrc)
+
+    # then the covariance in the target frame:
+    add_covtran = np.zeros((nrows, 3))
+    if np.ndim(covtran) is 3:
+        if np.shape(covtran)[0] is nrows:
+            add_covtran = covn222cov3(covtran)
+
+    # Finally a mismatches flag
+    add_mismatch = np.zeros((nrows))
+    if np.size(mismatch) is nrows:
+        add_mismatch = mismatch
+
+    # stack all at once
+    aout = np.column_stack((aout, add_xytarg, \
+                            add_covsrc, add_covtran, \
+                            add_mismatch))
+
+    # This is only going to be read from within this module, so we
+    # don't need to make the output too flexible. For the moment, just
+    # output a string with the column names to the header.
+    sheader = 'xobs yobs xtarg ytarg vxxobs vyyobs vxyobs vxxtran vyytran vxytran mismatch'
+    np.savetxt(pathout, aout, header=sheader)
+    
+def loadsimdata(pathdata=''):
+
+    """Loads simulation data: positions and covariances in source and
+target frames, along with a mismatch flag.
+
+Input:
+
+    pathdata = path to data file
+
+Returns:
+
+    xyobs = [N,2] -- x y positions, observed frame
+
+    xytran = [N,2] -- x,y positions, target frame
+
+    covsrc = [N,2,2] - covariances in observed frame
+
+    covtran = [N,2,2] -- covariances in target frame
+ 
+    mismatch = [N] - 1/0 for mismatch
+
+    """
+
+    blank = np.array([])
+    if len(pathdata) < 4:
+        return blank, blank, blank, blank, blank
+
+    if not os.access(pathdata, os.R_OK):
+        return blank, blank, blank, blank, blank
+
+    adata = np.genfromtxt(pathdata, unpack=False)
+
+    # No parsing is currently done: if the input file doesn't match
+    # what we expect - if only partial information is given - then we
+    # want this to fail.
+    
+    # Now we partition this across the pieces. 
+    xyobs = adata[:,0:2]
+    xytran = adata[:,2:4]
+    covsrc  = covn32covn22(adata[:,4:7])
+    covtran = covn32covn22(adata[:,7:10]) 
+    mismatch = np.asarray(adata[:,-1], 'int')
+
+    return xyobs, xytran, covsrc, covtran, mismatch
+    
 def showsimxy(xy=np.array([]), xyobs=np.array([]), \
               xytran=np.array([]), xytarg=np.array([]), \
               covtran=np.array([]), \
@@ -2998,7 +3239,7 @@ Example call:
 
     # Warn on the plots if more mcmc parameters were supplied than
     # used. In all the use cases these should be noise parameters that
-    # the LSQ covariances don't have.
+    # the LSQ covariances don't have, so it's not an "error".
     if nmcmc > nlsq:
         ax61.annotate('MCMC params ignored: %i' % (nmcmc-nlsq), \
                       (0.97,0.97), xycoords='axes fraction', \
