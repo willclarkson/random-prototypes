@@ -96,6 +96,186 @@ scale factors with same length as the input apparent magnitudes mags[N].
     # OK now we have the a, b, c for our model. Apply it
     return b * np.exp(mags*c) + a
 
+def parsemixpars(mixpars=np.array([]), \
+                 islog10frac=False, \
+                 islog10vxx=False, \
+                 vxxbg=1.):
+
+    """Parses foreground/background mixture parameters. If no mixpars are
+supplied, this defaults to a single-component (foreground-only) model.
+
+Inputs:
+
+    mixpars = [ffg, vbg] = up to 2-element array of mixture model
+    parameters: fraction of foreground, variance of background
+
+    islog10frac = foreground fraction ffg supplied as log10
+
+    islog10vxx = background variance vxx supplied as log10
+
+    vxxbg = default variance for background component
+
+Returns:
+
+    ffg = fraction of model component that is foreground. Returns 1.0
+    if no mixture parameters were supplied.
+
+    covbg = [2,2] covariance corresponding to the background
+    component. Returns identity(2)*vxxbg if no covariance parameters
+    were supplied.
+
+    """
+
+    # Defaults
+    ffg = 1.
+    covbg = np.eye(2) * vxxbg
+
+    if np.size(mixpars) < 1:
+        return ffg, covbg
+
+    # Mixture fraction...
+    ffg = parsefraction(mixpars, islog10frac)
+
+    # ... and covbg
+    if np.size(mixpars) > 1:
+        vxxbg = mixpars[1]        
+    covbg = parsecov22(vxxbg, islog10=islog10vxx)
+
+    return ffg, covbg
+        
+    
+def get0thscalar(pars=np.array([]) ):
+
+    """Utility - returns scalar zeroth value of array.
+
+Inputs:
+
+    pars = scalar or 1D array. If an array, the first entry is assessed.
+
+Returns:
+
+    firstval = first value in the array, or (if supplied as scalar)
+    *a copy of* the scalar value.
+
+    if nothing was supplied, returns None
+
+    """
+
+    if pars is None:
+        return None
+    
+    if np.isscalar(pars):
+        return pars
+
+    if np.size(pars) < 1:
+        return None
+    
+    return pars[0]
+    
+def parsefraction(frac=None, islog10=False, badval=-np.inf, \
+                  minval=0., maxval=1., \
+                  minlog10=-50., \
+                  inclusive=True):
+
+    """Given a scalar value frac, return the value (if within bounds) or
+badval if not. If frac was supplied as log10(frac), then it is
+converted to frac BEFORE comparing to the bounds minval/maxval.
+
+Inputs:
+
+    frac = parameter of interest. If supplied as an array, the 0th
+    entry is used.
+
+    islog10 = log10(frac) supplied instead of frac
+
+    badval = what to return if the supplied parameter is outside the range
+
+    minval = minimum value for the parameter
+    
+    maxval = maximum value for the parameter
+
+    minlog10 = minimum value of log10 to supply. Used for bounds
+    checking, is ignored if islog10=False.
+
+    inclusive = value can be equal to minval or maxval.
+
+Returns:
+
+    value = parameter value (if within allowed range) or badval if
+    outside. Scalar.
+
+    """
+
+    # Ensure we're dealing with a scalar
+    fuse = get0thscalar(frac)
+    if fuse is None:
+        return badval
+
+    # If log10(frac) supplied, convert to frac itself.
+    if islog10:
+        if fuse < minlog10:
+            fuse = 0.
+        else:
+            fuse = 10.0**fuse
+
+    # return badval if outside the bounds
+    if inclusive:
+        isbad = fuse < minval or fuse > maxval
+    else:
+        isbad = fuse <= minval or fuse >= maxval
+    if isbad:
+        return badval
+
+    # Return the adopted value if it passed all the tests above.
+    return fuse
+    
+def parsecov22(vxx=1., vyy=None, vxy=None, islog10=False):
+
+    """Given one or more components of a covariance matrix, return as
+[2,2] array. No checking is done on whether the return matrix is
+singular. If vxx or vyy are supplied as negative values, the absolute
+value is taken rather than failing (though in that case you may have
+supplied log10(vxx)?)
+
+Inputs:
+
+    vxx = variance in x
+
+    vyy = variance in y
+
+    vxy = xy covariance
+
+    islog10 = vxx (and any vyy) supplied as log10(value)
+
+Returns:
+
+    covxy = [2,2] covariance matrix
+
+    """
+
+    if islog10:
+        covxy = np.eye(2) * 10.0**vxx
+    else:
+        covxy = np.eye(2) * np.abs(vxx)
+        
+    # only vxx supplied?
+    if vyy is None:
+        return covxy
+
+    if islog10:
+        covxy[1,1] = 10.0**vyy
+    else:
+        covxy[1,1] = np.abs(vyy)
+
+
+    if vxy is None:
+        return covxy
+
+    covxy[0,1] = vxy
+    covxy[1,0] = vxy
+
+    return covxy
+    
 def parsecorrpars(stdxs=np.array([]), parscov=np.array([]) ):
 
     """Takes stdxs and optional covariance shape parameters and returns a
@@ -1063,16 +1243,94 @@ Returns:
     # violate the conditions we set above.
     return 0.
         
-def sumlnlike(pars, transf, xytarg, covtarg, covextra=0. ):
+def sumlnlike(pars, transf, xytarg, covtarg, covextra=0.):
 
     """Returns sum(log-likelihood) for a single-population model"""
 
     expon, det, piterm = lnlike(pars, transf, xytarg, covtarg, covextra)
     return np.sum(expon) + np.sum(det) + np.sum(piterm)
 
+def sumlnlikefrac(pars, transf, xytarg, covtarg, covextra, \
+                  ffg = 1., covbg=np.eye(2) ):
+
+    """Returns sum(ln likelihood) for a foreground-background mixture
+model. For the foreground component, the likelihood is computed as
+
+    ln(like)_fg = -ln(2pi) -0.5 ln(|V|) - 0.5( dx^T.V^{-1}.dx ) + ln(P_fg)
+
+where P_fg is the fraction of datapoints assigned to the foreground
+component. 
+
+For the background model, the likelihood is computed as
+
+    ln(like)_bg = -ln(2pi) -0.5 ln(|V_b|) - 0.5( dx^T.V_b^{-1}.dx ) + ln(1.-P_fg)
+
+where V_bg is the covariance including the extra variance of the
+background component. The returned likelihood is then
+
+    ln(like) = sum(ln( like_fg + like_bg ))
+
+If the supplied foreground fraction is >= 1.0, drops back to a
+single-component model (set P_fg=1 in the first expression above).
+
+Inputs:
+
+    pars = [M] - transformation parameters
+
+    transf = transformation object including source data, covariances,
+    and methods to transform from source to target plane
+
+    xytarg = [N,2] - xy positions in the target frame
+
+    covtarg = [N,2,2] - xy covariances in the target frame
+
+    covextra = [N,2,2] - extra xy covariances from the model
+
+    fracfg = Scalar, fraction of the population associated with the
+    foreground.
+
+    covbg = Scalar or [2,2]. extra covariance to add for the background
+    component. Defaults to [[1,0],[0,1]] - so variance of one unit in
+    each direction.
+
+Returns:
+
+    sumln(like) = sum of log-likelihood of the mixture model
+
+    lnlike_fg = log-likelihood of the foreground component, per datapoint
+
+    lnlike_bg = log-likelihood of the background component, per datapoint
+
+    """
+
+    # If 100% of the model is foreground, we don't need to do the
+    # two-mix model, and the sum is the same. The "0, 0" at the end is
+    # for compatibility with emcee blobs if we are using them.
+    if ffg >= 1.:
+        return sumlnlike(pars, transf, xytarg, covtarg, covextra), 0, 0
+    
+    # foreground component
+    lnlike_fg = lnlikestat(pars, transf, xytarg, covtarg, covextra) + np.log(ffg)
+
+    # For the background component, we add the background extra
+    # variance onto covextra. Thanks to numpy broadcasting rules, this
+    # works whether the existing covextra is [2,2] or [N,2,2], or
+    # zero. (E.g. [N,2,2] + [2,2] has the same effect as [N,2,2] +
+    # [None, 2, 2].
+    covextra_bg = covextra + covbg
+    lnlike_bg =  lnlikestat(pars, transf, xytarg, covtarg, covextra_bg) \
+        + np.log(1.0-ffg)
+
+    # return the sum of the foreground and background components. Also
+    # return the individual ln(probs) for optional use in computation
+    # of log responsibilities.
+    sumlnlike_mix = np.sum(np.logaddexp( lnlike_fg + lnlike_bg ))
+
+    return sumlnlike_mix, lnlike_fg, lnlike_bg
+    
 def lnlikestat(pars, transf, xytarg, covtarg, covextra=0.):
 
-    """Returns the sum of all three terms on a per-object basis"""
+    """Returns the sum of all three terms on a per-object basis."""
 
     expon, det, piterm = lnlike(pars, transf, xytarg, covtarg, covextra)
 
@@ -1123,14 +1381,15 @@ i.e.
 def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
            addvar=False, nvar=1, fromcorr=False, islog10=False, \
            nnoise=0, mags=np.array([]), \
+           retblobs=False, \
            methprior=lnprior_unif, \
            methlike=sumlnlike, \
            methprior_noise=lnprior_noisemodel_rect, \
            methprior_mixmod=lnprior_mixmod_rect, \
            nmix=0):
 
-    """Evaluates ln(posterior). Takes the method to compute the ln(prior)
-and ln(likelihood) as arguments.
+    """Evaluates ln(posterior), summed over the datapoints. Takes the
+method to compute the ln(prior) and ln(likelihood) as arguments.
 
 Inputs:
 
@@ -1173,9 +1432,22 @@ Inputs:
 
     nmix = number of parameters describing mixture model
 
+    retblobs = return information for emcee blobs along with the
+    ln(posterior). This is meant for running calculations on samples
+    after the fact, if used as part of a sampler run it may lead to
+    very large output files and blob sizes. For example: 40,000
+    chainlen with 50 datapoints and a 7-parameter model produces blobs
+    that require about 500 MB of RAM (and a .h5 sampler output file
+    788 MB). Only set this to True if you have enough RAM and storage
+    space.
+    
 Returns:
 
-    lnprob = ln(posterior probability)
+    lnprob = ln(posterior probability)   (scalar)
+
+    loglike(fg) = per-datapoint log likelihood of foreground model
+
+    loglike(bg) = per-datapoint log likelihood of background model
 
     """
 
@@ -1199,24 +1471,65 @@ Returns:
 
     lnprior = lnprior_transf + lnprior_noise + lnprior_corr + lnprior_mixmod
     if not np.isfinite(lnprior):
-        return -np.inf
-
+        if retblobs:
+            return -np.inf, np.array([]), np.array([])
+        else:
+            return -np.inf
+        
+    # unpack the mixture model parameters.
+    ffg, covbg = parsemixpars(addmix, islog10frac=False, islog10vxx=False)
+    
     # Generate any additional extra covariance.
     cov_ok = True
     covextra, cov_ok = extracovar(addnoise, mags, \
                                   addvars, fromcorr, islog10) 
 
-    # evaluate ln likelihood.
-    lnlike = methlike(pars, transf, xytarg, covtarg, covextra) 
+    # now evaluate the ln likelihood using our mixture-aware model.
+    lnlike, ll_fg, ll_bg = \
+        sumlnlikefrac(pars, transf, xytarg, covtarg, covextra, ffg, covbg)
 
+    # 2024-08-08 testing the mixture-aware version. NOTE TO SELF -
+    # don't delete this until after testing the mixmod with outliers.
+    #
+    ## evaluate ln likelihood.
+    #if np.size(addmix) < 1:
+
+    #    # single-component model
+    #    lnlike = methlike(pars, transf, xytarg, covtarg, covextra) 
+
+    #else:
+    #    fbackg = addmix[0]
+    #    varbg = 1.
+    #    if np.size(addmix) > 1:
+    #        varbg = addmix[1]
+
+    #    # covariance for the background component. For the moment we
+    #    # just add in a very large covariance as an extra component
+    #    # (we cannot use outliers to fit covextra anyway).
+    #    covextrabg = cov32covn22([varbg], xytarg.shape[0])
+            
+    #    # Foreground and background models on a per-object basis
+    #    ll_fg = lnlikestat(pars, transf, xytarg, covtarg, covextra) + np.log(1.0-fbackg)
+    #    ll_bg = lnlikestat(pars, transf, xytarg, covtarg, covextrabg) + np.log(fbackg)
+
+    #    # Sum along the data for the foreground and background component
+    #    lnlike = np.sum(np.logaddexp(ll_fg, ll_bg))
+        
     # If this is about to return nan, provide a warning and show the
     # parameters. 
     if np.any(np.isnan(lnlike)):
         print("lnprob WARN - at least one NaN entry. Trial params:")
         print(parsIn)
+
+    # returns the sum ln posterior, as well as the individual ln(like)
+    # values so that emcee's "blobs" feature can track them
+    if retblobs:
+        return lnprior + lnlike, ll_fg, ll_bg
+    else:
+        return lnprior + lnlike
     
     # return the ln posterior
-    return lnprior + lnlike
+    # return lnprior + lnlike
 
 
 def feval(pars, transf):
@@ -1290,7 +1603,101 @@ power-law distribution
     sraw = rng.power(expon, npts)
 
     return sraw*(maghi - maglo) + maglo
+
+def assignoutliers(x=np.array([]), foutly=0., seed=None):
+
+    """Assigns outlier status to a (uniform) random permutation of the objects
+
+Inputs:
+
+    x = [N (,...)] array of datapoints.
+
+    foutly = fraction of outliers.
+
+    seed = random number seed.
+
+Returns:
     
+    isoutlier = [N] boolean array indicating whether a datapoint is
+    assigned outlier
+
+    """
+
+    if np.size(x) < 1:
+        return np.array([])
+
+    # Initialize outlier status
+    npts = np.shape(x)[0]
+    isoutly = np.repeat(False, npts)
+    
+    # If fraction of outliers is zero, nothing is an outlier.
+    frac = parsefraction(foutly)
+    if frac <= 0. or frac > 1.:
+        return isoutly
+
+    # rng.choice doesn't do quite what I expect... e.g. if 20 points
+    # and 0.99 are outliers, sometimes I get more than 2
+    # outliers. Fall back on the sort(random uniform) method instead,
+    # we're only doing this once per simulation set.
+    rng=np.random.default_rng(seed=seed)
+    xdum = rng.uniform(size=npts)
+    lbad = np.argsort(xdum)[0:int(npts*frac)]
+    isoutly[lbad] = True
+
+    return isoutly
+
+def makeoutliers(x=np.array([]), foutly=0., vxxoutly=1.):
+
+    """Makes outliers for input positions.
+
+Inputs:
+
+    x = datapoints (used to determine the length of the outlier array)
+
+    foutly = fraction of points that are outliers.
+
+    vxxoutly = variance (per parameter) for outlier noise
+
+Returns:
+
+    nudgexy_outliers = nudges in the target frame for x, y outliers. 
+
+    isoutly = boolean array giving outlier status (True = outlier)
+
+"""
+
+    # Nothing to do if no data passed in
+    if np.size(x) < 1:
+        return np.array([]), np.array([]) 
+
+    # Initialize the nudges
+    npts = np.shape(x)[0]
+    nudgexy_outliers = np.zeros((npts, 2))
+
+    # Which objects are background?
+    isoutly = assignoutliers(x, foutly)
+
+    # If no objects are background, nothing to do. Return the default
+    # outputs.
+    if np.sum(isoutly) < 1:
+        return nudgexy_outliers, isoutly
+
+    # OK if we're here then we do make the outliers. This isn't quite
+    # as convenient yet as I would like it to be, consider a
+    # replication argument for CovarsNx2x2...
+    covs = np.zeros((npts, 2, 2))
+    covs[:,0,0] = vxxoutly
+    covs[:,1,1] = vxxoutly
+    
+    Coutly = CovarsNx2x2(covs)
+
+    # draw samples (for all the points)...
+    nudgeall = Coutly.getsamples()
+
+    # and take those that are NOT outliers for the nudges
+    nudgexy_outliers[isoutly] = nudgeall[isoutly]
+    
+    return nudgexy_outliers, isoutly
     
 def makeunifcovars(npts=2000, sigx=0.1, sigy=0.07, sigr=0.2):
 
@@ -2365,7 +2772,9 @@ def testmcmc_linear(npts=200, \
                     useminimizer=False, \
                     minimizermethod='Nelder-Mead', \
                     minimizermaxit=3000, \
-                    pathwritedata='test_simdata.xyxy'):
+                    pathwritedata='test_simdata.xyxy', \
+                    fbackg=0., vxxbackg=1.0e-3, \
+                    makeoutliers=False):
 
     """Tests the MCMC approach on a linear transformation.
 
@@ -2420,6 +2829,14 @@ def testmcmc_linear(npts=200, \
 
     pathwritedata = path to export simulated data
 
+    fbackg = fraction of points that are "background,"
+    i.e. outliers. Triggers mixture model if >0.
+
+    vxxbackg = variance (in x, assumed symmetric) of background
+    component.
+
+    makeoutliers = include outliers in the simulated data?
+
     """
 
     # Use the same fit degree and basis as used to construct the data,
@@ -2436,7 +2853,8 @@ def testmcmc_linear(npts=200, \
     # Generate positions and apparent magnitudes
     xy = makefakexy(npts, xmin, xmax, ymin, ymax)
     mags = makefakemags(npts, maglo=maglo, maghi=maghi, expon=magexpon)
-
+    comps = np.repeat(0, npts) # which component. 0 = foreground  
+    
     # Generate covariances in the observed frame. If gen_noise_model
     # is set, build the covariances using our magnitude-dependent
     # noise model
@@ -2476,6 +2894,9 @@ def testmcmc_linear(npts=200, \
     if unctytarg:
         nudgexytran = Ctran.getsamples()
 
+    # THIS IS WHERE THE OUTLIER GENERATION WILL GO.
+    comps = assignoutliers(xy, fbackg)
+        
     # Some arguments that will be used if fitting the noise model and
     # ignored if not:
     npars_noise = 0
@@ -2855,10 +3276,17 @@ def testmcmc_linear(npts=200, \
     print("INFO: pos", pos.shape)
     print("nwalkers, ndim", nwalkers, ndim)
 
+    # Use emcee's "blobs" feature to track mixture assignment
+    # information. Look into supplying keyword arguments rather than
+    # by-order!
+    args = (PFit, xytarg, covtran, addvar, npars_extravar, \
+            extra_is_corr, stdx_is_log, npars_noise, mags, True)
+    
     # send the iniital guess through the ln(prob) to test whether it
     # returns sensible values
-    check = methpost(guess, *args)
+    check, llfg, llbg = methpost(guess, *args)
     print("testmcmc_linear DEBUG - ln(prob) on initial guess:", check)
+    print("testmcmc_linear DEBUG -  blob info shape:", np.shape(llfg), np.shape(llbg))
 
     if np.isnan(check):
         print("testmcmc_linear FATAL - initial guess returns nan. Check it!")
