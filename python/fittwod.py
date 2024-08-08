@@ -120,30 +120,60 @@ Returns:
     ffg = fraction of model component that is foreground. Returns 1.0
     if no mixture parameters were supplied.
 
-    covbg = [2,2] covariance corresponding to the background
-    component. Returns identity(2)*vxxbg if no covariance parameters
-    were supplied.
+    vxx = variance of model. 
 
     """
 
     # Defaults
     ffg = 1.
-    covbg = np.eye(2) * vxxbg
+    vxx = 1.
+    
+    #covbg = np.eye(2) * vxxbg
 
     if np.size(mixpars) < 1:
-        return ffg, covbg
+        return ffg, vxx
 
     # Mixture fraction...
     ffg = parsefraction(mixpars, islog10frac)
 
-    # ... and covbg
+    # variance...
     if np.size(mixpars) > 1:
-        vxxbg = mixpars[1]        
-    covbg = parsecov22(vxxbg, islog10=islog10vxx)
+        vxx = parsefraction(mixpars[1], islog10vxx, maxval=np.inf, inclusive=False)
 
-    return ffg, covbg
-        
+    return ffg, vxx
+
+def unpackmixpars(mixpars, islog10frac=False, islog10vxx=False, vxxbg=1.):
+
+    """Given mixture model [ffg, vxx], parses and unpacks the parameters
+into ffg, covxy.
+
+Inputs:
+
+    mixpars = [ffg, vxx] - array of fraction and variance
+
+    islog10frac = ffg supplied as log10
+
+    islog10vxx = vxx supplied as log10
+
+    vxxbg = default vxx parameter (if supplied value is bad)
+
+Returns:
+
+    ffg = fraction of foreground. Between 0 and 1, or -np.inf if bad
+
+    covxy = [2,2] covariance array
+
+"""
+
+    # parse the fraction and vxx...
+    ffg, vxx = parsemixpars(mixpars, islog10frac, islog10vxx)
+
+    # ... and convert vxx into a covariance matrix
+    covxy = var2cov22(vxx)
     
+    return ffg, covbg
+    
+        
 def get0thscalar(pars=np.array([]) ):
 
     """Utility - returns scalar zeroth value of array.
@@ -229,7 +259,7 @@ Returns:
     # Return the adopted value if it passed all the tests above.
     return fuse
     
-def parsecov22(vxx=1., vyy=None, vxy=None, islog10=False):
+def var2cov22(vxx=1., vyy=None, vxy=None, islog10=False):
 
     """Given one or more components of a covariance matrix, return as
 [2,2] array. No checking is done on whether the return matrix is
@@ -1193,7 +1223,7 @@ Returns:
     
     return lnprior
 
-def lnprior_mixmod_rect(parsmix=np.array([]), islog10frac=False):
+def lnprior_mixmod_rect(parsmix=np.array([]), islog10frac=False, islog10vxx=False):
 
     """Enforces validity constraints on mixture model parameters but nothing else. 
 
@@ -1212,6 +1242,8 @@ Inputs:
 
     islog10frac = fbad supplied as log10
 
+    islog10vxx = any vxx supplied as log10
+
 Returns:
 
     lnprior(pars) = ln(prior) enforcing only validity constraints.
@@ -1222,22 +1254,12 @@ Returns:
     if np.size(parsmix) < 1:
         return 0.
 
-    # Allow scalar input
-    if np.isscalar(parsmix):
-        fbad = parsmix
-    else:
-        fbad = parsmix[0]
-
-    # if fbad supplied as log10, cannot be positive. 
-    if islog10frac:
-        # if fbad supplied as log10, it cannot be positive.
-        if fbad > 0.:
-            return -np.inf
-    else:
-
-        # if a fraction, must have [0. <= fbad <= 1.]
-        if fbad < 0. or fbad > 1.:
-            return -np.inf
+    # Apply the parsing
+    ffg, vxx = parsemixpars(parsmix, islog10frac, islog10vxx)
+    
+    # return with badval if either of the parameters are bad
+    if not np.isfinite(ffg) or not np.isfinite(vxx):
+        return -np.inf
 
     # If we reached this point then our prior parameters do not
     # violate the conditions we set above.
@@ -1646,7 +1668,8 @@ Returns:
 
     return isoutly
 
-def makeoutliers(x=np.array([]), foutly=0., vxxoutly=1.):
+def makeoutliers(x=np.array([]), foutly=0., vxxoutly=1., \
+                 islog10frac=False, islog10vxx=False):
 
     """Makes outliers for input positions.
 
@@ -1657,6 +1680,10 @@ Inputs:
     foutly = fraction of points that are outliers.
 
     vxxoutly = variance (per parameter) for outlier noise
+
+    islog10frac = outlier fraction supplied as log10(frac)
+
+    islog10vxx = vxx supplied as log10(vxx)
 
 Returns:
 
@@ -1674,8 +1701,16 @@ Returns:
     npts = np.shape(x)[0]
     nudgexy_outliers = np.zeros((npts, 2))
 
+    # Parse the parameters.
+    foutliers, vxx = parsemixpars([foutly, vxxoutly], \
+                                  islog10frac, islog10vxx)
+
+    # Do not return if badvals, but continue to generate zero deltas.
+    if not np.isfinite(foutliers):
+        foutliers = 0.
+        
     # Which objects are background?
-    isoutly = assignoutliers(x, foutly)
+    isoutly = assignoutliers(x, foutliers)
 
     # If no objects are background, nothing to do. Return the default
     # outputs.
@@ -1686,15 +1721,15 @@ Returns:
     # as convenient yet as I would like it to be, consider a
     # replication argument for CovarsNx2x2...
     covs = np.zeros((npts, 2, 2))
-    covs[:,0,0] = vxxoutly
-    covs[:,1,1] = vxxoutly
+    covs[:,0,0] = vxx
+    covs[:,1,1] = vxx
     
     Coutly = CovarsNx2x2(covs)
 
     # draw samples (for all the points)...
     nudgeall = Coutly.getsamples()
 
-    # and take those that are NOT outliers for the nudges
+    # and take those that ARE outliers for the nudges
     nudgexy_outliers[isoutly] = nudgeall[isoutly]
     
     return nudgexy_outliers, isoutly
@@ -2773,8 +2808,12 @@ def testmcmc_linear(npts=200, \
                     minimizermethod='Nelder-Mead', \
                     minimizermaxit=3000, \
                     pathwritedata='test_simdata.xyxy', \
-                    fbackg=0., vxxbackg=1.0e-3, \
-                    makeoutliers=False):
+                    fbackg=-1., vxxbackg=-8., \
+                    islog10fbackg=True, \
+                    islog10vxxoutly=True, \
+                    add_outliers=False, \
+                    fit_outliers=False, \
+                    debug_outliers=False):
 
     """Tests the MCMC approach on a linear transformation.
 
@@ -2835,7 +2874,13 @@ def testmcmc_linear(npts=200, \
     vxxbackg = variance (in x, assumed symmetric) of background
     component.
 
-    makeoutliers = include outliers in the simulated data?
+    islog10fbackg = fbackg is supplied as log10
+
+    islog10vxxoutly = vxx for outliers supplied as log10
+
+    add_outliers = include outliers in the simulated data?
+
+    fit_outliers = use mixture model when fitting?
 
     """
 
@@ -2853,7 +2898,7 @@ def testmcmc_linear(npts=200, \
     # Generate positions and apparent magnitudes
     xy = makefakexy(npts, xmin, xmax, ymin, ymax)
     mags = makefakemags(npts, maglo=maglo, maghi=maghi, expon=magexpon)
-    comps = np.repeat(0, npts) # which component. 0 = foreground  
+    isoutly = np.repeat(False, npts) # which component. False = foreground  
     
     # Generate covariances in the observed frame. If gen_noise_model
     # is set, build the covariances using our magnitude-dependent
@@ -2888,15 +2933,27 @@ def testmcmc_linear(npts=200, \
     # any additional noise
     nudgexy = xy * 0.
     nudgexytran = xytran * 0.
+    nudgexyoutly = xytran * 0.
     
     if unctysrc:
         nudgexy = Cxy.getsamples()
     if unctytarg:
         nudgexytran = Ctran.getsamples()
 
-    # THIS IS WHERE THE OUTLIER GENERATION WILL GO.
-    comps = assignoutliers(xy, fbackg)
-        
+    # Additional scatter to apply to outliers. The makeoutliers()
+    # method already checks if fbackg >= 0, but we add the control
+    # variable here.
+    if add_outliers:
+        nudgexyoutly, isoutly = makeoutliers(xytran, fbackg, vxxbackg, \
+                                             islog10fbackg, \
+                                             islog10vxxoutly)
+
+        print("testmcmc_linear OUTLIERS:")
+        print(np.min(nudgexyoutly, axis=0), \
+              np.max(nudgexyoutly, axis=0))
+        print(np.min(nudgexytran, axis=0), \
+              np.max(nudgexytran, axis=0))
+
     # Some arguments that will be used if fitting the noise model and
     # ignored if not:
     npars_noise = 0
@@ -2954,11 +3011,12 @@ def testmcmc_linear(npts=200, \
     # Apply the nudges in the observed and target frame to the
     # positions.
     xyobs  = xy + nudgexy
-    xytarg = xytran + nudgexytran + nudgexyextra
+    xytarg = xytran + nudgexytran + nudgexyextra + nudgexyoutly
 
     # At this point we have our perturbed data. Try writing it to disk
     if len(pathwritedata) > 3:
-        writesimdata(pathwritedata, xyobs, xytarg, Cxy.covars, covtran)
+        writesimdata(pathwritedata, xyobs, xytarg, Cxy.covars, covtran, \
+                     isoutly*1)
     
     # check the nudges
     if checknudge:
@@ -3023,7 +3081,7 @@ def testmcmc_linear(npts=200, \
     # Take a look at the data we generated... do these look
     # reasonable? [Refactored into new method]
     showsimxy(xy, xyobs, xytran, xytarg, covtran, mags, \
-              CExtra, PFit, PTruth, fignum=1)
+              CExtra, PFit, PTruth, fignum=1, isoutly=isoutly)
 
 
     # Set up labeling for plots.
@@ -3500,7 +3558,7 @@ def showsimxy(xy=np.array([]), xyobs=np.array([]), \
               covtran=np.array([]), \
               mags=np.array([]), CExtra=None, \
               PFit=None, PTruth=None, \
-              fignum=1):
+              fignum=1, isoutly=np.array([]) ):
 
     """Show some characteristics of the generated data"""
 
@@ -3551,18 +3609,41 @@ def showsimxy(xy=np.array([]), xyobs=np.array([]), \
     if PTruth is not None:
         ax5=fig1.add_subplot(236)
         fxy = PTruth.xytran - xytarg
-        blah5 = ax5.scatter(fxy[:,0], fxy[:,1], s=.1)
+
+        # If we have outliers, make a choice about what range to use.
+        cscatt = 'k'
+        shadeax5 = False
         cc = np.cov(fxy, rowvar=False)
+
+        if np.sum(isoutly) > 0:
+            cscatt = isoutly * 1.
+            shadeax5 = True
+            ccinly = np.cov(fxy[~isoutly], rowvar=False)
+            
+        blah5 = ax5.scatter(fxy[:,0], fxy[:,1], s=9, \
+                            c=cscatt, cmap='Greens_r', \
+                            edgecolor='k')
         sanno = "%.2e, %.2e, %.2e" % (cc[0,0], cc[1,1], cc[0,1])
         anno5 = ax5.annotate(sanno, (0.05,0.05), \
                              xycoords='axes fraction', \
                              ha='left', va='bottom', fontsize=6)
 
+        if shadeax5:
+            sanno2 = "%.2e, %.2e, %.2e" % (ccinly[0,0], ccinly[1,1], ccinly[0,1])
+            anno52 = ax5.annotate(sanno2, (0.05,0.15), \
+                                  xycoords='axes fraction', \
+                                  ha='left', va='bottom', fontsize=6, color='g')
+            
+            
         # Enforce aspect ratio for residuals plot
         ax5.set_aspect('equal', adjustable='box')
         ax5.set_title('Residuals, generated')
         ax5.set_xlabel(r'$\Delta \xi$')
         ax5.set_ylabel(r'$\Delta \eta$')
+
+        # Add a colorbar if we have shade information for our scatter
+        if shadeax5:
+            cbar5 = fig1.colorbar(blah5, ax=ax5)
         
     # If we have apparent magnitudes, compute and show the uncertainty
     # wrt magnitude
