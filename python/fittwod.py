@@ -1223,7 +1223,8 @@ Returns:
     
     return lnprior
 
-def lnprior_mixmod_rect(parsmix=np.array([]), islog10frac=False, islog10vxx=False):
+def lnprior_mixmod_rect(parsmix=np.array([]), islog10frac=False, islog10vxx=False, \
+                        minffg=1.0e-4, maxvxx=2.):
 
     """Enforces validity constraints on mixture model parameters but nothing else. 
 
@@ -1244,6 +1245,10 @@ Inputs:
 
     islog10vxx = any vxx supplied as log10
 
+    minffg = minimum mixture fraction for foreground
+
+    maxvxx = maximum variance for the background component
+
 Returns:
 
     lnprior(pars) = ln(prior) enforcing only validity constraints.
@@ -1254,13 +1259,17 @@ Returns:
     if np.size(parsmix) < 1:
         return 0.
 
-    # Apply the parsing
+    # Apply the parsing, return values (not log10)
     ffg, vxx = parsemixpars(parsmix, islog10frac, islog10vxx)
     
     # return with badval if either of the parameters are bad
     if not np.isfinite(ffg) or not np.isfinite(vxx):
         return -np.inf
 
+    # If the walker is trying zero foreground or huge vxx, disallow.
+    if ffg < minffg or vxx > maxvxx:
+        return -np.inf
+    
     # If we reached this point then our prior parameters do not
     # violate the conditions we set above.
     return 0.
@@ -1346,7 +1355,7 @@ Returns:
     # return the sum of the foreground and background components. Also
     # return the individual ln(probs) for optional use in computation
     # of log responsibilities.
-    sumlnlike_mix = np.sum(np.logaddexp( lnlike_fg + lnlike_bg ))
+    sumlnlike_mix = np.sum(np.logaddexp( lnlike_fg , lnlike_bg ))
 
     return sumlnlike_mix, lnlike_fg, lnlike_bg
     
@@ -1403,12 +1412,14 @@ i.e.
 def lnprob(parsIn, transf, xytarg, covtarg=np.array([]), \
            addvar=False, nvar=1, fromcorr=False, islog10=False, \
            nnoise=0, mags=np.array([]), \
+           nmix=0, \
+           islog10mixfrac=True, \
+           islog10mixvxx=True, \
            retblobs=False, \
            methprior=lnprior_unif, \
            methlike=sumlnlike, \
            methprior_noise=lnprior_noisemodel_rect, \
-           methprior_mixmod=lnprior_mixmod_rect, \
-           nmix=0):
+           methprior_mixmod=lnprior_mixmod_rect):
 
     """Evaluates ln(posterior), summed over the datapoints. Takes the
 method to compute the ln(prior) and ln(likelihood) as arguments.
@@ -1446,13 +1457,17 @@ Inputs:
     
     mags = array of apparent magnitudes
 
+    nmix = number of parameters that refer to the mixture model
+
+    islog10mixfrac = mixture fraction supplied as log10(frac)
+
+    islog10mixvxx = mixture background vxx supplied as log10(vxx)
+
     methprior = method for evaluating prior on transformation parameters
 
     methprior_noise = method for evaluating prior on noise vs mag model
     
     methprior_mixmod = method for evaluating prior on mixture model
-
-    nmix = number of parameters describing mixture model
 
     retblobs = return information for emcee blobs along with the
     ln(posterior). This is meant for running calculations on samples
@@ -1483,13 +1498,13 @@ Returns:
     methprior_corr=lnprior_corrmodel2_rect
     if nnoise < 1:
         methprior_corr=lnprior_corrmodel3_rect
-    
+
     # Evaluate the prior on the transformation parameter and on any
     # noise parameters
     lnprior_transf = methprior(pars)
     lnprior_noise = methprior_noise(addnoise)
     lnprior_corr = methprior_corr(addvars)
-    lnprior_mixmod = methprior_mixmod(addmix)
+    lnprior_mixmod = methprior_mixmod(addmix, islog10mixfrac, islog10mixvxx)
 
     lnprior = lnprior_transf + lnprior_noise + lnprior_corr + lnprior_mixmod
     if not np.isfinite(lnprior):
@@ -1499,7 +1514,9 @@ Returns:
             return -np.inf
         
     # unpack the mixture model parameters.
-    ffg, covbg = parsemixpars(addmix, islog10frac=False, islog10vxx=False)
+    ffg, covbg = parsemixpars(addmix, \
+                              islog10frac=islog10mixfrac, \
+                              islog10vxx=islog10mixvxx)
     
     # Generate any additional extra covariance.
     cov_ok = True
@@ -2016,15 +2033,17 @@ Returns:
     scalesxy = scalexyguess(guesspars, truthpars)
     scalesnoise = scaleguessbyoffset(guessnoise, truthnoise)
     scalesshape = scaleguessbyoffset(guessshape, truthshape)
+    scalesmix = scaleguessbyoffset(guessmix, truthmix)
     
     # Step 3: pad the truths for the individual pieces
     truthsxy = padxytruths(truthpars, guesspars)
     truthsnoise = padtruths(truthnoise, guessnoise)
     truthsshape = padtruths(truthshape, guessshape)
-
+    truthsmix = padtruths(truthmix, guessmix)
+    
     # Step 4: gather the pieces for return
-    scalesret = np.hstack(( scalesxy, scalesnoise, scalesshape ))
-    truthsret = np.hstack(( truthsxy, truthsnoise, truthsshape ))
+    scalesret = np.hstack(( scalesxy, scalesnoise, scalesshape, scalesmix ))
+    truthsret = np.hstack(( truthsxy, truthsnoise, truthsshape, truthsmix ))
 
     return scalesret, truthsret
     
@@ -3255,11 +3274,50 @@ def testmcmc_linear(npts=200, \
     # be updated if we're going to keep our older noise model.
     ntruths_extranoise = np.size(extranoisepars)
     ntruths_extrashape = np.size(extranoiseshape)
+
+    # are we going to try fitting a mixture model?
+    npars_mix = 0
+    if fit_outliers:
+
+        # while testing if this actually functions, abut the
+        # generating mix parameters to the truths and to the
+        # guess. Don't forget that the lnprob uses the FOREGROUND
+        # fraction and not the background fraction.
+        fbg = parsefraction(fbackg, islog10fbackg)
+        ffg = 1.0 - fbg
+        if islog10fbackg:
+            ffg = np.log10(ffg)
+
+        truthmix = np.array([ffg, vxxbackg])
+
+        npars_mix = np.size(truthmix)
         
+        # stack onto truths
+        truths = np.hstack(( truths, truthmix ))
+
+        # stack onto fpars (passed into padpars)
+        fpars = np.hstack(( fpars, truthmix ))
+        
+        # stack onto guess
+        guess = np.hstack(( guess, truthmix ))
+
+        # stack onto scaleguess
+        smguess = np.abs(truthmix) * 0.01
+        scaleguess = np.hstack(( scaleguess, smguess ))
+
+        # append plot labels onto the end
+        lmix = [r'$log_{10}(f_{fg})$', r'$v_{bg}$']
+        slabels = slabels + lmix
+        
+        print("TEST OUTLIERS DEBUG:")
+        print(fbackg, islog10fbackg, fbg, ffg, 10.0**ffg)
+        # return {}, {}, {}
+    
     # now (drumroll) set up the sampler.
     methpost = lnprob
     args = (PFit, xytarg, covtran, addvar, npars_extravar, \
-            extra_is_corr, stdx_is_log, npars_noise, mags)
+            extra_is_corr, stdx_is_log, npars_noise, mags, \
+            npars_mix, islog10fbackg, islog10vxxoutly)
     ndim = np.size(guess)
 
     # Use scipy minimizer to refine the initial guess?
@@ -3299,7 +3357,9 @@ def testmcmc_linear(npts=200, \
                                      ntruths_extranoise, \
                                      ntruths_extrashape, \
                                      npars_noise, \
-                                     npars_extravar)
+                                     npars_extravar, \
+                                     npars_mix, \
+                                     npars_mix)
 
     print("testmcmc_linear INFO - fpars:")
     print(fpars)
@@ -3334,18 +3394,24 @@ def testmcmc_linear(npts=200, \
     print("INFO: pos", pos.shape)
     print("nwalkers, ndim", nwalkers, ndim)
 
-    # Use emcee's "blobs" feature to track mixture assignment
-    # information. Look into supplying keyword arguments rather than
-    # by-order!
-    args = (PFit, xytarg, covtran, addvar, npars_extravar, \
-            extra_is_corr, stdx_is_log, npars_noise, mags, True)
+    # WATCHOUT - only uncomment this if you want to use emcee's blobs
+    # feature.
+    # 
+    ## Use emcee's "blobs" feature to track mixture assignment
+    ## information. Look into supplying keyword arguments rather than
+    ## by-order!
+    #args = (PFit, xytarg, covtran, addvar, npars_extravar, \
+    #        extra_is_corr, stdx_is_log, npars_noise, mags, True)
     
-    # send the iniital guess through the ln(prob) to test whether it
-    # returns sensible values
-    check, llfg, llbg = methpost(guess, *args)
-    print("testmcmc_linear DEBUG - ln(prob) on initial guess:", check)
-    print("testmcmc_linear DEBUG -  blob info shape:", np.shape(llfg), np.shape(llbg))
+    ## send the iniital guess through the ln(prob) to test whether it
+    ## returns sensible values
+    #check, llfg, llbg = methpost(guess, *args)
+    #print("testmcmc_linear DEBUG - ln(prob) on initial guess:", check)
+    #print("testmcmc_linear DEBUG -  blob info shape:", np.shape(llfg), np.shape(llbg))
 
+    check = methpost(guess, *args)
+    print("testmcmc_linear DEBUG - ln(prob) on initial guess:", check)
+    
     if np.isnan(check):
         print("testmcmc_linear FATAL - initial guess returns nan. Check it!")
         if not domulti:
