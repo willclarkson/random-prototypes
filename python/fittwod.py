@@ -3282,7 +3282,10 @@ def testmcmc_linear(npts=200, \
         # while testing if this actually functions, abut the
         # generating mix parameters to the truths and to the
         # guess. Don't forget that the lnprob uses the FOREGROUND
-        # fraction and not the background fraction.
+        # fraction and not the background fraction. This is awkward:
+        # consider making this uniform between the generator and MCMC
+        # (so that the MCMC uses the background fraction instead of
+        # the foreground fraction).
         fbg = parsefraction(fbackg, islog10fbackg)
         ffg = 1.0 - fbg
         if islog10fbackg:
@@ -3877,6 +3880,230 @@ that we can run this from the interpreter."""
 
     print("SAMPLES INFO - FLAT:", np.shape(flat_samples))
 
+def computeresps(pathsamples='test_flatsamples.npy', \
+                 runargs={}, \
+                 keyargs='args', keyfunc='log_prob_fn', \
+                 pathprobs='test_postmaster.npy', \
+                 samplesize=-1, \
+                 ireport = 1000):
+
+    """Given a set of flat samples, computes the (log) responsibilities
+and estimates probabilities of foreground/background association.
+
+Example call (after running the emcee sampler):
+
+    fittwod.computeresps(runargs=esargs, pathsamples='test_flatsamples.npy')
+
+Inputs:
+
+    pathsamples = path to the flattened samples 
+
+    runargs = {} dictionary of run arguments that were supplied to
+    emcee
+
+    keyargs = keyword in runargs that holds the arguments passed to
+    log prob function
+
+    keyfunc = keyword in runargs that gives the log prob function
+    itself
+
+    pathprobs = path to write the estimated probabilities
+
+    samplesize = how many rows to compute (since this takes a
+    while...). If <1, defaults to all the samples.
+
+    ireport = report progress to screen every ireport iterations.
+
+Outputs:
+    
+    postmaster = [nsamples, ndata] array of membership probabilities
+
+    """
+
+    # Write in plot routine first to get the I/O and plotting working,
+    # then refactor the responsibility calculation out into a separate
+    # method.
+
+    # Not much to do if the arguments are blank
+    runkeys = runargs.keys()
+    if len(runkeys) < 1:
+        print("computeresps FATAL - run arguments not supplied.")
+        return np.array([])
+    
+    if not keyargs in runkeys or not keyfunc in runkeys:
+        print("computeresps FATAL - '%s' or '%s' not in runkeys." \
+              % (keyargs, keyfunc))
+        return np.array([])
+    
+    # Ensure we have the flat samples (could also pass them in)
+    try:
+        flatsamples = np.load(pathsamples)
+    except:
+        print("computeresps FATAL - problem loading flat samples from %s" \
+              % (pathsamples))
+        return np.array([])
+    
+    # OK if we're here then we have the ln prob function and its
+    # arguments. Convenience-views:
+    methprob = runargs[keyfunc]
+    probargs = runargs[keyargs]
+
+    print("computeresps DEBUG - flatsamples shape:", flatsamples.shape)
+    print("computeresps DEBUG - lnprob function:", runargs[keyfunc])
+
+    # Gather some convenient characteristics
+    nsamples = flatsamples.shape[0]
+    ndata = runargs[keyargs][1].shape[0] # this is really opaque!!
+
+    # master array to store all the responsibilities for all the
+    # data. WATCHOUT - this might get large...
+    postmaster = np.zeros((nsamples, ndata))
+
+    # This is taking quite a while to calculate. See how long...
+    t0 = time.time()
+    print("computeresps INFO - starting responsibility loop:")
+
+    # how far do we have to go?
+    if samplesize < 0 or samplesize > nsamples:
+        imax = nsamples
+    else:
+        imax = samplesize
+    
+    # Now do the calculation
+    norm = 0.  
+    for isample in range(imax):
+
+        # evaluate the posterior probability that each point belongs
+        # to the foreground
+        lnprob, ll_fg, ll_bg = methprob(flatsamples[isample], *probargs, retblobs=True)
+        probfg = np.exp(ll_fg - np.logaddexp(ll_fg, ll_bg))
+
+        # accumulate onto the master probfg array
+        postmaster[isample] = probfg
+
+        # report out every so often
+        if isample % ireport < 1:
+            telapsed = time.time() - t0
+            itpersec = float(isample)/telapsed
+            tremain = 0.
+            if itpersec > 0.:
+                tremain = float(imax)/itpersec
+            print("computeresps INFO - iteration %i of %i after %.2e seconds: %.1f it/sec. Est %.2e sec remain" \
+                  % (isample, imax, telapsed, itpersec, tremain), end='\r')
+        
+        norm += 1. # keep this if we're computing sum per iteration
+
+    t1 = time.time()
+    print("computeresps INFO - loops took %.2e seconds for %.2e samples" \
+          % (t1-t0, nsamples))
+
+    # write the responsibilties to disk
+    np.save(pathprobs, postmaster)
+    
+    # now divide postmaster by the normalization to turn it into probabilities
+    # postmaster /= norm
+
+    # This takes a while to compute. For development, output a subset,
+    # as raw counts for the moment
+    return postmaster[0:imax]
+    
+def showresps(postmaster=np.array([]), fignum=7, loghist=False, pminlog=0.01, \
+              pathfig='test_resps.png'):
+
+    """Plots formal assignment probabilities
+
+Inputs:
+
+    postmaster = [nsamples, ndata] array of membership probabilities
+
+    loghist = plot histogram as log10 (only nonzero considered)
+
+    pminlog = if log scale, minimum value to show
+
+"""
+
+    if np.size(postmaster) < 1:
+        return
+
+    nsamples, ndata = postmaster.shape
+
+    # get the averages
+    pformal = np.sum(postmaster, axis=0)/np.float(nsamples)
+
+    bnonzero = pformal > pminlog
+
+    print("showresps INFO:", np.size(bnonzero), np.sum(bnonzero))
+    
+    fig7=plt.figure(fignum)
+    fig7.clf()
+    ax71 = fig7.add_subplot(211)
+    ax72 = fig7.add_subplot(212, sharex=ax71)
+
+    # show the distribution, distinguishing nonzero
+    if np.sum(bnonzero) > 0:
+        #dum70 = ax71.hist(pformal[bnonzero], bins=100, log=True, color='#00274C')
+
+        if not loghist:
+            dum70 = ax71.hist(pformal[bnonzero], bins=100, log=True, color='#00274C')
+        else:
+            dum70 = ax71.hist(np.log10(pformal[bnonzero]), bins=100, \
+                              log=True, color='#00274C')
+            
+    if np.sum(~bnonzero) > 0 and not loghist:
+        dum71 = ax71.hist(pformal[~bnonzero], bins=100, log=True, color='#D86018')
+
+    # Hack for convenient vertical axis when not showing log10
+    ylargest = -1
+        
+    # start a vanilla histogram plot
+    print("showresps INFO - plotting marginal distributions...")
+    for iset in range(ndata):
+
+        # if log hist, skip very small formal probabilites
+        if loghist:
+            if ~bnonzero[iset]:
+                continue
+            dum72 = ax72.hist(np.log10(postmaster[:,iset]), \
+                              bins=50, alpha=0.2, log=False)
+        else:
+            n, _, _ = ax72.hist(postmaster[:,iset], \
+                                bins=50, alpha=0.2, log=False)
+
+            if bnonzero[iset] and np.max(n) > ylargest:
+                ylargest = np.max(n)
+
+    # If not log hist, use our hack to set maximum y value
+    if not loghist and ylargest > 0:
+        ax72.set_ylim(top=ylargest*1.1)
+
+    sx = r'$p_{fg}$'
+    if loghist:
+        sx = r'$log_{10}(p_{fg})$'
+
+    for ax in [ax71, ax72]:
+        ax.set_xlabel(sx)
+        ax.set_ylabel(r'$N$')
+
+        ax.grid(visible=True, alpha=0.3, which='both')
+        
+        if loghist:
+            ax.annotate(r'$log_{10}(p_{fg}) > %.1f$' % (np.log10(pminlog)), \
+                        (0.05,0.95), xycoords='axes fraction', \
+                        ha='left', va='top', color='#00274C')
+        else:
+            ax.set_xlim(left=0.)
+
+
+    # A few cosmetic adjustments
+    fig7.subplots_adjust(hspace=0.05)
+
+    # Set the title
+    ax71.set_title('Probabilities (fg): nsamples, ndata = (%i, %i)' \
+                   % (nsamples, ndata))
+
+    # save the figure
+    fig7.savefig(pathfig)
+    
 def showcovarscomp(pathcovs='test_flatsamples.pickle', dcovs={}, \
                    keymcmc='covpars', keylsq='lsq_hessian_inv', \
                    keylabels='slabels', \
