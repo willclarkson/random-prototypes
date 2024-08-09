@@ -4007,10 +4007,16 @@ Outputs:
     # as raw counts for the moment
     return postmaster[0:imax]
     
-def showresps(postmaster=np.array([]), fignum=7, loghist=False, pminlog=0.01, \
+def showresps(postmaster=np.array([]), \
+              fignum=7, loghist=False, pminlog=0.01, \
               pathfig='test_resps.png'):
 
-    """Plots formal assignment probabilities
+    """Plots formal assignment probabilities. 
+
+Example call (after getting the postmaster array from computeresps):
+
+    fittwod.showresps(postmaster, loghist=True)
+    
 
 Inputs:
 
@@ -4020,7 +4026,7 @@ Inputs:
 
     pminlog = if log scale, minimum value to show
 
-"""
+    """
 
     if np.size(postmaster) < 1:
         return
@@ -4057,6 +4063,7 @@ Inputs:
         
     # start a vanilla histogram plot
     print("showresps INFO - plotting marginal distributions...")
+    t0 = time.time()
     for iset in range(ndata):
 
         # if log hist, skip very small formal probabilites
@@ -4072,6 +4079,9 @@ Inputs:
             if bnonzero[iset] and np.max(n) > ylargest:
                 ylargest = np.max(n)
 
+    t1 = time.time()
+    print("showhist INFO - ... done in %.1f seconds" % (t1-t0))
+                
     # If not log hist, use our hack to set maximum y value
     if not loghist and ylargest > 0:
         ax72.set_ylim(top=ylargest*1.1)
@@ -4097,9 +4107,8 @@ Inputs:
     # A few cosmetic adjustments
     fig7.subplots_adjust(hspace=0.05)
 
-    # Set the title
-    ax71.set_title('Probabilities (fg): nsamples, ndata = (%i, %i)' \
-                   % (nsamples, ndata))
+    # Set the title. Try an f-string approach
+    ax71.set_title(f"Probabilities (fg): (nsamples, ndata) = ({nsamples:,}, {ndata:,})")
 
     # save the figure
     fig7.savefig(pathfig)
