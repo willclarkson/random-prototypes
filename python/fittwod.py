@@ -3885,14 +3885,15 @@ def computeresps(pathsamples='test_flatsamples.npy', \
                  keyargs='args', keyfunc='log_prob_fn', \
                  pathprobs='test_postmaster.npy', \
                  samplesize=-1, \
-                 ireport = 1000):
+                 ireport = 1000, \
+                 keepmaster = True):
 
     """Given a set of flat samples, computes the (log) responsibilities
 and estimates probabilities of foreground/background association.
 
 Example call (after running the emcee sampler):
 
-    fittwod.computeresps(runargs=esargs, pathsamples='test_flatsamples.npy')
+    psum, postmaster = fittwod.computeresps(runargs=esargs)
 
 Inputs:
 
@@ -3914,9 +3915,16 @@ Inputs:
 
     ireport = report progress to screen every ireport iterations.
 
+    keepmaster = store and return the array of posterior probability
+    samples per datapoint. If False, an empty array is returned for
+    postmaster (but not for psum!) and the postmaster array is not
+    written to disk.
+
 Outputs:
     
-    postmaster = [nsamples, ndata] array of membership probabilities
+    psum = [N] - probability that each object belongs to the foreground
+
+    postmaster = [samplesize, N] array of membership probabilities
 
     """
 
@@ -3928,12 +3936,12 @@ Outputs:
     runkeys = runargs.keys()
     if len(runkeys) < 1:
         print("computeresps FATAL - run arguments not supplied.")
-        return np.array([])
+        return np.array([]), np.array([])
     
     if not keyargs in runkeys or not keyfunc in runkeys:
         print("computeresps FATAL - '%s' or '%s' not in runkeys." \
               % (keyargs, keyfunc))
-        return np.array([])
+        return np.array([]), np.array([])
     
     # Ensure we have the flat samples (could also pass them in)
     try:
@@ -3941,7 +3949,7 @@ Outputs:
     except:
         print("computeresps FATAL - problem loading flat samples from %s" \
               % (pathsamples))
-        return np.array([])
+        return np.array([]), np.array([])
     
     # OK if we're here then we have the ln prob function and its
     # arguments. Convenience-views:
@@ -3955,10 +3963,6 @@ Outputs:
     nsamples = flatsamples.shape[0]
     ndata = runargs[keyargs][1].shape[0] # this is really opaque!!
 
-    # master array to store all the responsibilities for all the
-    # data. WATCHOUT - this might get large...
-    postmaster = np.zeros((nsamples, ndata))
-
     # This is taking quite a while to calculate. See how long...
     t0 = time.time()
     print("computeresps INFO - starting responsibility loop:")
@@ -3968,9 +3972,16 @@ Outputs:
         imax = nsamples
     else:
         imax = samplesize
+
+    # Build the responsibilities array from the sample size we are
+    # going to compute.
+    postmaster = np.array([])
+    if keepmaster:
+        postmaster = np.zeros((imax, ndata))
     
     # Now do the calculation
-    norm = 0.  
+    norm = 0.
+    psum = np.zeros(ndata)
     for isample in range(imax):
 
         # evaluate the posterior probability that each point belongs
@@ -3978,8 +3989,13 @@ Outputs:
         lnprob, ll_fg, ll_bg = methprob(flatsamples[isample], *probargs, retblobs=True)
         probfg = np.exp(ll_fg - np.logaddexp(ll_fg, ll_bg))
 
-        # accumulate onto the master probfg array
-        postmaster[isample] = probfg
+        # Do the line-by-line, increment the norm
+        psum += probfg
+        norm += 1.
+        
+        # accumulate onto the master probfg array if we are going to store it:
+        if keepmaster:
+            postmaster[isample] = probfg
 
         # report out every so often
         if isample % ireport < 1:
@@ -3990,22 +4006,24 @@ Outputs:
                 tremain = float(imax)/itpersec
             print("computeresps INFO - iteration %i of %i after %.2e seconds: %.1f it/sec. Est %.2e sec remain" \
                   % (isample, imax, telapsed, itpersec, tremain), end='\r')
-        
-        norm += 1. # keep this if we're computing sum per iteration
 
     t1 = time.time()
     print("computeresps INFO - loops took %.2e seconds for %.2e samples" \
           % (t1-t0, nsamples))
 
-    # write the responsibilties to disk
-    np.save(pathprobs, postmaster)
-    
-    # now divide postmaster by the normalization to turn it into probabilities
-    # postmaster /= norm
+    # evaluate the probability average
+    psum /= norm
 
-    # This takes a while to compute. For development, output a subset,
-    # as raw counts for the moment
-    return postmaster[0:imax]
+    # Now compute the probabilities
+    #ncomputed = postmaster.shape[0]
+    #probfg = np.sum(postmaster, axis=0) / np.float(ncomputed)
+    #print("CHECK:", probfg - psum)
+
+    # Write to disk if we kept the entire sample set
+    if keepmaster:
+        np.save(pathprobs, postmaster)
+    
+    return psum, postmaster
     
 def showresps(postmaster=np.array([]), \
               fignum=7, loghist=False, pminlog=0.01, \
