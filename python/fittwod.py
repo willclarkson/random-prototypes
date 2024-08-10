@@ -3478,6 +3478,13 @@ def testmcmc_linear(npts=200, \
         
         return
 
+    # 2024-08-09 if we want to preserve esargs (or maybe just the args
+    # and log_prob_fn), might consider pickling that here. Try it:
+
+    argskeep = {'args':args, 'log_prob_fn':methpost}
+    with open('test_argskeep.pickle', 'wb') as wobj:
+        pickle.dump(argskeep, wobj)
+    
     # Now we set the arguments for the sampler and for the plotter, so
     # that we can call them from the interpreter if needed
     esargs = {'nwalkers':nwalkers, 'ndim':ndim, 'log_prob_fn':methpost, \
@@ -4366,7 +4373,7 @@ def calcmoments(projxy = np.array([]), \
 
     """Calculates moments of a sample-set of 2d simulations. Example call:
 
-    meds, covs, skews = fittwod.calcmoments(projxy, methavg=np.median)
+    meds, covs, skews, kurts = fittwod.calcmoments(projxy, methavg=np.median)
 
 Inputs:
 
@@ -4386,6 +4393,7 @@ Returns:
 
     skews = [N,2] array of skewness
     
+    kurts = [N,2] array of kurtosis
 
     """
 
@@ -4403,8 +4411,9 @@ Returns:
     covs = cov3d(projxy)
     avgs = methavg(projxy, axis=0).T
     skews = stats.skew(projxy, axis=0).T
-
-    return avgs, covs, skews
+    kurts = stats.kurtosis(projxy, axis=0).T
+    
+    return avgs, covs, skews, kurts
     
 def showcovarscomp(pathcovs='test_flatsamples.pickle', dcovs={}, \
                    keymcmc='covpars', keylsq='lsq_hessian_inv', \
