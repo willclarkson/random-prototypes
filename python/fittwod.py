@@ -7,12 +7,14 @@
 # unctytwod.py
 # 
 
-import os, time, pickle
+import os, time, pickle, copy
 
 # 2024-08-07 commented THIS import out since we don't call
 # multiprocessing from within this module any more.
 #
 # from multiprocessing import cpu_count, Pool 
+
+from scipy import stats
 
 import numpy as np
 import matplotlib.pylab as plt
@@ -599,6 +601,47 @@ returns array [vx, vy, vxy] for use by cov32covn22. Inputs:
 
     return addcov, cov_ok
 
+def cov3d(xy=np.array([]) ):
+
+    """Computes plane-by-plane covariance of [nsamples, 2, ndata] array.
+
+Inputs:
+
+    xy = [nsamples, 2, ndata] array
+
+Returns
+
+    covn22 = [ndata, 2, 2] covariance array
+
+
+"""
+
+    # 2024-08-09: This really should be an input method for
+    # CovarsNx2x2. Then, so probably should many of the methods in
+    # this part of the module.
+
+    # Do nothing if input not 3d
+    if np.ndim(xy) != 3:
+        return
+
+    nsamples, ndim, ndata = xy.shape
+
+    # Get the vxx, vyy, vxy terms
+    meanxy = np.mean(xy, axis=0)
+    var = np.sum((xy - meanxy[None, :, :])**2, axis=0)/(ndata + 1.)
+    
+    vxy = np.sum( (xy[:,0,:] - meanxy[None,0,:]) * \
+                  (xy[:,1,:] - meanxy[None,1,:]), axis=0 ) /(ndata+1.)
+
+    # assemble the output into an nx2x2 covariance array.
+    covn22 = np.zeros(( ndata, ndim, ndim ))
+    covn22[:,0,0] = var[0]
+    covn22[:,1,1] = var[1]
+    covn22[:,0,1] = vxy
+    covn22[:,1,0] = vxy
+
+    return covn22
+        
 def checkcorrpars(addcorr=np.array([]), islog10=False):
 
     """Utility - given [stdx, stdy/stdx, corrxy], determines if the
@@ -3880,7 +3923,198 @@ that we can run this from the interpreter."""
 
     print("SAMPLES INFO - FLAT:", np.shape(flat_samples))
 
-def computeresps(pathsamples='test_flatsamples.npy', \
+def getrunsamples(samples=np.array([]), \
+                  pathsamples='test_flatsamples.npy', \
+                  Verbose=True):
+
+    """Gets run samples and run information.
+
+Inputs:
+
+    samples = np.array of run samples.
+
+    pathsamples = path to samples if samples not supplied.
+
+    Verbose = print screen output if there is a problem loading the path
+
+Returns:
+
+    samples = np.array of run samples
+
+"""
+
+    if np.size(samples) > 0:
+        flatsamples = samples
+    else:
+        try:
+            flatsamples = np.load(pathsamples)
+        except:
+            if Verbose:
+                print("getrunsamples FATAL - problem loading flat samples from %s" \
+                      % (pathsamples))
+            return np.array([])
+
+    return flatsamples
+
+def runargsok(runargs={}, lkeys=['args'], Verbose=False ):
+
+    """Checks if run arguments dictionary contains the needed quantities
+
+Inputs:
+    
+    runargs = {} dictionary of run arguments
+
+    lkeys = list of keywords that must be present
+
+    Verbose = print screen output if any keywords are missing
+
+Returns:
+
+    argsok = [T/F] - all the requested items are present
+
+"""
+
+    runkeys = runargs.keys()
+    if len(runkeys) < 1:
+        if Verbose:
+            print("checkrunargs WARN - no keywords.")
+        return False
+
+    for skey in lkeys:
+        if not skey in runkeys:
+            if Verbose:
+                print("checkrunargs WARN - keyword missing: %s" % (skey))
+            return False
+
+    # If we reached here, all the required keys are present.
+    return True
+
+def computeprojs(samples=np.array([]), pathsamples='test_flatsamples.npy', \
+                 runargs={}, keyargs='args', \
+                 xy=np.array([]), \
+                 samplesize=-1, \
+                 ireport = 1000, \
+                 pathprojs='test_flatproj.npy'):
+
+    """Computes projection of input data onto the target space, using the sample of transformation parameters. 
+
+Inputs:
+
+    samples = array of MCMC samples.
+
+    pathsamples = path to file holding MCMC samples. Ignored if samples has nonzero size.
+
+    runargs = dictionary of MCMC run arguments. Must include the
+    transformation object used. Currently this structure is not
+    terribly transparent.
+
+    keyargs = keyword in runarguments dictionary for the actual run arguments.
+
+    xy = [N,2] array of positions to project. If not supplied, these
+    are taken from the transformation object.
+
+    samplesize = number of samples to keep
+
+    ireport = report progress every ireport samples
+
+    pathprojs = file path to write the resulting samples.
+
+Returns:
+    
+    projxy = [samplesize, 2, N] array of positions.
+
+    """
+
+    # initialize the output to blank
+    projxy = np.array([])
+    
+    # Ensure we have the necessary pieces
+    if not runargsok(runargs, [keyargs], Verbose=True):
+        print("computeprojs WARN - problem with runargs keywords")
+        return projxy
+
+    # Check that the samples are OK
+    flatsamples = getrunsamples(samples, pathsamples)
+    if np.size(flatsamples) < 1:
+        print("computeprojs FATAL - no samples")
+        return projxy
+
+    # OK now identify the transformation object. We make a copy
+    # because we may be changing things.
+    transf = copy.deepcopy(runargs[keyargs][0])
+
+    # we will need to lift out the geometric parameters. To do this,
+    # we appeal to the arguments, which are currently not done very
+    # transparently...
+    argus = runargs[keyargs]
+    nnoise_shape = argus[4]
+    nnoise_model = argus[7]
+    nmix = argus[9]
+    
+    # If xy positions were supplied, switch them in to the
+    # transformation object.
+    if np.size(xy) > 1:
+        if np.ndim(xy) is 2:
+            transf.x = xy[:,0]
+            transf.y = xy[:,1]
+
+    # if here then we should have our transformation object ready to
+    # go. Since feval() propagates both the positions and the
+    # covariances and we want only the covariances, use the
+    # self.tranpos() method of the transformation object instead.
+
+    # Convenience views
+    nsamples = flatsamples.shape[0]
+    ndata = transf.x.size
+    
+    # Set up the projections array
+    imax = samplesize
+    if samplesize < 0 or samplesize > nsamples:
+        imax = nsamples
+    projxy = np.zeros((imax, 2, ndata)) 
+
+    # Split the model parameters as vectors. This actually only buys a
+    # small speed improvement, I wonder if this is because the native
+    # parallelization was overridden in favor of running the samples.
+    ptrans2d, _, _, _ = splitmodel(flatsamples.T, \
+                                   nnoise_model, nnoise_shape, nmix)
+    ptrans2d = ptrans2d.T
+        
+    # OK here we go...
+    t0 = time.time()
+    tremain = 0.
+    for isample in range(imax):
+
+        # Update the transformation object's parameters
+        #ptransf, _, _, _ = splitmodel(flatsamples[isample], \
+        #                              nnoise_model, nnoise_shape, nmix)
+        transf.updatetransf(ptrans2d[isample])
+
+        # Apply the transformation and slot into the master array
+        transf.tranpos()
+        projxy[isample,0] = transf.xtran
+        projxy[isample,1] = transf.ytran
+
+        if isample % ireport < 1 and isample > 0:
+            telapsed = time.time() - t0
+            itpersec = float(isample)/telapsed
+            if itpersec > 0.:
+                tremain = float(imax)/itpersec
+            print("computeprojs INFO - iteration %i of %i after %.2e seconds: %.1f it/sec. Est %.2e sec remain" \
+                  % (isample, imax, telapsed, itpersec, tremain), end='\r') 
+
+    print("")
+    print("computeprojs INFO - %i loops finished in %.2e sec" % (imax, time.time() - t0) )
+
+    # Write the projections to file
+    if len(pathprojs) > 3:
+        if pathprojs.find('.') > 0:
+            np.save(pathprojs, projxy)
+    
+    return projxy
+    
+def computeresps(samples=np.array([]), \
+                 pathsamples='test_flatsamples.npy', \
                  runargs={}, \
                  keyargs='args', keyfunc='log_prob_fn', \
                  pathprobs='test_postmaster.npy', \
@@ -3897,7 +4131,9 @@ Example call (after running the emcee sampler):
 
 Inputs:
 
-    pathsamples = path to the flattened samples 
+    samples = np.array([])
+    
+    pathsamples = path to the flattened samples, if loading from file
 
     runargs = {} dictionary of run arguments that were supplied to
     emcee
@@ -3932,24 +4168,16 @@ Outputs:
     # then refactor the responsibility calculation out into a separate
     # method.
 
-    # Not much to do if the arguments are blank
-    runkeys = runargs.keys()
-    if len(runkeys) < 1:
-        print("computeresps FATAL - run arguments not supplied.")
-        return np.array([]), np.array([])
-    
-    if not keyargs in runkeys or not keyfunc in runkeys:
-        print("computeresps FATAL - '%s' or '%s' not in runkeys." \
-              % (keyargs, keyfunc))
-        return np.array([]), np.array([])
-    
-    # Ensure we have the flat samples (could also pass them in)
-    try:
-        flatsamples = np.load(pathsamples)
-    except:
-        print("computeresps FATAL - problem loading flat samples from %s" \
-              % (pathsamples))
-        return np.array([]), np.array([])
+    # Check that the run arguments are OK
+    if not runargsok(runargs, [keyargs, keyfunc], Verbose=True):
+        print("computeresps WARN - problem with runargs keywords")
+        return
+
+    # Check that the samples are OK
+    flatsamples = getrunsamples(samples, pathsamples)
+    if np.size(flatsamples) < 1:
+        print("computeresps FATAL - no samples")
+        return
     
     # OK if we're here then we have the ln prob function and its
     # arguments. Convenience-views:
@@ -3998,7 +4226,7 @@ Outputs:
             postmaster[isample] = probfg
 
         # report out every so often
-        if isample % ireport < 1:
+        if isample % ireport < 1 and isample > 0:
             telapsed = time.time() - t0
             itpersec = float(isample)/telapsed
             tremain = 0.
@@ -4008,6 +4236,7 @@ Outputs:
                   % (isample, imax, telapsed, itpersec, tremain), end='\r')
 
     t1 = time.time()
+    print("") # carriage return so next print starts on the next line
     print("computeresps INFO - loops took %.2e seconds for %.2e samples" \
           % (t1-t0, nsamples))
 
@@ -4130,6 +4359,52 @@ Inputs:
 
     # save the figure
     fig7.savefig(pathfig)
+
+def calcmoments(projxy = np.array([]), \
+                pathprojxy='', \
+                methavg=np.mean):
+
+    """Calculates moments of a sample-set of 2d simulations. Example call:
+
+    meds, covs, skews = fittwod.calcmoments(projxy, methavg=np.median)
+
+Inputs:
+
+    projxy = [nsamples, 2, N] array of xy projected position for
+    each sample
+
+    pathprojxy = path to load the projected samples if not supplied
+
+    methavg = method to use to compute the average. Must accept the
+    "axis" keyword. Usual choices will be np.mean or np.median.
+
+Returns:
+
+    avgs = [N,2] array of average values
+
+    covs = [N,2,2] array of covariances
+
+    skews = [N,2] array of skewness
+    
+
+    """
+
+    # Ensure we have projections to work with
+    projxy = getrunsamples(projxy, pathprojxy, Verbose=True)
+    
+    # Nothing to do if no data supplied
+    blank = np.array([])
+    if np.size(projxy) < 3:
+        return blank, blank, blank
+
+    if np.ndim(projxy) != 3:
+        return blank, blank, blank
+
+    covs = cov3d(projxy)
+    avgs = methavg(projxy, axis=0).T
+    skews = stats.skew(projxy, axis=0).T
+
+    return avgs, covs, skews
     
 def showcovarscomp(pathcovs='test_flatsamples.pickle', dcovs={}, \
                    keymcmc='covpars', keylsq='lsq_hessian_inv', \
