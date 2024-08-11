@@ -36,6 +36,10 @@ from fitpoly2d import Leastsq2d, Patternmatrix
 import emcee
 import corner
 
+# For logistic regression on responsibilities
+from scipy.special import expit
+from sklearn.linear_model import LogisticRegression
+
 def uTVu(u, V):
 
     """Returns u^T.V.u where
@@ -4261,9 +4265,10 @@ Outputs:
     
     return psum, postmaster
     
-def showresps(postmaster=np.array([]), \
+def showresps(postmasterin=np.array([]), \
               fignum=7, loghist=False, pminlog=0.01, \
-              pathfig='test_resps.png'):
+              pathfig='test_resps.png', \
+              wantbg=False):
 
     """Plots formal assignment probabilities. 
 
@@ -4274,19 +4279,26 @@ Example call (after getting the postmaster array from computeresps):
 
 Inputs:
 
-    postmaster = [nsamples, ndata] array of membership probabilities
+    postmasterin = [nsamples, ndata] array of membership probabilities
 
     loghist = plot histogram as log10 (only nonzero considered)
 
     pminlog = if log scale, minimum value to show
 
+    wantbg = we want the background assignments not the foreground
+
     """
 
-    if np.size(postmaster) < 1:
+    if np.size(postmasterin) < 1:
         return
 
-    nsamples, ndata = postmaster.shape
+    nsamples, ndata = postmasterin.shape
 
+    # do we want the reverse?
+    postmaster = postmasterin
+    if wantbg:
+        postmaster = 1.0 - postmasterin
+    
     # get the averages
     pformal = np.sum(postmaster, axis=0)/np.float(nsamples)
 
@@ -4340,9 +4352,14 @@ Inputs:
     if not loghist and ylargest > 0:
         ax72.set_ylim(top=ylargest*1.1)
 
-    sx = r'$p_{fg}$'
+    # Foreground/background string
+    swhich = 'fg'
+    if wantbg:
+        swhich = 'bg'
+        
+    sx = r'$p_{%s}$' % (swhich)
     if loghist:
-        sx = r'$log_{10}(p_{fg})$'
+        sx = r'$log_{10}(p_{%s})$' % (swhich)
 
     for ax in [ax71, ax72]:
         ax.set_xlabel(sx)
@@ -4351,7 +4368,8 @@ Inputs:
         ax.grid(visible=True, alpha=0.3, which='both')
         
         if loghist:
-            ax.annotate(r'$log_{10}(p_{fg}) > %.1f$' % (np.log10(pminlog)), \
+            ax.annotate(r'$log_{10}(p_{%s}) > %.1f$' % \
+                        (swhich, np.log10(pminlog)), \
                         (0.05,0.95), xycoords='axes fraction', \
                         ha='left', va='top', color='#00274C')
         else:
@@ -4362,11 +4380,94 @@ Inputs:
     fig7.subplots_adjust(hspace=0.05)
 
     # Set the title. Try an f-string approach
-    ax71.set_title(f"Probabilities (fg): (nsamples, ndata) = ({nsamples:,}, {ndata:,})")
+    ax71.set_title(f"Probabilities (%s): (nsamples, ndata) = ({nsamples:,}, {ndata:,})" % (swhich))
 
     # save the figure
     fig7.savefig(pathfig)
 
+def showresptruths(fitresps='test_xyresps.xyxy', \
+                   simresps='test_simdata.xyxy', \
+                   creg=1.0e5, \
+                   fitisfg=True, \
+                   logx=True, \
+                   fignum=8, \
+                   pathfig='test_logreg.png'):
+
+    """Plots assigned responsibilities and truth (simulated)
+responsibilities.
+
+Inputs:
+
+    fitresps = path to fitted responsibilities
+
+    simresps = path to simulated identifications
+
+    creg = regularization parameter in the logistic regression. See
+    the documentation for sklearn.LogisticRegression for more.
+
+    fitisfg [T/F] - the MCMC interprets "f" as the foreground fraction rather than the background fraction
+
+    logx [T/F] - use log scale for the horizontal axis
+
+    fignum = matplotlib figure number to assign
+
+    """
+
+    try:
+        asim = np.genfromtxt(simresps, unpack=False)
+    except:
+        print("showresptruths WARN - problem reading %s" % (simresps))
+        return
+
+    try:
+        afit = np.genfromtxt(fitresps, unpack=False)
+    except:
+        print("showresptruths WARN - problem reading %s" % (fitresps))
+        return
+
+    # trusting the input files for the moment...
+    respsim = asim[:,-1]
+    respfit = afit[:,-1]
+
+    # If "f" in the MCMC means identification with the foreground:
+    if fitisfg:
+        respfit = 1.0 - respfit
+
+    # Try logistic regression on the result
+    clf = LogisticRegression(C=creg)
+    clf.fit(respfit[:, None], respsim)
+    xfine = np.linspace(respfit.min(), 1., 100)
+    yfine = expit(xfine * clf.coef_ + clf.intercept_).ravel()
+        
+    fig8 = plt.figure(fignum)
+    fig8.clf()
+    ax80 = fig8.add_subplot(111)
+    dum = ax80.scatter(respfit, respsim, alpha=0.5, \
+                       label='Responsibilities')
+
+    # overplot the logistic regression model
+    dumfine = ax80.plot(xfine, yfine, c='#75988d', zorder=10, alpha=0.7, \
+                        ls='--', lw=1, \
+                        label='logistic regression')
+
+    # take control over the legend location (don't want it to overly
+    # the corners)
+    legloc = 'center right'
+    if logx:
+        legloc = 'center left'
+    
+    leg = ax80.legend(fontsize=8, loc=legloc)
+
+    if logx:
+        ax80.set_xscale('log')
+    
+    ax80.set_xlabel('p(is background), MCMC')
+    ax80.set_ylabel('Simulated as background')
+
+    # Save the figure to disk
+    if len(pathfig) > 3:
+        fig8.savefig(pathfig)
+    
 def calcmoments(projxy = np.array([]), \
                 pathprojxy='', \
                 methavg=np.mean):
