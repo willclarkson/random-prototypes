@@ -4131,7 +4131,9 @@ def computeresps(samples=np.array([]), \
                  pathprobs='test_postmaster.npy', \
                  samplesize=-1, \
                  ireport = 1000, \
-                 keepmaster = True):
+                 keepmaster = True, \
+                 writemaster = True, \
+                 returnmaster = True):
 
     """Given a set of flat samples, computes the (log) responsibilities
 and estimates probabilities of foreground/background association.
@@ -4139,6 +4141,9 @@ and estimates probabilities of foreground/background association.
 Example call (after running the emcee sampler):
 
     psum, postmaster = fittwod.computeresps(runargs=esargs)
+
+    psum = fittwod.computeresps(runargs=esargs, returnmaster=False, keepmaster=False)
+
 
 Inputs:
 
@@ -4166,6 +4171,10 @@ Inputs:
     samples per datapoint. If False, an empty array is returned for
     postmaster (but not for psum!) and the postmaster array is not
     written to disk.
+
+    writemaster = write the array of posterior samples to disk
+
+    returnmaster = return the array of posterior samples
 
 Outputs:
     
@@ -4260,10 +4269,15 @@ Outputs:
     #print("CHECK:", probfg - psum)
 
     # Write to disk if we kept the entire sample set
-    if keepmaster:
+    if keepmaster and writemaster:
         np.save(pathprobs, postmaster)
-    
-    return psum, postmaster
+
+    # If asked, return the master samples to the calling method
+    if returnmaster:
+        return psum, postmaster
+
+    # Otherwise just return the average probabilities
+    return psum
     
 def showresps(postmasterin=np.array([]), \
               fignum=7, loghist=False, pminlog=0.01, \
@@ -4490,6 +4504,14 @@ Inputs:
               % (pathprojs))
         return
 
+    # It's possible at this point that the projections are for a
+    # different set than the identifications. Guard against that here
+    nsim = asim.shape[0]
+    nproj = projxy.shape[-1]
+    if nsim != nproj:
+        print("showresptruths WARN - simulation and projections have different lengths")
+        return
+        
     # Use the 50th percentile positions (note this is using the FOUND
     # positions and not the SIMULATED positions, so might be biased).
     x50 = np.percentile(projxy[:,0,:], 50., axis=0)
