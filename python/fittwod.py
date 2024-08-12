@@ -4391,7 +4391,10 @@ def showresptruths(fitresps='test_xyresps.xyxy', \
                    fitisfg=True, \
                    logx=True, \
                    fignum=8, \
-                   pathfig='test_logreg.png'):
+                   pathfig='test_logreg.png', \
+                   showscatter=True, \
+                   pathprojs='test_flatproj.npy', \
+                   argsscatt={'cmap':'inferno', 's':16} ):
 
     """Plots assigned responsibilities and truth (simulated)
 responsibilities.
@@ -4410,6 +4413,12 @@ Inputs:
     logx [T/F] - use log scale for the horizontal axis
 
     fignum = matplotlib figure number to assign
+
+    showscatter = show scatterplot with outlier ID
+
+    pathprojs = path to projected positions (needed if doing the scatterplot)
+
+    argsscatt = arguments to pass to the scatter command.
 
     """
 
@@ -4438,7 +4447,8 @@ Inputs:
     clf.fit(respfit[:, None], respsim)
     xfine = np.linspace(respfit.min(), 1., 100)
     yfine = expit(xfine * clf.coef_ + clf.intercept_).ravel()
-        
+    
+    # Show the logistic regression
     fig8 = plt.figure(fignum)
     fig8.clf()
     ax80 = fig8.add_subplot(111)
@@ -4467,7 +4477,55 @@ Inputs:
     # Save the figure to disk
     if len(pathfig) > 3:
         fig8.savefig(pathfig)
+
+    # Show the scatterplot
+    if not showscatter:
+        return
+
+    # load the projected positions
+    try:
+        projxy = np.load(pathprojs)
+    except:
+        print("showresptruths WARN - problem loading projections from %s" \
+              % (pathprojs))
+        return
+
+    # Use the 50th percentile positions (note this is using the FOUND
+    # positions and not the SIMULATED positions, so might be biased).
+    x50 = np.percentile(projxy[:,0,:], 50., axis=0)
+    y50 = np.percentile(projxy[:,1,:], 50., axis=0)
+
+    conv = 3600.
+    dx = x50 - asim[:,2]
+    dy = y50 - asim[:,3]
+
+    dx *= conv
+    dy *= conv
     
+    fig9=plt.figure(fignum+1, figsize=(7.5,2.7))
+    fig9.clf()
+    ax90 = fig9.add_subplot(121)
+    ax91 = fig9.add_subplot(122, sharex=ax90, sharey=ax90)
+
+    dum90 = ax90.scatter(dx, dy, c=respsim, edgecolor='k', alpha=0.7, \
+                         **argsscatt)
+    dum91 = ax91.scatter(dx, dy, c=respfit, edgecolor='k', alpha=0.7, \
+                         **argsscatt)
+
+    cb90 = fig9.colorbar(dum90, ax=ax90)
+    cb91 = fig9.colorbar(dum91, ax=ax91)
+
+    ax90.set_title('Simulated')
+    ax91.set_title('Estimated')
+    
+    for ax in [ax90, ax91]:
+        ax.set_xlabel(r'$\Delta\xi$, arcsec')
+        ax.set_ylabel(r'$\Delta\eta$, arcsec')
+
+        
+    # Cosmetics
+    fig9.subplots_adjust(hspace=0.3, wspace=0.4, left=0.13, bottom=0.2)
+        
 def calcmoments(projxy = np.array([]), \
                 pathprojxy='', \
                 methavg=np.mean):
