@@ -3143,11 +3143,15 @@ def testmcmc_linear(npts=200, \
     PFit = transf(xyobs[:,0], xyobs[:,1], covsrc, guessx, guessy, \
                   kind=polyfit)
     PFit.propagate()
-    
+
     # Take a look at the data we generated... do these look
     # reasonable? [Refactored into new method]
-    showsimxy(xy, xyobs, xytran, xytarg, covtran, mags, \
-              CExtra, PFit, PTruth, fignum=1, isoutly=isoutly)
+    #
+    # 2024-08-12 Moved this farther down so that we can look at the
+    # results of the initial guess.
+    
+    # showsimxy(xy, xyobs, xytran, xytarg, covtran, mags, \
+    #          CExtra, PFit, PTruth, fignum=1, isoutly=isoutly)
 
 
     # Set up labeling for plots.
@@ -3183,20 +3187,12 @@ def testmcmc_linear(npts=200, \
     if addvar and not fit_noise_model:
 
         lextra = labelsaddvar(npars_extravar, extra_is_corr, stdx_is_log)
-        
-        #lextra = [r'$V_{\xi\eta}$']
-        #if npars_extravar > 1:
-        #    lextra = [r'$V_{\xi}$', r'$V_{\eta}$']
-        #    if npars_extravar > 2:
-        #        lextra = [r'$V_{\xi}$', r'$V_{\eta}$', r'$V_{\xi \eta}$']
-
         slabels = slabels + lextra
                     
         # Come up with a guess for the added variance. For the moment
         # use a relatively soft test, where we know the truth going
         # in... Make these vectors from the start so that we can
         # smoothly adjust later.
-        
         vguess = np.random.uniform(low=0.8, high=1.2, \
                                    size=np.size(var_extra)) \
                                    * var_extra
@@ -3459,6 +3455,20 @@ def testmcmc_linear(npts=200, \
     #print("testmcmc_linear DEBUG - ln(prob) on initial guess:", check)
     #print("testmcmc_linear DEBUG -  blob info shape:", np.shape(llfg), np.shape(llbg))
 
+    # Since we don't see the plot until we get the interpreter back,
+    # we may as well show the samples here. The advantage is that we
+    # now have the modified guess transformation so we can check
+    # it. So - unpack the guess parameters back into pfit parameters
+    # and pass them to the sim plotter:
+    pguess, _, _, _ = splitmodel(guess, npars_extravar, \
+                                 npars_noise, npars_mix)
+    PFit.updatetransf(pguess)
+    
+    showsimxy(xy, xyobs, xytran, xytarg, covtran, mags, \
+              CExtra, PFit, PTruth, fignum=1, isoutly=isoutly)
+
+    
+    
     check = methpost(guess, *args)
     print("testmcmc_linear DEBUG - ln(prob) on initial guess:", check)
     
@@ -3681,7 +3691,9 @@ def showsimxy(xy=np.array([]), xyobs=np.array([]), \
               covtran=np.array([]), \
               mags=np.array([]), CExtra=None, \
               PFit=None, PTruth=None, \
-              fignum=1, isoutly=np.array([]) ):
+              fignum=1, isoutly=np.array([]), \
+              showguess=True, \
+              scattarcsec=True):
 
     """Show some characteristics of the generated data"""
 
@@ -3691,8 +3703,14 @@ def showsimxy(xy=np.array([]), xyobs=np.array([]), \
     fig1.clf()
     ax1=fig1.add_subplot(231)
     ax2=fig1.add_subplot(232)
-    ax3=fig1.add_subplot(234)
-    ax4=fig1.add_subplot(235)
+
+    if showguess:
+        ax3=fig1.add_subplot(235)
+        ax4=fig1.add_subplot(234)
+    else:
+        ax3=fig1.add_subplot(234)
+        ax4=fig1.add_subplot(235)
+        
     ax5 = None # now set below
     ax6 = None # now set in a conditional below
     
@@ -3702,13 +3720,19 @@ def showsimxy(xy=np.array([]), xyobs=np.array([]), \
     # generated and perturbed points in original and target frame:
     blah1=ax1.scatter(xy[:,0], xy[:,1], s=1)
     blah2=ax2.scatter(xyobs[:,0], xyobs[:,1], c='g', s=1)
-    blah3=ax3.scatter(xytran[:,0], xytran[:,1], s=1)
     blah4=ax4.scatter(xytarg[:,0], xytarg[:,1], c='g', s=1)
+
+    # If we're not showing the evaluation of the guess on the
+    # PERTURBED datapoints, plot the scatterplot of the transformed
+    # objects
+    if not showguess:
+        blah3=ax3.scatter(xytran[:,0], xytran[:,1], s=1)
+        ax3.set_title('Transformed')
+        
 
     # Set titles for the first four axes
     ax1.set_title('Generated')
     ax2.set_title('Perturbed')
-    ax3.set_title('Transformed')
     ax4.set_title('Target')
 
     # Labels for the position plots
@@ -3720,7 +3744,20 @@ def showsimxy(xy=np.array([]), xyobs=np.array([]), \
         ax.set_xlabel(r'$\xi$')
         ax.set_ylabel(r'$\eta$')
 
-    
+    # membership color if we have that information
+    cscatt='k'
+    shademembs = False
+    if np.sum(isoutly) > 0:
+        cscatt = isoutly * 1.
+        shademembs = True
+
+    # Conversion factor for any scatterplots of deltas
+    conv = 1.
+    sunit = '' # axis labels units for residuals
+    if scattarcsec:
+        conv=3600.
+        sunit = '(arcsec)'
+        
     # If a fit object has been sent in, use it to show the transformed
     # positions using the initial guess (or whatever parameters are in
     # the pfit object):
@@ -3728,19 +3765,30 @@ def showsimxy(xy=np.array([]), xyobs=np.array([]), \
         blah5 = ax4.scatter(PFit.xytran[:,0], PFit.xytran[:,1], \
                             c='r', s=1)
 
+        # If here, we are showing what happens when we transform the
+        # xy using the parameters in PFit:
+        if showguess:
+            PFit.propagate()
+            dxy = (PFit.xytran - xytarg)*conv
+            blah3 = ax3.scatter(dxy[:,0], dxy[:,1], s=9, \
+                            c=cscatt, cmap='Greens_r', \
+                            edgecolor='k')
+
+            ax3.set_title('guess pars')
+            ax3.set_aspect('equal', adjustable='box')
+            
     # Show the residuals from truth in the target space on axis 5
     if PTruth is not None:
         ax5=fig1.add_subplot(236)
-        fxy = PTruth.xytran - xytarg
+        fxy = (PTruth.xytran - xytarg)*conv
 
         # If we have outliers, make a choice about what range to use.
-        cscatt = 'k'
         shadeax5 = False
         cc = np.cov(fxy, rowvar=False)
 
         if np.sum(isoutly) > 0:
-            cscatt = isoutly * 1.
-            shadeax5 = True
+            # cscatt = isoutly * 1.
+            # shademembs = True
             ccinly = np.cov(fxy[~isoutly], rowvar=False)
             
         blah5 = ax5.scatter(fxy[:,0], fxy[:,1], s=9, \
@@ -3751,23 +3799,34 @@ def showsimxy(xy=np.array([]), xyobs=np.array([]), \
                              xycoords='axes fraction', \
                              ha='left', va='bottom', fontsize=6)
 
-        if shadeax5:
+        if shademembs:
             sanno2 = "%.2e, %.2e, %.2e" % (ccinly[0,0], ccinly[1,1], ccinly[0,1])
             anno52 = ax5.annotate(sanno2, (0.05,0.15), \
                                   xycoords='axes fraction', \
                                   ha='left', va='bottom', fontsize=6, color='g')
             
             
-        # Enforce aspect ratio for residuals plot
-        ax5.set_aspect('equal', adjustable='box')
+        # Enforce aspect ratio for residuals plot(s)
+        ax5.set_aspect('equal', adjustable='box')        
+        
+        # Some cosmetics
         ax5.set_title('Residuals, generated')
-        ax5.set_xlabel(r'$\Delta \xi$')
-        ax5.set_ylabel(r'$\Delta \eta$')
+            
+        axdelts = [ax5]
+        if showguess:
+            axdelts=[ax5, ax3]
+
+        for ax in axdelts:
+            ax.set_xlabel(r'$\Delta \xi$ %s' % (sunit)) # sunit set above
+            ax.set_ylabel(r'$\Delta \eta$ %s' % (sunit))
 
         # Add a colorbar if we have shade information for our scatter
-        if shadeax5:
+        if shademembs:
             cbar5 = fig1.colorbar(blah5, ax=ax5)
-        
+            
+            if showguess:
+                cbar3 = fig1.colorbar(blah3, ax=ax3)
+            
     # If we have apparent magnitudes, compute and show the uncertainty
     # wrt magnitude
     if np.size(mags) > 0:

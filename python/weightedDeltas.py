@@ -2087,6 +2087,38 @@ class CovarsNx2x2(object):
             self.populateTransfsFromCovar()
         self.generateSamples()
         return self.deltaTransf.T
+
+    def anyplanesbad(self, covs=np.array([]) ):
+
+        """Utilty - returns True if any of the planes of the Nx2x2 covariance
+stack is singular or has negative determinant. While this will take a
+covarianc matrix as input, it will act on self.covs if no input is
+supplied. The user / calling method is trusted to get the input
+correct.
+
+Inputs:
+
+        covs = [(N), 2, 2] covariance matrix. If none supplied, uses
+        self.covs
+
+Returns:
+
+        issingular = True if any of the planes of the covariance
+        arrays are singular.
+
+        """
+
+        if np.size(covs) < 1:
+            covs = self.covars
+        
+        # Return False if we don't actually have covariances...
+        if np.size(covs) < 1:
+            return False
+
+        bbad = np.linalg.det(covs) <= 0.
+
+        return np.sum(bbad) > 0
+        
         
     def showDeltas(self, figNum=1):
 
