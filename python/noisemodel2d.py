@@ -109,8 +109,8 @@ Returns:
     else:
         return np.vstack(( stdxs, ryxs, corrs ))
 
-def mags2noise(parsmag=np.array([]), mags=np.array([]), \
-               parscov=np.array([]) ):
+def mags2noise(parsmag=np.array([]), \
+               parscov=np.array([]), mags=np.array([]) ):
 
     """Returns a CovsNx2x2 object describing noise model covariance. The stdx of each 2x2 plane is computed from the model
 

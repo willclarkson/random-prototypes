@@ -16,12 +16,43 @@ import mixfgbg
 
 from fitpoly2d import Leastsq2d, Patternmatrix
 
+from weightedDeltas import CovarsNx2x2
+
 class Pars1d(object):
 
     """Parameters for transformation and any other 'model' parameters
-including noise model and mixture model"""
+including noise model and mixture model. A 1d parameter array can be
+input (and split) or the separate pieces can be input and fused. If
+the 1d array is supplied, any separate components supplied are
+ignored.
 
-    def __init__(self, pars=np.array([]), nnoise=0, nshape=0, nmix=0):
+Example: supply 1D parameter + index counts to split:
+
+    PP = Pars1d(ppars, nnoise, nshape, nmix)
+
+Example: supply separate model components to fuse into a 1D array:
+
+    QQ = Pars1d(model=PP.model, noise=PP.noise, symm=PP.symm, mix=PP.mix)
+
+Relevant attributes:
+
+    PP.pars = 1D array [transformation, noise, shape, mixture]
+
+    PP.model = transformation model
+
+    PP.noise = noise vs mag model
+
+    PP.symm = [stdy/stdx, corrxy] model
+
+    PP.mix = [foutly, vbackg] model
+
+    
+
+    """
+
+    def __init__(self, pars=np.array([]), nnoise=0, nshape=0, nmix=0, \
+                 model=np.array([]), noise=np.array([]), symm=np.array([]), \
+                 mix=np.array([])):
 
         # 1D array of parameters as expected by e.g. minimize. Can be
         # a numpy array or a list
@@ -33,10 +64,10 @@ including noise model and mixture model"""
         self.nmix = nmix
 
         # Partitioned parameters
-        self.model = np.array([]) # the transformation
-        self.noise = np.array([]) # the noise vs mag model
-        self.symm = np.array([]) # noise shape [stdy/stdx, corrxy]
-        self.mix = np.array([])   # mixture model [ffg, var_backg]
+        self.model = np.copy(model) # the transformation
+        self.noise = np.copy(noise) # the noise vs mag model
+        self.symm = np.copy(symm) # noise shape [stdy/stdx, corrxy]
+        self.mix = np.copy(mix)  # mixture model [ffg, var_backg]
 
         # Indices for the model pieces (faster than the general
         # loop-based partitioning at the cost of hard-coding. But
@@ -46,10 +77,16 @@ including noise model and mixture model"""
         self.lsymm = np.array([])
         self.lmix = np.array([])
         
-        # partition the input model parameters
-        self.setupindices()
-        self.partitionmodel()
-        
+        # partition the input model parameters if 1D supplied...
+        if np.size(pars) > 0:
+            self.setupindices()
+            self.partitionmodel()
+
+        # ... or, if not, fuse any supplied pieces together
+        else:
+            if np.size(model) > 0:
+                self.fusemodel()
+            
     def insertpars(self, p=np.array([]) ):
 
         """Replaces the parameters with input.
@@ -150,11 +187,37 @@ Returns: None.
 
 """
 
+        if np.size(self.lmodel) < 1:
+            return
+        
         self.model = self.pars[self.lmodel]
         self.noise = self.pars[self.lnoise]
         self.symm = self.pars[self.lsymm]
         self.mix = self.pars[self.lmix]
-        
+
+    def fusemodel(self):
+
+        """If model parameters were provided separately, fuse them together."""
+
+        if np.size(self.model) < 1:
+            return
+
+        self.pars = np.copy(self.model)
+
+        self.nnoise = np.size(self.noise)
+        self.nshape = np.size(self.symm)
+        self.nmix = np.size(self.mix)
+
+        if self.nnoise > 0:
+            self.pars = np.hstack(( self.pars, self.noise ))
+        if self.nshape > 0:
+            self.pars = np.hstack(( self.pars, self.symm ))
+        if self.nmix > 0:
+            self.pars = np.hstack(( self.pars, self.mix ))
+
+        # Now that we've done this, set up the indices for consistency
+        self.setupindices()
+            
     def splitmodel(self):
 
         """Splits the model 1d parameters into transformation and the other parameters.
@@ -340,6 +403,10 @@ class Simdata(object):
         self.isoutly = np.array([])
         self.xytran = np.array([])
         self.covtran = np.array([])
+
+        # perturbed positions
+        self.xyobs = np.array([])
+        self.xytarg = np.array([])
         
         # Generated transformation objects
         self.PTruth = None
@@ -360,6 +427,12 @@ class Simdata(object):
         self.nudgexyoutly = np.array([])
         self.nudgexyextra = np.array([])
 
+        # 1D array of (transformation + noise etc.) parameters
+        self.Parset = Pars1d()
+        
+        # Object to package the target position to fitting routines
+        self.Obstarg = Obset()
+        
     def countpars(self):
 
         """Counts the number of (non-transformation) model parameters."""
@@ -390,7 +463,7 @@ class Simdata(object):
 
         """Generates magnitude-dependent covariances."""
 
-        self.Cxy = self.getmagcovars(pars_noise, pars_asymm)
+        self.Cxy = self.getmagcovars(self.pars_noise, self.pars_asymm)
 
     def makeextracovars(self):
 
@@ -399,7 +472,8 @@ noise
 
         """
 
-        self.CExtra = self.getmagcovars(pars_extra_noise, pars_extra_asymm)
+        self.CExtra = self.getmagcovars(self.pars_extra_noise, \
+                                        self.pars_extra_asymm)
 
         
     def getmagcovars(self, \
@@ -482,13 +556,13 @@ objects"""
         self.pars_transf = \
             PM.getfakeparams(seed = self.seed_params, \
                              scale = self.transfscale, \
-                             expon = self.transfexpon)
+                             expfac = self.transfexpon)
 
     def setuptransftruth(self):
 
         """Sets up the 'truth' transformation object"""
 
-        self.PTruth = self.transf(self.xy[:,0]. self.xy[:,1], \
+        self.PTruth = self.transf(self.xy[:,0], self.xy[:,1], \
                                   self.Cxy.covars, self.pars_transf, \
                                   kind=self.polytransf, \
                                   checkparsy=True)
@@ -536,7 +610,8 @@ present."""
             if np.sum(self.isoutly) > 0 and self.Coutliers is not None:
                 
                 nudgeall = self.Coutliers.getsamples()
-                self.nudgexyoutly[self.isoutly] = nudgeall[isoutly]
+                self.nudgexyoutly[self.isoutly] = \
+                    nudgeall[self.isoutly]
 
     def applynudges(self):
 
@@ -547,11 +622,60 @@ present."""
         # rather than the target frame). For the moment, apply all the
         # extras to the target frame.
 
-        self.xy = self.xy +  self.nudgexy
-        self.xytran = self.xytran \
+        self.xyobs = self.xy +  self.nudgexy
+        self.xytarg = self.xytran \
             + self.nudgexytran \
             + self.nudgexyextra \
             + self.nudgexyoutly
+
+    def packagemodelpars(self):
+
+        """Packages the transformation and noise parameters into a Pars1d
+object"""
+
+        self.Parset = Pars1d(model=self.pars_transf, \
+                             noise=self.pars_noise, \
+                             symm=self.pars_asymm, \
+                             mix=self.pars_mix)
+        
+    def packagetargetdata(self):
+
+        """Packages the target data into an obset object to reduce the number
+of arguments to the minimizer"""
+
+        self.Obstarg = Obset(self.xytarg, self.covtran, \
+                             self.mags, ~self.isoutly)
+        
+    def generatedata(self):
+
+        """Wrapper - generates fake data"""
+
+        # Baseline x, y, covars in source frame
+        self.makefakexy()
+        self.makefakemags()
+        self.makemagcovars()
+        self.assignoutliers()
+        
+        # Define the transformed frame and propagate to it
+        self.makepars()
+        self.setuptransftruth()
+        self.setupxytran()
+        self.initnudges()
+
+        # set up any outliers and/or extra unmodeled covariances
+        self.makeoutliers()
+        self.makeextracovars()
+
+        # Apply the above to produce x, y nudges
+        self.initnudges()
+        self.makenudges()
+        self.applynudges()
+
+        # Package the fit parameters into a 1d array. See self.Parset
+        self.packagemodelpars()
+        
+        # Package the target data into object expected by the fitter
+        self.packagetargetdata()
         
 ### SHORT test routines come here.
 
@@ -568,21 +692,35 @@ def testsplit(nnoise=3, nshape=2, nmix=2):
 
     PP = Pars1d(ppars, nnoise, nshape, nmix)
 
+    print("Original:")
     print(ppars)
 
     # Set up the indices - what do we get?
-    
+
     print(PP.model)
     print(PP.noise)
     print(PP.symm)
     print(PP.mix)
 
+    # Now try fusing these into a separate object
+    QQ = Pars1d(model=PP.model, noise=PP.noise, symm=PP.symm, mix=PP.mix)
+
+    print("Fused:")
+    print(QQ.pars)
+    
     # Now update the parameters
     PP.updatepars(0.-ppars)
 
+    print("Updated:")
     print(PP.pars)
     print(PP.model)
     print(PP.noise)
     print(PP.symm)
     print(PP.mix)
     
+def testsim():
+
+    """Tests wrapper for generating data"""
+
+    SD = Simdata()
+    SD.generatedata()
