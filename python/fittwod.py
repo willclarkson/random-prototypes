@@ -814,6 +814,9 @@ Example:
     lsplit = []
     allbut = np.copy(pars)
 
+    # WATCHOUT - this starts from the RIGHT. Be sure you understand
+    # the return order!
+    
     for isplit in range(len(nsplit)):
         allbut, split = splitlastn(allbut, nsplit[isplit])
         lsplit = lsplit + [split]
