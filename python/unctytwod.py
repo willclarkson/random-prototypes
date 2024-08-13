@@ -406,12 +406,15 @@ choose."""
     # instance and force the [-1., 1.] domain. This wll require some
     # other methods to handle the scaling when evaluating the
     # polynomials and their derivatives. That's annoying.
+
+    # If parsx is supplied but NOT parsy, this class assumes both are
+    # contained in parsx, and splits it across both.
     
     def __init__(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
                  parsx=np.array([]), parsy=np.array([]), degrees=True, \
                  kind='Polynomial', Verbose=False, \
                  xmin=None, xmax=None, ymin=None, ymax=None, \
-                 xisxi=True):
+                 xisxi=True, checkparsy=False):
 
         # Inputs
         self.x = x
@@ -420,6 +423,11 @@ choose."""
         self.parsx = np.array(parsx)
         self.parsy = np.array(parsy)
 
+        # If parsx supplied but not parsy, splits parsx across both,
+        # but ONLY if this behavior is selected.
+        if checkparsy:
+            self.checkparsxy()
+        
         # Domains for the polynomials
         self.xmin = xmin
         self.xmax = xmax
@@ -516,6 +524,27 @@ choose."""
         # convenience variable - xytran as [N,2]
         self.xytran = np.array([])
         self.initxytran()
+
+    def checkparsxy(self):
+
+        """If the parsx array was populated but not the parsy array, this
+method tries to split the parsx across the parsx and parsy
+arrays. This is mainly aimed as a labor-saving device for the calling
+array.
+
+        """
+
+        # Cannot partition parsx in two if it is of zero or odd size
+        if np.size(self.parsx) < 0:
+            return
+
+        if np.size(self.parsx) % 2 > 0:
+            return
+
+        npx = int(np.size(self.parsx)/2)
+        self.parsy = self.parsx[npx::]
+        self.parsx = self.parsx[0:npx]
+            
         
     def initxytran(self):
 

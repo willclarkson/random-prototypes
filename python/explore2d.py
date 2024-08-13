@@ -9,6 +9,13 @@
 
 import numpy as np
 
+# transformations, noise model
+import unctytwod
+import noisemodel2d
+import mixfgbg
+
+from fitpoly2d import Leastsq2d, Patternmatrix
+
 class Pars1d(object):
 
     """Parameters for transformation and any other 'model' parameters
@@ -259,6 +266,293 @@ generalized into a loop.
         return pars[0:-nsplit], pars[-nsplit::]
 
 
+class Obset(object):
+
+    """Convenience-object to hold positions, covariances, and other
+information like apparent magnitudes for hypothetical observations."""
+
+    def __init__(self, xy=np.array([]), covxy=np.array([]), \
+                 mags=np.array([]), isfg=np.array([]) ):
+
+        self.xy = np.copy(xy)
+        self.covxy = np.copy(covxy)
+        self.mags = np.copy(mags)
+        self.isfg = np.copy(isfg)
+
+    # Self-checking methods could come here.
+
+class Simdata(object):
+
+    """Methods and fake data for MCMC simulations"""
+
+    def __init__(self, npts=200, deg=1, Verbose=False):
+
+        # Some decision / control variables
+        self.gen_noise_model = False
+        self.Verbose = Verbose
+        self.nouncty_obs = False
+        self.nouncty_tran = False
+        self.add_outliers = True
+        self.add_uncty_extra = True
+        
+        # Position
+        self.npts = npts
+        self.seed_data = None
+        self.xmin, self.xmax = -1., 1.
+        self.ymin, self.ymax = -1., 1.
+
+        # Apparent magnitude
+        self.magexpon = 1.5
+        self.maglo, self.maghi = 16., 19.5
+        self.seed_mag = None
+
+        # "Truth" model parameters
+        self.transf = unctytwod.Poly
+        self.polytransf = 'Chebyshev'
+        self.deg = deg
+        self.transfexpon = 1.5
+        self.transfscale = 1.
+        self.pars_transf = np.array([])
+        self.seed_params = None
+        
+        # Non-transformation model parameters
+        self.pars_noise = [-4., -20., 2.]
+        self.pars_asymm = [0.8, 0.1]
+        self.pars_mix = [-1., -8.5]
+        self.islog10_mix = [True, True]
+
+        # parameters for "extra" (i.e. unmodeled) noise
+        self.pars_extra_noise = []
+        self.pars_extra_asymm = []
+        
+        # Mixture model / outlier parameters
+        self.seed_outly = None
+
+        # Number of parameters per non-transformation
+        # parameter. Useful when splitting the 1D parameters into
+        # transformation and [other] as will be used with the
+        # minimizer and MCMC.
+        self.countpars()
+        
+        # Generated data quantities
+        self.xy = np.array([])
+        self.mags = np.array([])
+        self.isoutly = np.array([])
+        self.xytran = np.array([])
+        self.covtran = np.array([])
+        
+        # Generated transformation objects
+        self.PTruth = None
+        
+        # Generated noise objects. Maybe change the name once the
+        # refactoring is done.
+        self.Cxy = None
+        self.Ctran = None
+        self.Coutliers = None # for generating outlier samples
+        self.CExtra = None # for adding extra "unmodeled" variance
+        
+        # Nudges to apply to the generated positions in each frame to
+        # transform to 'observed' positions. The "outliers" xy nudge
+        # is kept separate so that it can be applied in the source or
+        # the target frame.
+        self.nudgexy = np.array([])
+        self.nudgexytran = np.array([])
+        self.nudgexyoutly = np.array([])
+        self.nudgexyextra = np.array([])
+
+    def countpars(self):
+
+        """Counts the number of (non-transformation) model parameters."""
+
+        self.npars_noise = np.size(self.pars_noise)
+        self.npars_asymm = np.size(self.pars_asymm)
+        self.npars_mix = np.size(self.pars_mix)
+        
+    def makefakexy(self):
+
+        """Makes random uniform xy points within bounds set in the instance"""
+
+        rng = np.random.default_rng(self.seed_data)
+        
+        self.xy = np.random.uniform(size=(self.npts,2))
+        self.xy[:,0] = self.xy[:,0]*(self.xmax-self.xmin) + self.xmin
+        self.xy[:,1] = self.xy[:,1]*(self.ymax-self.ymin) + self.ymin
+
+    def makefakemags(self):
+
+        """Makes power-law apparent magnitudes"""
+
+        rng = np.random.default_rng(self.seed_mag)
+        sraw = rng.power(self.magexpon, self.npts)
+        self.mags = sraw *(self.maghi - self.maglo) + self.maglo
+
+    def makemagcovars(self):
+
+        """Generates magnitude-dependent covariances."""
+
+        self.Cxy = self.getmagcovars(pars_noise, pars_asymm)
+
+    def makeextracovars(self):
+
+        """Generates (magnitude-dependent) covariance due to unmodeled
+noise
+
+        """
+
+        self.CExtra = self.getmagcovars(pars_extra_noise, pars_extra_asymm)
+
+        
+    def getmagcovars(self, \
+                     pars_noise=np.array([]), \
+                     pars_asymm=np.array([]), \
+                     mags=np.array([]) ):
+
+        """Returns magnitude-dependent covariances"""
+
+        if np.size(pars_noise) < 1:
+            pars_noise = self.pars_noise
+        if np.size(pars_asymm) < 1:
+            pars_asymm = self.pars_asymm
+        if np.size(mags) < 1:
+            mags = self.mags
+
+        return noisemodel2d.mags2noise(pars_noise, pars_asymm, mags)
+        
+        
+    def makeunifcovars(self):
+
+        """Makes uniform covariances"""
+
+        # Identical to makemagcovars except only the first noise
+        # parameter is used.
+        
+        self.Cxy = noisemodel2d.mags2noise(self.pars_noise[0], self.mags, \
+                                           self.pars_asymm)
+
+    def assignoutliers(self):
+
+        """Assigns outlier status to a (uniform) random permutation of
+objects"""
+
+        self.isoutly = np.repeat(False, self.npts)
+
+        # parse the mixture parameters
+        foutliers = mixfgbg.parsefraction(self.pars_mix[0], \
+                                          self.islog10_mix[0])
+        
+        if foutliers <= 0. or foutliers > 1:
+            return
+
+        # now generate uniform random permuation:
+        rng=np.random.default_rng(seed = self.seed_outly)
+        xdum = rng.uniform(size = self.npts)
+        lbad = np.argsort(xdum)[0:int(self.npts * foutliers)]
+        self.isoutly[lbad] = True
+
+    def makeoutliers(self):
+
+        """Creates the xy covariance object due to outliers"""
+        
+        # Nothing to do if we don't actually have a variance...
+        if np.size(self.pars_mix) < 2:
+            return
+        
+        # Parse the variance
+        vxx = mixfgbg.parsefraction(self.pars_mix[1], \
+                                    self.islog10_mix[1], \
+                                    maxval=np.inf, inclusive=False)
+
+        # Replicate the variance
+        stdxs = np.repeat(np.sqrt(np.abs(vxx)) , self.npts)
+        self.Coutliers = CovarsNx2x2(stdx=stdxs)
+
+        
+    def makepars(self):
+
+        """Generates fake parameters for the linear model"""
+
+        if np.size(self.xy) < 2:
+            if self.Verbose:
+                print("Simdata.makepars WARN - xy not yet populated.")
+            return
+
+        PM = Patternmatrix(self.deg, self.xy[:,0], self.xy[:,1], \
+                           kind=self.polytransf, orderbypow=True)
+
+        self.pars_transf = \
+            PM.getfakeparams(seed = self.seed_params, \
+                             scale = self.transfscale, \
+                             expon = self.transfexpon)
+
+    def setuptransftruth(self):
+
+        """Sets up the 'truth' transformation object"""
+
+        self.PTruth = self.transf(self.xy[:,0]. self.xy[:,1], \
+                                  self.Cxy.covars, self.pars_transf, \
+                                  kind=self.polytransf, \
+                                  checkparsy=True)
+        
+    def setupxytran(self):
+
+        """Propagates the truth positions into the target frame"""
+
+        self.PTruth.propagate()
+        self.xytran = np.copy(self.PTruth.xytran)
+        self.covtran = np.copy(self.PTruth.covtran)
+        
+        self.CTran = CovarsNx2x2(self.PTruth.covtran)
+
+    def initnudges(self):
+
+        """Initialises the nudges in the two frames"""
+
+        self.nudgexy = self.xy * 0.
+        self.nudgexytran = self.xy * 0.
+        self.nudgexyoutly = self.xy * 0.
+        self.nudgexyextra = self.xy * 0.
+        
+    def makenudges(self):
+
+        """Sets up the x, y nudges depending on the noise choices. The objects
+that draw sapmles from the various noise objects must already be
+present."""
+
+        self.initnudges()
+
+        if not self.nouncty_obs and self.Cxy is not None:
+            self.nudgexy += self.Cxy.getsamples()
+
+        if not self.nouncty_tran and self.Ctran is not None:
+            self.nudgexytran += self.Ctran.getsamples()
+
+        # any extra unmodeled covariance
+        if self.add_uncty_extra:
+            if self.CExtra is not None:
+                self.nudgexyextra = self.CExtra.getsamples()
+            
+        # Any outliers
+        if self.add_outliers:
+            if np.sum(self.isoutly) > 0 and self.Coutliers is not None:
+                
+                nudgeall = self.Coutliers.getsamples()
+                self.nudgexyoutly[self.isoutly] = nudgeall[isoutly]
+
+    def applynudges(self):
+
+        """Applies the nudges to the source and target data"""
+
+        # Should think about how we handle a change of frame (e.g. if
+        # the extra and/or outliers are to be added in the source
+        # rather than the target frame). For the moment, apply all the
+        # extras to the target frame.
+
+        self.xy = self.xy +  self.nudgexy
+        self.xytran = self.xytran \
+            + self.nudgexytran \
+            + self.nudgexyextra \
+            + self.nudgexyoutly
+        
 ### SHORT test routines come here.
 
 def testsplit(nnoise=3, nshape=2, nmix=2):
