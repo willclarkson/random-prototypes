@@ -10,19 +10,22 @@
 import numpy as np
 from weightedDeltas import CovarsNx2x2
 
-def noisescale(noisepars=np.array([]), mags=np.array([]) ):
+def noisescale(noisepars=np.array([]), mags=np.array([]), \
+               default_a = 0.):
 
     """Magnitude-dependent scaling for noise. Returns a 1d array of noise
 scale factors with same length as the input apparent magnitudes mags[N]. 
 
-    Inputs: 
+Inputs: 
 
     noisepars = [log10(A), log10(B), C] 
                 describing noise model A + B.exp(m C)
 
     mags = N-element array of apparent magnitudes
 
-    Returns:
+    default_a = default value of "a" to use if no parameters supplied. In most cases we want this to be zero.
+
+Returns:
 
     noisescales = N-element array of noise scale factors
 
@@ -33,7 +36,7 @@ scale factors with same length as the input apparent magnitudes mags[N].
         return np.array([])
 
     # Initialize the model parameters
-    a = 1.
+    a = default_a
     b = 0.
     c = 0.
     
@@ -44,7 +47,7 @@ scale factors with same length as the input apparent magnitudes mags[N].
     else:
         sz = np.size(noisepars)
         if sz < 1:
-            return mags*0. + 1.
+            return mags*0. # + 1.
 
         if sz > 0:
             a = 10.0**(noisepars[0])
@@ -135,7 +138,7 @@ Returns:
     # present
     stdxs = noisescale(parsmag, mags)
     stdx, stdy, corrxy = parsecorrpars(stdxs, parscov, unpack=True)
-    
+
     return CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=corrxy)
 
 def unifnoise(npts=1000, stdx=0.1, parscov=np.array([]) ):

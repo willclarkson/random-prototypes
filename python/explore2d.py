@@ -729,10 +729,13 @@ noise
 
         """
 
-        self.CExtra = self.getmagcovars(self.pars_extra_noise, \
-                                        self.pars_extra_asymm)
+        # WATCHOUT - sending blank arrays in DOES NOT stop
+        # getmagcovars from doing something! Exercise a little more
+        # control...
 
-        
+        self.CExtra = noisemodel2d.mags2noise(self.pars_extra_noise, \
+                                              self.pars_extra_asymm, \
+                                              self.mags)
     def getmagcovars(self, \
                      pars_noise=np.array([]), \
                      pars_asymm=np.array([]), \
@@ -757,8 +760,9 @@ noise
         # Identical to makemagcovars except only the first noise
         # parameter is used.
         
-        self.Cxy = noisemodel2d.mags2noise(self.pars_noise[0], self.mags, \
-                                           self.pars_asymm)
+        self.Cxy = noisemodel2d.mags2noise(self.pars_noise[0], \
+                                           self.pars_asymm, \
+                                           self.mags)
 
     def assignoutliers(self):
 
@@ -832,7 +836,7 @@ objects"""
         self.xytran = np.copy(self.PTruth.xytran)
         self.covtran = np.copy(self.PTruth.covtran)
         
-        self.CTran = CovarsNx2x2(self.PTruth.covtran)
+        self.Ctran = CovarsNx2x2(self.PTruth.covtran)
 
     def initnudges(self):
 
