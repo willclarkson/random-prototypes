@@ -354,6 +354,10 @@ class Pairset(object):
 
         # Set 1 on set 2
         self.set1on2 = None
+
+        # Since we need to do the padding before doing any kind of
+        # arithmetic, go ahead and do the padding now.
+        self.padset1toset2()
         
     def padset1toset2(self, retval=False):
 
@@ -480,15 +484,18 @@ Returns:
 
     def fracdiff(self):
 
-        """Utility - finds the fractional difference between set1 and set2, in
-the sense abs(set2-set1)/set2
+        """Utility - finds the fractional difference between self.set1 and self.set2, in the sense abs(set1-set2)/set2
 
 Returns:
 
-        Pfrac = Pars1d object with the fractional difference between parameters returned.
+        Pfrac = Pars1d object with the fractional difference between
+        parameters returned.
 
-"""
+        """
 
+        if self.set1on2 is None:
+            self.padset1toset2()
+        
         Pdiff = self.arithmetic(self.set1on2, self.set2, np.subtract)
         bok = Pdiff.pars != None
         Pdiff.pars[bok] = np.abs(Pdiff.pars[bok])
@@ -541,7 +548,12 @@ def testcompare(ntransf1=6, nnoise1=3, nshape1=2, nmix1=2, \
 
     """Compare two parameter sets. Useful when e.g. comparing truth to fit
 parameters, where the two parameter sets can have differnet
-configurations."""
+configurations.
+
+    Currently just does a lot of screen output while I think of ways
+    to test this.
+
+    """
 
     PP = Pars1d(model=np.arange(ntransf1), \
                 noise=np.arange(nnoise1)+10., \
@@ -558,7 +570,7 @@ configurations."""
     
     # try merging the two
     Pair = Pairset(PP, QQ)
-    Pair.padset1toset2()
+    # Pair.padset1toset2()
 
     #print(PP.pars)
     #print(QQ.pars)
