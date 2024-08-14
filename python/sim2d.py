@@ -1,5 +1,5 @@
 #
-# explore2d.py
+# sim2d.py
 #
 
 #
@@ -346,6 +346,8 @@ information like apparent magnitudes for hypothetical observations."""
         self.mags = np.copy(mags)
         self.isfg = np.copy(isfg)
 
+        self.npts = np.shape(xy)[0]
+        
     # Self-checking methods could come here.
 
 class Simdata(object):
