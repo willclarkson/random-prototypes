@@ -644,45 +644,6 @@ of arguments to the minimizer"""
         
 ### SHORT test routines come here.
 
-def testsplit(nnoise=3, nshape=2, nmix=2):
-
-    """Tests the splitting behavior"""
-
-    transf = np.arange(6)
-    pnoise = np.arange(nnoise)+10
-    pshape = np.arange(nshape)+100
-    pmix = np.arange(nmix) + 1000
-
-    ppars = np.hstack(( transf, pnoise, pshape, pmix ))
-
-    PP = Pars1d(ppars, nnoise, nshape, nmix)
-
-    print("Original:")
-    print(ppars)
-
-    # Set up the indices - what do we get?
-
-    print(PP.model)
-    print(PP.noise)
-    print(PP.symm)
-    print(PP.mix)
-
-    # Now try fusing these into a separate object
-    QQ = Pars1d(model=PP.model, noise=PP.noise, symm=PP.symm, mix=PP.mix)
-
-    print("Fused:")
-    print(QQ.pars)
-    
-    # Now update the parameters
-    PP.updatepars(0.-ppars)
-
-    print("Updated:")
-    print(PP.pars)
-    print(PP.model)
-    print(PP.noise)
-    print(PP.symm)
-    print(PP.mix)
-    
 def testsim():
 
     """Tests wrapper for generating data"""

@@ -208,7 +208,23 @@ Returns: None.
 
         # Now that we've done this, set up the indices for consistency
         self.setupindices()
-            
+
+    def getmodelasxy(self):
+
+        """Utility - returns self.model as two arrays of half the length of the original, *if* self.model has an even number of entries."""
+
+        nmodel = np.size(self.model)
+        if nmodel < 0:
+            return np.array([]), np.array([])
+
+        if nmodel % 2 > 0:
+            return np.array([]), np.array([])
+
+        nhalf = int(nmodel*0.5)
+        return self.model[0:nhalf], self.model[nhalf::]
+        
+        
+        
     def splitmodel(self):
 
         """Splits the model 1d parameters into transformation and the other parameters.
@@ -318,3 +334,236 @@ generalized into a loop.
             return pars, np.array([])
 
         return pars[0:-nsplit], pars[-nsplit::]
+
+class Pairset(object):
+
+    """Pair of two Pars1d objects, with comparison method(s)"""
+
+    def __init__(self, set1=None, set2=None, padval=None):
+
+        self.set1 = set1
+        self.set2 = set2
+
+        # The transformation itself usually has parameters for x, y
+        # separately:
+        self.modelx1, self.modely1 = self.set1.getmodelasxy()
+        self.modelx2, self.modely2 = self.set2.getmodelasxy()
+
+        # value to use when padding
+        self.padval = padval
+
+        # Set 1 on set 2
+        self.set1on2 = None
+        
+    def padset1toset2(self, retval=False):
+
+        """Produces a copy of set 1 with the same lengths in all model
+parameters as set 2. If set 2 contains entries not present in set 1,
+they are padded with self.padval in set 1.
+
+        if retval=True, returns the set rather than updating the instance
+
+        """
+
+        # First the transformation model...
+        modelx = self.pad1to2(self.modelx1, self.modelx2)
+        modely = self.pad1to2(self.modely1, self.modely2)
+        model = np.hstack(( modelx, modely ))
+
+        # ... then the non-transformation model pieces
+        noise = self.pad1to2(self.set1.noise, self.set2.noise)
+        asymm = self.pad1to2(self.set1.symm, self.set2.symm)
+        mix = self.pad1to2(self.set1.mix, self.set2.mix)
+
+        # Now construct the padded set out of this
+        set1on2 = Pars1d(model=model, noise=noise, symm=asymm, mix=mix)
+
+        if retval:
+            return set1on2
+
+        self.set1on2 = set1on2
+
+    def pad1to2(self, arr1=np.array([]), arr2=np.array([]), padval=None):
+
+        """Utility - given two 1D arrays, returns a version of the first, cut
+or padded to the same length as set 2.
+
+        """
+
+        len1 = np.size(arr1)
+        len2 = np.size(arr2)
+
+        if len2 < 1:
+            return np.array([])
+
+        if len2 <= len1:
+            return arr1[0:len2]
+
+        arrpad = np.repeat(padval, len2-len1)
+        
+        return np.hstack(( arr1, arrpad ))
+
+    def add(self):
+
+        """Adds the two parameter sets along their common elements"""
+
+        # The sets must have the same length
+        if self.set1on2 is None:
+            self.padset1toset2()
+
+        # Initialize to array of None, filling in the values for which
+        # non-Nones are in both.
+        sum = np.repeat(None, np.size(self.set1on2.pars))
+        
+        bok = self.set1on2.pars != None        
+        sum[bok] = self.set1on2.pars[bok] + self.set2.pars[bok]
+
+        # Create a new parameter set with these values filled in.
+        Psum = Pars1d(sum, \
+                      self.set1on2.nnoise, \
+                      self.set1on2.nshape, \
+                      self.set1on2.nmix)
+
+        return Psum
+
+    def arithmetic(self, set1=None, set2=None, op=np.add, divzeroval=None):
+
+        """Does arithmetic on two input sets, whose parameters must already be
+of the same length (see padset1toset2). If not provided, returns None.
+
+Inputs:
+
+        set1 = Pars1d object for the first set
+
+        set2 = Pars1d object for the second set
+
+        op = operation. Usually np.add, np.multiply, np.subtract,
+        np.divide
+
+        divzeroval = If dividing, replace any div by zero entries with
+        this value.
+
+Returns:
+
+        set3 = set1 (+, -, *, /) set 2 = Pars1d object.
+
+        """
+
+        # The paramsets must have the same length
+        if set1 is None or set2 is None:
+            return None
+
+        # Get the parameter arrays, those are the parts we will want
+        # to use
+        pars1 = set1.pars
+        pars2 = set2.pars
+
+        res = np.repeat(None, np.size(pars1))
+
+        # Now fill in the values. Can only do this if both entries in
+        # each matching piece are valid.
+        bok = (pars1 != None) & (pars2 != None)
+
+        # If we're dividing, don't divide by zero
+        if op is np.divide:
+            divok = pars2 != 0
+            res[~divok] = divzeroval
+            
+            bok = (bok) & (divok)
+        
+        res[bok] = op(pars1[bok], pars2[bok])
+
+        # Create a new parameter set with these values filled in
+        Pres = Pars1d(res, set1.nnoise, set1.nshape, set1.nmix)
+
+        return Pres
+    
+## SHORT test routines come here
+
+def testsplit(nnoise=3, nshape=2, nmix=2):
+
+    """Tests the splitting behavior"""
+
+    transf = np.arange(6)
+    pnoise = np.arange(nnoise)+10
+    pshape = np.arange(nshape)+100
+    pmix = np.arange(nmix) + 1000
+
+    ppars = np.hstack(( transf, pnoise, pshape, pmix ))
+
+    PP = Pars1d(ppars, nnoise, nshape, nmix)
+
+    print("Original:")
+    print(ppars)
+
+    # Set up the indices - what do we get?
+
+    print(PP.model)
+    print(PP.noise)
+    print(PP.symm)
+    print(PP.mix)
+
+    # Now try fusing these into a separate object
+    QQ = Pars1d(model=PP.model, noise=PP.noise, symm=PP.symm, mix=PP.mix)
+
+    print("Fused:")
+    print(QQ.pars)
+    
+    # Now update the parameters
+    PP.updatepars(0.-ppars)
+
+    print("Updated:")
+    print(PP.pars)
+    print(PP.model)
+    print(PP.noise)
+    print(PP.symm)
+    print(PP.mix)
+
+def testcompare(ntransf1=6, nnoise1=3, nshape1=2, nmix1=2, \
+                ntransf2=6, nnoise2=3, nshape2=2, nmix2=2):
+
+    """Compare two parameter sets. Useful when e.g. comparing truth to fit
+parameters, where the two parameter sets can have differnet
+configurations."""
+
+    PP = Pars1d(model=np.arange(ntransf1), \
+                noise=np.arange(nnoise1)+10., \
+                symm=np.arange(nshape1)+100., \
+                mix=np.arange(nmix1)+1000.)
+
+    QQ = Pars1d(model=np.arange(ntransf2), \
+                noise=np.arange(nnoise2)+10., \
+                symm=np.arange(nshape2)+100., \
+                mix=np.arange(nmix2)+1000.)
+
+    print(PP.pars)
+    print(QQ.pars)
+    
+    # try merging the two
+    Pair = Pairset(PP, QQ)
+    Pair.padset1toset2()
+
+    #print(PP.pars)
+    #print(QQ.pars)
+
+    # Try adding them
+    Psum = Pair.add()
+
+    # Try our more general arithmetic
+    Padd = Pair.arithmetic(Pair.set1on2, Pair.set2, np.add)
+    
+    print(Psum.pars)
+    print(Padd.pars)
+
+    # now try subtracting and dividing
+    print("Subtraction:")
+    print(Pair.set1on2.pars)
+    print(Pair.set2.pars)
+    Psub = Pair.arithmetic(Pair.set2, Pair.set1on2, np.subtract)
+    print(Psub.pars)
+
+    # try a ratio
+    Prat = Pair.arithmetic(Psub, Pair.set2, np.divide)
+    print(Prat.pars)
+
+    print(Prat.model)
