@@ -31,7 +31,23 @@ full exploration with MCMC."""
         self.deg = deg
         self.transf = unctytwod.Poly
         self.polyfit = 'Chebyshev'
+        self.lsq_nowts = False
 
+        # control variables for the parts of the model other than the
+        # transformation parameters, as scalars given that this will
+        # likely be written and read using a configuration file. Any
+        # value of None is ignored.
+        self.guess_noise_loga = None
+        self.guess_noise_logb = None
+        self.guess_noise_c = None
+        self.guess_asymm_ryx = None
+        self.guess_asymm_corrxy = None
+        self.guess_mixmod_f = None
+        self.guess_mixmod_vxx = None
+
+        # Populate the non-transformation guesses from this
+        self.populateguessesnontransf()
+        
         # Weights for any weighted estimates (e.g. lstsq)
         self.wts = np.array([])
 
@@ -49,7 +65,52 @@ full exploration with MCMC."""
             return
 
         self.nsrc = np.shape(self.obssrc.xy)[0]
+
+    def initguessesnontransf(self):
+
+        """Initializes guesses for the parts of the model not referring to the tansformation
+
+        """
+
+        self.guess_noise_model = []
+        self.guess_noise_asymm = []
+        self.guess_mixmod = []
+
+    def populateguessesnontansf(self):
+
+        """Populates guesses for the non-transformation pieces of the model"""
+
+        # (re-) initialize the guess parameters
+        self.initguessesnontransf()
         
+        # The noise model
+        if self.guess_noise_loga is not None:
+            self.guess_noise_model = np.array([self.guess_noise_loga])
+
+            # This indent is deliberate. It only makes sense to fit
+            # logb and c if all three noise model parameters are
+            # present.
+            if self.guess_noise_logb is not None and \
+               self.guess_noise_c is not None:
+                self.guess_noise_model.append(self.guess_noise_logb)
+                self.guess_noise_model.append(self.guess_noise_c)
+
+        # The noise asymmetry model
+        if self.guess_asymm_ryx is not None:
+            self.guess_asymm = [self.guess_asymm_ryx]
+
+            # Indent intentional, corrxy must be the second parameter
+            if self.guess_asymm_corrxy is not None:
+                self.guess_asymm.append(self.guess_asymm_corrxy)
+
+        # the mixture model
+        if self.guess_mixmod_f is not None:
+            self.guess_mixmod.append(self.guess_mixmod_f)
+
+            # Indent intentional, vxx must be the second parameter
+            if self.guess_mixmod_vxx is not None:
+                self.guess_mixmod.append(self.guess_mixmod_vxx)
+                
     def initializeweights(self):
 
         """Initializes the weights"""
@@ -61,7 +122,10 @@ full exploration with MCMC."""
         """Constructs weights from covariances in the target frame"""
 
         self.initializeweights()
-
+        
+        if self.lsq_nowts:
+            return
+        
         # Covariances must be populated in the target space
         if not hasattr(self.obstarg,'covxy'):
             return
@@ -98,7 +162,7 @@ full exploration with MCMC."""
 
         # Convenience view
         xyobs  = self.obssrc.xy
-
+        
         self.LSQ = Leastsq2d(xyobs[:,0], xyobs[:,1], deg=self.deg, \
                              w=self.wts, kind=self.polyfit, \
                              xytarg = self.obstarg.xy)
