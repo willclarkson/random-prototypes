@@ -9,6 +9,7 @@
 
 import numpy as np
 
+from parset2d import Pars1d
 import unctytwod
 from fitpoly2d import Leastsq2d
 
@@ -17,13 +18,16 @@ class Guess(object):
     """Object and methods to set up the guess parameters for a later more
 full exploration with MCMC."""
 
-    def __init__(self, obssrc=None, obstarg=None, deg=1):
+    def __init__(self, obssrc=None, obstarg=None, deg=1, Verbose=True):
 
+        # Control variable
+        self.Verbose = Verbose
+        
         # observation object in source frame. Must have at least xy
         # and ideally covxy attributes.
         self.obssrc = obssrc
         self.obstarg = obstarg
-
+        
         # Measure the number of "rows" in the data
         self.countdata()
         
@@ -46,13 +50,19 @@ full exploration with MCMC."""
         self.guess_mixmod_vxx = None
 
         # Populate the non-transformation guesses from this
-        self.populateguessesnontransf()
+        self.populatenontransf()
+
+        # guess for transformation
+        self.guess_transf = np.array([])
         
         # Weights for any weighted estimates (e.g. lstsq)
         self.wts = np.array([])
 
         # Least squares object
         self.LSQ = None
+
+        # Initial guess as Pars1d object
+        self.Parset = None
         
     def countdata(self):
 
@@ -76,7 +86,7 @@ full exploration with MCMC."""
         self.guess_noise_asymm = []
         self.guess_mixmod = []
 
-    def populateguessesnontansf(self):
+    def populatenontransf(self):
 
         """Populates guesses for the non-transformation pieces of the model"""
 
@@ -153,7 +163,6 @@ full exploration with MCMC."""
 
         return np.linalg.det(covars) <= 0.
 
-        
     def fitlsq(self):
 
         """Does least squares fitting
@@ -166,3 +175,19 @@ full exploration with MCMC."""
         self.LSQ = Leastsq2d(xyobs[:,0], xyobs[:,1], deg=self.deg, \
                              w=self.wts, kind=self.polyfit, \
                              xytarg = self.obstarg.xy)
+
+        if not hasattr(self.LSQ, 'pars'):
+            if self.Verbose:
+                print("Guess.fitlsq WARN - LSQ parameters not present")
+            return
+
+        self.guess_transf = self.LSQ.pars
+        
+    def populateparset(self):
+
+        """Attempts to use lsq parameters to populate the full guess model"""
+
+        self.Parset = Pars1d(model=self.guess_transf,\
+                             noise=self.guess_noise_model, \
+                             symm=self.guess_noise_asymm, \
+                             mix=self.guess_mixmod)
