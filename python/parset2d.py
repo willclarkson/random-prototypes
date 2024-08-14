@@ -477,6 +477,23 @@ Returns:
         Pres = Pars1d(res, set1.nnoise, set1.nshape, set1.nmix)
 
         return Pres
+
+    def fracdiff(self):
+
+        """Utility - finds the fractional difference between set1 and set2, in
+the sense abs(set2-set1)/set2
+
+Returns:
+
+        Pfrac = Pars1d object with the fractional difference between parameters returned.
+
+"""
+
+        Pdiff = self.arithmetic(self.set1on2, self.set2, np.subtract)
+        bok = Pdiff.pars != None
+        Pdiff.pars[bok] = np.abs(Pdiff.pars[bok])
+
+        return self.arithmetic(Pdiff, self.set2, np.divide)
     
 ## SHORT test routines come here
 
@@ -567,3 +584,9 @@ configurations."""
     print(Prat.pars)
 
     print(Prat.model)
+
+    # Try fractional difference
+    Pfd = Pair.fracdiff()
+    print(Pfd.pars)
+
+    print(Pfd.model)
