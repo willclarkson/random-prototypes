@@ -37,13 +37,18 @@ Relevant attributes:
 
     PP.mix = [foutly, vbackg] model
 
-    
+This object is also used to smuggle options for the eventual use by lnprob(). Currently that just means:
+
+    islog10_mix_frac = mixture fraction specified as log10
+
+    islog10_mix_vxx = mixture variance vxx specified as log10
 
     """
 
     def __init__(self, pars=np.array([]), nnoise=0, nshape=0, nmix=0, \
                  model=np.array([]), noise=np.array([]), symm=np.array([]), \
-                 mix=np.array([])):
+                 mix=np.array([]), \
+                 islog10_mix_frac=True, islog10_mix_vxx=True):
 
         # 1D array of parameters as expected by e.g. minimize. Can be
         # a numpy array or a list
@@ -67,6 +72,11 @@ Relevant attributes:
         self.lnoise = np.array([])
         self.lsymm = np.array([])
         self.lmix = np.array([])
+
+        # Descriptors for some of the non-transformation model
+        # parameters
+        self.islog10_mix_frac = islog10_mix_frac
+        self.islog10_mix_vxx = islog10_mix_vxx
         
         # partition the input model parameters if 1D supplied...
         if np.size(pars) > 0:

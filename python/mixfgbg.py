@@ -39,7 +39,7 @@ Returns:
 
     # Defaults
     ffg = 1.
-    vxx = 1.
+    vxx = vxxbg
     
     #covbg = np.eye(2) * vxxbg
 

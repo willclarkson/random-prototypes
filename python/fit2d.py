@@ -12,6 +12,7 @@ import numpy as np
 from parset2d import Pars1d
 import unctytwod
 from fitpoly2d import Leastsq2d
+import lnprobs2d
 
 class Guess(object):
 
@@ -63,6 +64,9 @@ full exploration with MCMC."""
 
         # Initial guess as Pars1d object
         self.Parset = None
+
+        # Transformation object with guess to pass to minimizer etc.
+        self.PGuess = None
         
     def countdata(self):
 
@@ -102,8 +106,10 @@ full exploration with MCMC."""
             # present.
             if self.guess_noise_logb is not None and \
                self.guess_noise_c is not None:
-                self.guess_noise_model.append(self.guess_noise_logb)
-                self.guess_noise_model.append(self.guess_noise_c)
+                self.guess_noise_model \
+                    = np.hstack(( self.guess_noise_model, \
+                                  self.guess_noise_logb, \
+                                  self.guess_noise_c ))
 
         # The noise asymmetry model
         if self.guess_asymm_ryx is not None:
@@ -181,7 +187,7 @@ full exploration with MCMC."""
                 print("Guess.fitlsq WARN - LSQ parameters not present")
             return
 
-        self.guess_transf = self.LSQ.pars
+        self.guess_transf = np.copy(self.LSQ.pars)
         
     def populateparset(self):
 
@@ -191,3 +197,17 @@ full exploration with MCMC."""
                              noise=self.guess_noise_model, \
                              symm=self.guess_noise_asymm, \
                              mix=self.guess_mixmod)
+
+    def populateguesstransf(self):
+
+        """Sets up the transformation object for the initial guess"""
+
+        # (Remember, self.transf is a pointer to the kind of
+        # transformation object we're using from unctytwod.py)
+
+        xy = self.obssrc.xy
+        self.PGuess = self.transf(xy[:,0], xy[:,1], \
+                                  self.obssrc.covxy, \
+                                  self.Parset.model, \
+                                  kind=self.polyfit, \
+                                  checkparsy=True)

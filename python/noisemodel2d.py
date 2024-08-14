@@ -167,6 +167,6 @@ def testnoise(parsnoise = [-4., -20., 2.], parsshape = [0.8, 0.1]):
 
     mags = np.random.uniform(16., 19.5, 10)
     
-    CC = mags2noise(parsnoise, mags, parsshape)
+    CC = mags2noise(parsnoise, parsshape, mags)
 
     print(CC.covars)
