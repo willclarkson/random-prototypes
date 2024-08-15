@@ -35,6 +35,7 @@ class Prior(object):
 
     def __init__(self, parset=None):
 
+        # The parameter-set object
         self.parset=parset
 
         # The various parameters on which we may have priors
@@ -46,7 +47,8 @@ class Prior(object):
         # Options
         self.islog10_mix_frac = True
         self.islog10_mix_vxx = True
-
+        self.islog10_noise_ryx = False
+        
         # Distribute the parameters and options on initialization
         self.distributepars()
 
@@ -58,7 +60,7 @@ class Prior(object):
         self.noise_min_c = 0.
         self.noise_max_c = 10.
         self.asymm_min_ryx = 0.
-        self.asymm_max_ryx = 1.
+        self.asymm_max_ryx = 10.
         self.asymm_min_corr = 0. # WATCHOUT
         self.asymm_max_corr = 1.
         self.mix_min_ffg = 1.0e-5

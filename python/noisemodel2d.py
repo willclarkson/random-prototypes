@@ -60,7 +60,7 @@ Returns:
     return b * np.exp(mags*c) + a
 
 def parsecorrpars(stdxs=np.array([]), parscov=np.array([]), \
-                  unpack=False):
+                  unpack=False, islog10_ryx=False):
 
     """Takes stdxs and optional covariance shape parameters and returns a
 [3,N] array of [stdx, stdy/stdx, corrxy]. 
@@ -73,6 +73,10 @@ Inputs:
     covariance
 
     unpack = return as stdx, stdy, rxy rather than as [3,N] array
+
+    islog10_ryx = The stdy/stdx ratio is supplied as log10 instead of
+    the value itself. If true, the input is converted to
+    10.0**(log10(ryx)) before returning.
 
 Returns:
 
@@ -92,9 +96,13 @@ Returns:
         else:
             return np.array([])
 
+    ryxs_init = 1.
+    if islog10_ryx:
+        ryxs_init = 0.
+
     # Initialize the output
-    ryxs = stdxs*0. + 1.
-    corrs = stdxs*0.
+    ryxs = np.atleast_1d(stdxs*0. + ryxs_init)
+    corrs = np.atleast_1d(stdxs*0.)
 
     # Slot in the ratio of stdev(y) / stdev(x) if given
     if np.isscalar(parscov):
@@ -106,9 +114,18 @@ Returns:
         if sz > 1:
             corrs[:] = parscov[1]
 
+    # Update if supplied as log10
+    if islog10_ryx:
+        ryxs[:] = 10.0**ryxs
+
+    # Convert back to scalar?
+    if np.isscalar(stdxs):
+        ryxs = ryxs[0]
+        corrs = corrs[0]
+        
     # Form the [3,N] array of correlation parameters
     if unpack:
-        return stdxs, stdxs * ryxs, corrs
+        return stdxs, stdxs * ryxs, corrs  # sic
     else:
         return np.vstack(( stdxs, ryxs, corrs ))
 

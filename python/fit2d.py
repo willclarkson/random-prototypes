@@ -42,7 +42,7 @@ full exploration with MCMC."""
         # transformation parameters, as scalars given that this will
         # likely be written and read using a configuration file. Any
         # value of None is ignored.
-        self.guess_noise_loga = -8.
+        self.guess_noise_loga = None
         self.guess_noise_logb = None
         self.guess_noise_c = None
         self.guess_asymm_ryx = None
