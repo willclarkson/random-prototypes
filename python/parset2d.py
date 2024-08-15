@@ -126,7 +126,7 @@ Returns: None. Updates the following attributes:
 
 """
 
-        self.insertpars(p)
+        self.insertpars(np.copy(p))
         self.partitionmodel()
 
     def setupindices(self):

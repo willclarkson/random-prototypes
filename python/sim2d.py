@@ -273,7 +273,7 @@ respectively.
             self.pars_extra_asymm.append(self.extra_ryx)
 
         if self.extra_corr is not None:
-            self.pars_extra_corr.append(self.extra_corr)
+            self.pars_extra_asymm.append(self.extra_corr)
             
     def writeconfig(self, pathconfig=''):
 
