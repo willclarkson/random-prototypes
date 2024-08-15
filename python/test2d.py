@@ -401,6 +401,7 @@ def mixmodvals(nfrac=20, nvar=20):
     # objects. Get those parameters here.
     SD.PTruth.propagate()
     dxy = SD.PTruth.xytran - SD.Obstarg.xy
+    mags = SD.Obstarg.mags
     isfg = SD.Obstarg.isfg
 
     # what IS the covariance of the outliers? Find it and use our
@@ -435,7 +436,6 @@ def mixmodvals(nfrac=20, nvar=20):
     print(CB.majors, CB.stdx, CB.stdy, np.log10(CB.majors))
     print("------------------------------")
 
-    
     # We have the truth parameters for everything. Try varying only
     # the mixture fraction and the (log-) covariance and trace the
     # variation of fom as those vary. Like so:
@@ -454,7 +454,29 @@ def mixmodvals(nfrac=20, nvar=20):
     llike = lnprobs2d.Like(SD.Parset, SD.PTruth, SD.Obstarg)
 
     parsvec = np.copy(SD.Parset.pars)
+
+    # what do the outliers look like...
+    #print(llike.covsum[isfg][0:3])
+    #print(llike.covsum[~isfg][0:3])  
+
+    # Now take a look...
+    fig4 = plt.figure(4)
+    fig4.clf()
+    fig4.subplots_adjust(hspace=0.4)
+    ax4 = fig4.add_subplot(121)
+    ax42 = fig4.add_subplot(233)    
+    ax43 = fig4.add_subplot(236)    
     
+    dumdxy = ax42.scatter(dxy[:,0], dxy[:,1], c=isfg, cmap='viridis')
+    cb42 = fig4.colorbar(dumdxy, ax=ax42)
+
+    # same thing, this time coded by uncertanty
+    stdx = np.log10(llike.covsum[:,0,0])
+    dumss = ax43.scatter(dxy[:,0], dxy[:,1], c=stdx, cmap='viridis')
+    cb43 = fig4.colorbar(dumss, ax=ax43)
+
+    ax42.set_title('Colors: isfg')
+    ax43.set_title('Colors: log10(errx)')
     
     # Now populate the trial values. Do as meshgrid so that we can
     # easily contour the results.
@@ -476,7 +498,7 @@ def mixmodvals(nfrac=20, nvar=20):
             #print(llike.dxy[0], llike.xytran[0], llike.obstarg.xy[0])
             continue
             
-            if jvxx is 15:
+            if jvxx is 5:
                 print("%.2e, %.2e, %.2e, %.2e, %.2e, %.2e, %.2e, %i" \
                       % (llike.ffg, parsvec[-1], \
                       llike.lnlike_fg[0], llike.lnlike_bg[0], \
@@ -484,15 +506,7 @@ def mixmodvals(nfrac=20, nvar=20):
                          llike.covsum[0][0,0], llike.covoutly[0][0,0], \
                          isfg[0]))
             
-    # Now take a look...
-    fig4 = plt.figure(4)
-    fig4.clf()
-    ax4 = fig4.add_subplot(121)
-    ax42 = fig4.add_subplot(233)    
-    
-    dumdxy = ax42.scatter(dxy[:,0], dxy[:,1], c=isfg, cmap='viridis')
-    cb42 = fig4.colorbar(dumdxy, ax=ax42)
-    
+    # Now look at the result of our loops
     dum = ax4.contour(ff, vv, ll, levels=20, zorder=10)
 
     # show a scatterplot as well
