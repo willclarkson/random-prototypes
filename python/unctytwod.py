@@ -407,6 +407,10 @@ choose."""
     # other methods to handle the scaling when evaluating the
     # polynomials and their derivatives. That's annoying.
 
+    # Notice that the xmin, xmax, ymin, ymax are the bounds of the
+    # detector, and NOT the limits of x and y themselves. If xmin
+    # etc. are not set then errors can result.
+
     # If parsx is supplied but NOT parsy, this class assumes both are
     # contained in parsx, and splits it across both.
     

@@ -16,6 +16,13 @@ plt.ion()
 from weightedDeltas import CovarsNx2x2
 import noisemodel2d
 
+from parset2d import Pars1d
+import unctytwod
+
+import lnprobs2d
+
+import sim2d
+
 def shownoisemodel(parsnoise=[-4., -20., 2.], \
                    parsshape=[], islog10_ryx=False, \
                    maglo=16., maghi=19.5, npts=1000, \
@@ -54,12 +61,15 @@ This also compares the running stddevx vs magnitude against the model. To do so,
     yfine = noisemodel2d.noisescale(parsnoise, mfine)
 
     # 2. Shape model
-    stdx, stdy, corrxy = \
-        noisemodel2d.parsecorrpars(stdxs, parsshape, unpack=True, \
-                                   islog10_ryx=islog10_ryx)
+    #stdx, stdy, corrxy = \
+    #    noisemodel2d.parsecorrpars(stdxs, parsshape, unpack=True, \
+    #                               islog10_ryx=islog10_ryx)
 
     # 3. Generate covariance matrices using these parameters
-    CC = CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=corrxy)
+    #CC = CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=corrxy)
+
+    CC = noisemodel2d.mags2noise(parsnoise, parsshape, mags, islog10_ryx)
+    
     covars = CC.covars
 
     # 4. Find determinants of the covariance matrices, and the
@@ -244,6 +254,282 @@ This also compares the running stddevx vs magnitude against the model. To do so,
     # Show the supertitle
     fig3.suptitle(ssup, fontsize=10)
 
+def testcovtran(npts=1000, parsnoise=[-4.], \
+                xmin=-1., xmax=1., ymin=-1., ymax=1.):
+
+    """Tests transformation of covariance from source to target frame.
+
+Inputs:
+
+    npts = number of points to simulate
+
+    parsnoise = [loga, logb, c] parameters for the covariance.
+
+    xmin, xmax, ymin, ymax = domain limits for observed data
+
+"""
+
+    # We set up to do the various things in lnprob.py so that we can
+    # test if that's actually producing the output we expect.
+    
+    # Stick in a "known" transformation
+    parsx = np.array([0.2, 3., 0])
+    parsy = np.array([0.35, 0., 2.])
+    parsvec = np.hstack(( parsx, parsy ))
+
+    # covariance
+    parsshape=[]
+
+    
+    # Set up a transformation object
+    Pset = Pars1d(parsvec)
+
+    # Set up random positions and covars
+    x = np.random.uniform(xmin, xmax, size=npts)
+    y = np.random.uniform(ymin, ymax, size=npts)
+    xy = np.column_stack((x,y))
+
+    xy = np.random.uniform(low=-1., high=1., size=(npts, 2))
+    mags = np.random.uniform(low=16., high=19.5, size=npts)
+
+    CC = noisemodel2d.mags2noise(parsnoise, parsshape, mags)
+    covsxy = np.copy(CC.covars)
+
+    # Populate an observation-set object with the data and domain info
+    targset = sim2d.Obset(xy, covsxy, mags, \
+                          xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+
+    
+    # OK first look at the transformation. Set up the object:
+    transf = unctytwod.Poly(xy[:,0], xy[:,1], np.copy(covsxy), \
+                            parsx, parsy, kind='Polynomial', \
+                            xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+
+    t0 = time.time()
+    transf.propagate()
+    print("Propagated in %.2e seconds" % (time.time() - t0))
+
+    # The following syntax tests various parts of lnprob
+    ll = lnprobs2d.Like(Pset, transf, targset)
+
+    # What do the results look like:
+    print("lnprobs2d.Like() test for covariance consistency:")
+    print("-------------------------------------------------")
+    print("covtarg:", ll.covtarg[0])
+    print("covtran:", ll.covtran[0])
+    print("covextra:", ll.covextra[0])
+    print("covoutly:", ll.covoutly[0])
+
+    # Sum the covariances manually, compare with the LIke sum
+    covsum = ll.covtarg + ll.covtran + ll.covextra + ll.covoutly
+    
+    print("ll.covsum:",ll.covsum[0])
+    print("covsum   :", covsum[0])
+    
+    # The syntax below compares the propagation of the covariance from
+    # source to target frame, against direct calculation outside the
+    # Poly() object.
+    
+    # datatypes?
+    print("")
+    print("Covariance propagation from source to target:")
+    print("---------------------------------------------")
+
+    print(covsxy.dtype)
+    print(transf.covtran.dtype)
+    
+    # Now we populate the jacobian to compare directly.
+    jacorig = covsxy * 0.
+    jacorig[:,0,0] = parsx[1]
+    jacorig[:,0,1] = parsx[2]
+    jacorig[:,1,0] = parsy[1]
+    jacorig[:,1,1] = parsy[2]
+
+    # There's also a jacobian handling the rescaling from the input
+    # positions to the [-1,1] interval for the polynomials. Handle
+    # that here. Notice it's the DOMAIN we are rescaling, not the area
+    # actually covered by the data
+    jacrescale = covsxy*0.
+    jacrescale[:,0,0] = 2.0/(xmax-xmin)
+    jacrescale[:,1,1] = 2.0/(ymax-ymin)
+
+    jac = np.matmul(jacorig, jacrescale)
+    
+    print(jacrescale[0])
+    
+    t0 = time.time()
+    VJt = np.matmul(covsxy, np.transpose(jac, axes=(0,2,1)))
+    JVJt = np.matmul(jac, VJt)
+    print("Evaluated matmul (twice) in %.2e seconds" % (time.time() - t0))
+    
+    print("Propagation comparison:")
+    print("Original:", transf.covxy[0])
+    print("Jac:", jac[0])
+    print("covtran:", transf.covtran[0])
+    print("JVJt:", JVJt[0])
+
+    
+
+    # Residual
+    print("JVJt - covtran:", JVJt[1] - transf.covtran[1])
+    # print("Fractional residual:", \
+    #      (JVJt[1]-transf.covtran[1])/transf.covtran[1])
+
+    print(transf.parsx, transf.parsy)
+
+    # Appeal to vectorized version
+    t0 = time.time()
+    jvjt_vec = JVJt_vectorized(jac, transf.covxy)
+    print("Evaluated vectorized in %.2e seconds" \
+          % (time.time() - t0))
+    
+    print(jvjt_vec[0])
+
+def mixmodvals(nfrac=20, nvar=20):
+
+    """
+    Sets up a mixture model and plots the variation of fit statistic with trial mixture parameters
+
+    """
+
+    # Simulate a dataset with a mixture model
+    SD = sim2d.Simdata()
+    SD.loadconfig('test_config_mixmod.ini')
+    SD.generatedata()
+
+    # We're going to want to look at the scatterplot with identified
+    # objects. Get those parameters here.
+    SD.PTruth.propagate()
+    dxy = SD.PTruth.xytran - SD.Obstarg.xy
+    isfg = SD.Obstarg.isfg
+
+    # what IS the covariance of the outliers? Find it and use our
+    # covariance object to interpret it
+    cov_all = np.cov(dxy, rowvar=False)
+    cov_inliers = np.cov(dxy[isfg], rowvar=False)
+    cov_outliers = np.cov(dxy[~isfg], rowvar=False)
+
+    CA = CovarsNx2x2(cov_all)
+    CA.eigensFromCovars()
+    
+    CI = CovarsNx2x2(cov_inliers)
+    CI.eigensFromCovars()
+
+    CB = CovarsNx2x2(cov_outliers)
+    CB.eigensFromCovars()
+
+    print("-------------------------------")
+    print("Truth set: covariance, all:")
+    print(cov_inliers)
+    print(CA.majors, CA.stdx, CA.stdy, np.log10(CA.majors))
+
+    
+    print("-------------------------------")
+    print("Truth set: covariance, inliers:")
+    print(cov_inliers)
+    print(CI.majors, CI.stdx, CI.stdy, np.log10(CI.majors))
+
+    print(" ")
+    print("Outlier set: covariance, outliers:")
+    print(cov_outliers)
+    print(CB.majors, CB.stdx, CB.stdy, np.log10(CB.majors))
+    print("------------------------------")
+
+    
+    # We have the truth parameters for everything. Try varying only
+    # the mixture fraction and the (log-) covariance and trace the
+    # variation of fom as those vary. Like so:
+
+    truthmix = np.copy(SD.Parset.mix)
+    print("Truth mixture parameters:", truthmix)
+    
+    vlogfrac = np.linspace(-3., -0.005, nfrac, endpoint=True)
+    vlogvar = np.linspace(-12., -1., nvar, endpoint=True)
+
+    ff, vv = np.meshgrid(vlogfrac, vlogvar, indexing='ij')
+    ll = ff * 0. - np.inf
+    
+    # create our loglike object to (re-) compute the ln likelihood for
+    # each mixture value
+    llike = lnprobs2d.Like(SD.Parset, SD.PTruth, SD.Obstarg)
+
+    parsvec = np.copy(SD.Parset.pars)
+    
+    
+    # Now populate the trial values. Do as meshgrid so that we can
+    # easily contour the results.
+    for ifrac in range(np.size(vlogfrac)):
+        for jvxx in range(np.size(vlogvar)):
+            parsvec[-2] = ff[ifrac, jvxx]
+            parsvec[-1] = vv[ifrac, jvxx]
+
+            # Update the source parset object (because when used for
+            # real, the same parset is referenced by both Like and
+            # Prior. So we want to update it OUTSIDE Like.
+            SD.Parset.updatepars(parsvec)
+        
+            llike.updatelnlike(SD.Parset)
+
+            ll[ifrac, jvxx] = np.copy(llike.sumlnlike)
+
+            # what are those deltas doing?
+            #print(llike.dxy[0], llike.xytran[0], llike.obstarg.xy[0])
+            continue
+            
+            if jvxx is 15:
+                print("%.2e, %.2e, %.2e, %.2e, %.2e, %.2e, %.2e, %i" \
+                      % (llike.ffg, parsvec[-1], \
+                      llike.lnlike_fg[0], llike.lnlike_bg[0], \
+                         llike.lnlike_fg[0] +  llike.lnlike_bg[0], \
+                         llike.covsum[0][0,0], llike.covoutly[0][0,0], \
+                         isfg[0]))
+            
+    # Now take a look...
+    fig4 = plt.figure(4)
+    fig4.clf()
+    ax4 = fig4.add_subplot(121)
+    ax42 = fig4.add_subplot(233)    
+    
+    dumdxy = ax42.scatter(dxy[:,0], dxy[:,1], c=isfg, cmap='viridis')
+    cb42 = fig4.colorbar(dumdxy, ax=ax42)
+    
+    dum = ax4.contour(ff, vv, ll, levels=20, zorder=10)
+
+    # show a scatterplot as well
+    dumscatt = ax4.scatter(np.ravel(ff), np.ravel(vv), c=np.ravel(ll),
+                           s=4, zorder=1, alpha=0.3)
+    
+    ax4.set_xlabel(r'$log_{10}$(mixture fraction)')
+    ax4.set_ylabel(r'$log_{10}(V_{xx})$')
+
+    cb = fig4.colorbar(dum, ax=ax4)
+
+    # where is the minimum value?
+    f1d = np.ravel(ff)
+    v1d = np.ravel(vv)
+    l1d = np.ravel(ll)
+    imax = np.argmax(l1d)
+
+    dummax = ax4.scatter([f1d[imax]], [v1d[imax]], \
+                         c='m', zorder=25)
+    
+    print(imax, f1d[imax], v1d[imax], l1d[imax])
+    
+    # We know what the generated values were! Plot them
+    #
+    # I think I flipped foreground/background when generating. Handle
+    # that...
+    #truth_f = np.log10(1.0 - 10.0**truthmix[0])
+    truth_f = truthmix[0]
+    
+    dumtruth = ax4.scatter([truth_f], [truthmix[1]], \
+                           c='m', marker='*', zorder=20) 
+    
+    # We should have the truth parameters - for everything - now. Take
+    # a look:
+    print(SD.Obssrc.xmin)
+    print(SD.Parset.pars)
+    
 def statsvsmag(mags=np.array([]), xy=np.array([]), nbins=15):
 
     """Utility - evaluates statistics per bin"""
@@ -288,3 +574,36 @@ def statsvsmag(mags=np.array([]), xy=np.array([]), nbins=15):
         
     return mag_mid, med_bin, np.transpose(cov_bin, axes=(2,0,1)), \
         count_bin
+
+def JVJt_vectorized(jac=np.array([]), cov=np.array([])):
+
+    """Element-by-element evaluation of JVJt"""
+
+    # Datatypes?
+    print(jac.dtype, cov.dtype)
+
+    # must both be Nx2x2. This is to check where along the chain the
+    # multiplications might be losing accuracy. Subscripts as per
+    # manuscript draft
+    j11 = jac[:,0,0]
+    j12 = jac[:,0,1]
+    j21 = jac[:,1,0]
+    j22 = jac[:,1,1]
+
+    s1 = cov[:,0,0]
+    s12 = cov[:,0,1]
+    s21 = cov[:,1,0]
+    s2 = cov[:,1,1]
+
+    var11 = j11**2 * s1    + j12**2 * s2 + 2. * j11 * j12 * s12
+    var22 = j21**2 * s1    + j22**2 * s2 + 2. * j21 * j22 * s12
+    var12 = j11 * j21 * s1 + j12*j22* s2 + (j11*j22 + j12*j21)*s12
+
+    jvjt = jac*0.
+
+    jvjt[:,0,0] = var11
+    jvjt[:,1,1] = var22
+    jvjt[:,0,1] = var12
+    jvjt[:,1,0] = var12
+
+    return jvjt

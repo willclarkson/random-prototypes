@@ -205,9 +205,14 @@ full exploration with MCMC."""
         # (Remember, self.transf is a pointer to the kind of
         # transformation object we're using from unctytwod.py)
 
+        # Convenience views. Don't forget the domain!
         xy = self.obssrc.xy
         self.PGuess = self.transf(xy[:,0], xy[:,1], \
                                   self.obssrc.covxy, \
                                   self.Parset.model, \
                                   kind=self.polyfit, \
-                                  checkparsy=True)
+                                  checkparsy=True, \
+                                  xmin=self.obssrc.xmin, \
+                                  xmax=self.obssrc.xmax, \
+                                  ymin=self.obssrc.ymin, \
+                                  ymax=self.obssrc.ymax)

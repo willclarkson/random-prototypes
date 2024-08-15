@@ -29,13 +29,21 @@ class Obset(object):
 information like apparent magnitudes for hypothetical observations."""
 
     def __init__(self, xy=np.array([]), covxy=np.array([]), \
-                 mags=np.array([]), isfg=np.array([]) ):
+                 mags=np.array([]), isfg=np.array([]), \
+                 xmin=None, xmax=None, ymin=None, ymax=None):
 
         self.xy = np.copy(xy)
         self.covxy = np.copy(covxy)
         self.mags = np.copy(mags)
         self.isfg = np.copy(isfg)
 
+        # Domain of the source data (assumed detector)
+        self.xmin = xmin
+        self.xmax = xmax
+        self.ymin = ymin
+        self.ymax = ymax
+        
+        # Number of datapoints
         self.npts = np.shape(xy)[0]
         
     # Self-checking methods could come here.
@@ -489,11 +497,13 @@ objects"""
         vxx = mixfgbg.parsefraction(self.pars_mix[1], \
                                     self.islog10_mix[1], \
                                     maxval=np.inf, inclusive=False)
-
+        
         # Replicate the variance
         stdxs = np.repeat(np.sqrt(np.abs(vxx)) , self.npts)
         self.Coutliers = CovarsNx2x2(stdx=stdxs)
 
+        # for debug:
+        # print("sim2d.makeoutliers INFO:", vxx, stdxs[0], self.Coutliers.covars[0])
         
     def makepars(self):
 
@@ -519,7 +529,9 @@ objects"""
         self.PTruth = self.transf(self.xy[:,0], self.xy[:,1], \
                                   self.Cxy.covars, self.pars_transf, \
                                   kind=self.polytransf, \
-                                  checkparsy=True)
+                                  checkparsy=True, \
+                                  xmin=self.xmin, xmax=self.xmax, \
+                                  ymin=self.ymin, ymax=self.ymax)
         
     def setupxytran(self):
 
@@ -594,10 +606,15 @@ object"""
 
     def packagesourcedata(self):
 
-        """Packages the source data into an obset object"""
+        """Packages the source data into an obset object. Includes the domain
+of the simulated data (since we know this going in)
+
+        """
 
         self.Obssrc = Obset(self.xyobs, self.PTruth.covxy, \
-                            self.mags, ~self.isoutly)
+                            self.mags, ~self.isoutly, \
+                            xmin=self.xmin, xmax=self.xmax, \
+                            ymin=self.ymin, ymax=self.ymax)
         
     def packagetargetdata(self):
 

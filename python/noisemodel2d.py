@@ -130,9 +130,11 @@ Returns:
         return np.vstack(( stdxs, ryxs, corrs ))
 
 def mags2noise(parsmag=np.array([]), \
-               parscov=np.array([]), mags=np.array([]) ):
+               parscov=np.array([]), mags=np.array([]), \
+               islog10_ryx=False):
 
-    """Returns a CovsNx2x2 object describing noise model covariance. The stdx of each 2x2 plane is computed from the model
+    """Returns a CovsNx2x2 object describing noise model covariance. The
+stdx of each 2x2 plane is computed from the model
 
     stdx = a + b.exp(c.mags) 
 
@@ -144,17 +146,20 @@ Inputs:
 
     parscov = [stdy/stdx, corrxy]
 
+    islog10_ryx = if provided, stdy/stdx is supplied as
+    log10(stdy/stdx)
 
 Returns:
 
     Covars = CovarsNx2x2 object including .covars (Nx2x2 covariance array) and methods to draw samples.
-    
+
     """
 
     # Unpack the model parameters and ensure all the pieces are
     # present
     stdxs = noisescale(parsmag, mags)
-    stdx, stdy, corrxy = parsecorrpars(stdxs, parscov, unpack=True)
+    stdx, stdy, corrxy = parsecorrpars(stdxs, parscov, unpack=True, \
+                                       islog10_ryx=islog10_ryx)
 
     return CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=corrxy)
 
