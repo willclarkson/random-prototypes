@@ -18,7 +18,7 @@ import noisemodel2d
 
 def shownoisemodel(parsnoise=[-4., -20., 2.], \
                    parsshape=[], islog10_ryx=False, \
-                   maglo=16., maghi=19.5, npts=100, \
+                   maglo=16., maghi=19.5, npts=1000, \
                    ylog=False):
 
     """Tests noise model. 
@@ -33,6 +33,10 @@ shape params:
     test2d.shownoisemodel(parsshape=[0.6], ylog=True)
 
     test2d.shownoisemodel(parsshape=[0.9, -0.4], ylog=True)
+
+This also compares the running stddevx vs magnitude against the model. To do so, it's usually a good idea to make npts fairly large, e.g.:
+
+    test2d.shownoisemodel(parsshape=[.5], ylog=True, islog10_ryx=False, npts=500)
 
     """
 
@@ -73,7 +77,7 @@ shape params:
     xysamples = CC.getsamples()
 
     # Statistics vs magnitude for the samples
-    magmid, medmid, covmid = statsvsmag(mags, xysamples)
+    magmid, medmid, covmid, countbin = statsvsmag(mags, xysamples)
 
     # rotation angles
     cov_rotans = CC.rotDegs
@@ -130,7 +134,9 @@ shape params:
 
     # If we have them, show the results of our test sample
     if np.size(covmid) > 0:
-        scomp = r'$\sqrt{s^2_x}$ from sample'
+        inum = int(countbin[0])
+        scomp = r'$\sqrt{s^2_x}$ at %s / bin' \
+            % (f"{inum:,}")
         dumcomp = ax21.scatter(magmid, covmid[:,0,0]**0.5, \
                                alpha=0.95, color=color_comp, \
                                zorder=50, \
@@ -170,7 +176,7 @@ shape params:
             ax21.set_ylim(bottom=ymin*0.7)
 
     # Now a figure 3, showing draws from our samples
-    fig3=plt.figure(3, figsize=(5.5, 6.5))
+    fig3=plt.figure(3, figsize=(6.6, 6.5))
     fig3.clf()
     ax30 = fig3.add_subplot(321)
     
@@ -183,7 +189,7 @@ shape params:
 
     # Show the deltas color-coded by mag
     p_scatt = ax30.scatter(xysamples[:,0], xysamples[:,1], \
-                           c=mags, alpha=0.5, s=2, cmap='viridis_r')
+                           c=mags, alpha=0.5, s=2, cmap='gray_r')
     cb30 = fig3.colorbar(p_scatt, ax=ax30)
     
     # First off show deltas vs mag
@@ -252,6 +258,7 @@ def statsvsmag(mags=np.array([]), xy=np.array([]), nbins=15):
     mag_mid = np.array([])
     med_bin = np.array([])
     cov_bin = np.array([])
+    count_bin = np.array([])
     
     for ibin in range(np.size(ileft)):
 
@@ -275,6 +282,9 @@ def statsvsmag(mags=np.array([]), xy=np.array([]), nbins=15):
         # roughly sensible
         mag_mid = np.hstack((mag_mid, np.median(mags[lthis]) ))
 
+        count_bin = np.hstack(( count_bin, np.size(lthis) ))
+        
     # I prefer covariances in [N,2,2] not [2,2,N]
         
-    return mag_mid, med_bin, np.transpose(cov_bin, axes=(2,0,1))
+    return mag_mid, med_bin, np.transpose(cov_bin, axes=(2,0,1)), \
+        count_bin
