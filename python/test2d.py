@@ -18,10 +18,9 @@ import noisemodel2d
 
 from parset2d import Pars1d
 import unctytwod
-
 import lnprobs2d
-
 import sim2d
+import fit2d
 
 def shownoisemodel(parsnoise=[-4., -20., 2.], \
                    parsshape=[], islog10_ryx=False, \

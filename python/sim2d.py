@@ -22,31 +22,34 @@ from fitpoly2d import Leastsq2d, Patternmatrix
 
 from weightedDeltas import CovarsNx2x2
 
+from obset2d import Obset
 
-class Obset(object):
+# REFACTORED into obset2d.py
+#
+#class Obset(object):
+#
+#    """Convenience-object to hold positions, covariances, and other
+#information like apparent magnitudes for hypothetical observations."""
 
-    """Convenience-object to hold positions, covariances, and other
-information like apparent magnitudes for hypothetical observations."""
+#    def __init__(self, xy=np.array([]), covxy=np.array([]), \
+#                 mags=np.array([]), isfg=np.array([]), \
+#                 xmin=None, xmax=None, ymin=None, ymax=None):
 
-    def __init__(self, xy=np.array([]), covxy=np.array([]), \
-                 mags=np.array([]), isfg=np.array([]), \
-                 xmin=None, xmax=None, ymin=None, ymax=None):
+#        self.xy = np.copy(xy)
+#        self.covxy = np.copy(covxy)
+#        self.mags = np.copy(mags)
+#        self.isfg = np.copy(isfg)
 
-        self.xy = np.copy(xy)
-        self.covxy = np.copy(covxy)
-        self.mags = np.copy(mags)
-        self.isfg = np.copy(isfg)
-
-        # Domain of the source data (assumed detector)
-        self.xmin = xmin
-        self.xmax = xmax
-        self.ymin = ymin
-        self.ymax = ymax
+#        # Domain of the source data (assumed detector)
+#        self.xmin = xmin
+#        self.xmax = xmax
+#        self.ymin = ymin
+#        self.ymax = ymax
         
-        # Number of datapoints
-        self.npts = np.shape(xy)[0]
+#        # Number of datapoints
+#        self.npts = np.shape(xy)[0]
         
-    # Self-checking methods could come here.
+#    # Self-checking methods could come here.
 
 class Simdata(object):
 
@@ -594,10 +597,6 @@ present."""
             + self.nudgexyextra \
             + self.nudgexyoutly
 
-        # uncomment this to replace the outlier nudges
-        #self.xytarg[self.isoutly] = self.xytran[self.isoutly] \
-        #    + self.nudgexyoutly[self.isoutly]
-        
     def packagemodelpars(self):
 
         """Packages the transformation and noise parameters into a Pars1d
