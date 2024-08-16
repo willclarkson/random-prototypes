@@ -385,8 +385,8 @@ Returns:
         # covariance rather than switching it in to avoid running into
         # singular outlier covariance if the walker goes that way.)
         if isbg:
-            #covars = self.covsum + self.covoutly
-            covars = self.covoutly
+            covars = self.covsum + self.covoutly
+            #covars = self.covoutly
         else:
             covars = self.covsum
 
@@ -418,9 +418,12 @@ Returns:
             
             return
 
-        # foreground, background components and their sum
-        self.lnlike_fg = self.getlnlike(isbg=False) + np.log(self.ffg)
-        self.lnlike_bg = self.getlnlike(isbg=True) + np.log(1.0-self.ffg)
+        # foreground, background components and their sum.
+        #
+        # WATCHOUT - self.ffg is I think the BACKGROUND fraction
+        
+        self.lnlike_fg = self.getlnlike(isbg=False) + np.log(1.0-self.ffg)
+        self.lnlike_bg = self.getlnlike(isbg=True) + np.log(self.ffg)
         self.sumlnlike = np.sum(np.logaddexp(self.lnlike_fg, self.lnlike_bg))
 
     def updatelnlike(self, parset=None):

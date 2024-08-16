@@ -423,7 +423,6 @@ def mixmodvals(nfrac=20, nvar=20):
     print("Truth set: covariance, all:")
     print(cov_inliers)
     print(CA.majors, CA.stdx, CA.stdy, np.log10(CA.majors))
-
     
     print("-------------------------------")
     print("Truth set: covariance, inliers:")
@@ -443,8 +442,8 @@ def mixmodvals(nfrac=20, nvar=20):
     truthmix = np.copy(SD.Parset.mix)
     print("Truth mixture parameters:", truthmix)
     
-    vlogfrac = np.linspace(-3., -0.005, nfrac, endpoint=True)
-    vlogvar = np.linspace(-14., -1., nvar, endpoint=True)
+    vlogfrac = np.linspace(-3., -0.2, nfrac, endpoint=True)
+    vlogvar = np.linspace(-11., -1., nvar, endpoint=True)
 
     ff, vv = np.meshgrid(vlogfrac, vlogvar, indexing='ij')
     ll = ff * 0. - np.inf
@@ -512,12 +511,15 @@ def mixmodvals(nfrac=20, nvar=20):
             
             if ifrac is 40:
                 itell=3
-                print("%.2e, %.2e:: %.2e, %.2e, %.2e, %.2e, %.2e, %i" \
+                print("%.2e, %.2e:: %.2e, %.2e, %.2e, %.2e, %.2e, %.2e, %i, %.1f" \
                       % (llike.ffg, parsvec[-1], \
                       llike.lnlike_fg[itell], llike.lnlike_bg[itell], \
                          llike.lnlike_fg[itell] +  llike.lnlike_bg[itell], \
-                         llike.covsum[itell][0,0], llike.covoutly[itell][0,0], \
-                         isfg[itell]))
+                         llike.covsum[itell][0,0], \
+                         llike.covoutly[itell][0,0], \
+                         llike.covoutly[itell][0,0] + \
+                         llike.covsum[itell][0,0], \
+                         isfg[itell], mags[itell]))
             
     # Now look at the result of our loops
     dum = ax4.contour(ff, vv, ll, levels=20, zorder=10)
@@ -537,6 +539,7 @@ def mixmodvals(nfrac=20, nvar=20):
     l1d = np.ravel(ll)
     imax = np.argmax(l1d)
 
+    # I specified the background fraction not the foreground
     dummax = ax4.scatter([f1d[imax]], [v1d[imax]], \
                          c='m', zorder=25)
     
