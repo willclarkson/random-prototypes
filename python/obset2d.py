@@ -39,7 +39,16 @@ information like apparent magnitudes for hypothetical observations."""
         
     def copycontents(self):
 
-        """Utility - returns copies of all the attributes, in the same order as in initialization"""
+        """Utility - returns copies of all the attributes, in the same order as in initialization. Useful if we want to ensure that modifications do not change an original. 
+
+Example call:
+
+        # obset is an instance we wish to copy
+        
+        mycopy = Obset(*obset.copycontents())
+        
+
+"""
 
         return np.copy(self.xy), np.copy(self.covxy), np.copy(self.mags), \
             np.copy(self.isfg), np.copy(self.xmin), np.copy(self.xmax), \

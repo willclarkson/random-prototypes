@@ -387,7 +387,7 @@ data, 2d input, 2d output"""
         self.W[:,0,0] = 1.
         self.W[:,1,1] = 1.
         
-    def parseweights(self, wts=np.array([]), Verbose=True):
+    def parseweights(self, wts=np.array([]), Verbose=False):
 
         """Parses input weights into an [N,2,2] array"""
 
