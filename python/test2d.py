@@ -385,10 +385,14 @@ Inputs:
     
     print(jvjt_vec[0])
 
-def mixmodvals(nfrac=20, nvar=20):
+def mixmodvals(nfrac=20, nvar=20, logvarmin=-12., logvarmax=-5.):
 
     """
-    Sets up a mixture model and plots the variation of fit statistic with trial mixture parameters
+    Sets up a mixture model and plots the variation of fit statistic with trial mixture parameters. Example call:
+
+    test2d.mixmodvals(51,51, -10.,-7.)
+
+Currently this is a complete mess. To be cleaned up!
 
     """
 
@@ -442,16 +446,31 @@ def mixmodvals(nfrac=20, nvar=20):
     truthmix = np.copy(SD.Parset.mix)
     print("Truth mixture parameters:", truthmix)
     
-    vlogfrac = np.linspace(-3., -0.2, nfrac, endpoint=True)
-    vlogvar = np.linspace(-11., -1., nvar, endpoint=True)
+    vlogfrac = np.linspace(-3., -0.1, nfrac, endpoint=True)
+    vlogvar = np.linspace(logvarmin, -5., nvar, endpoint=True)
 
     ff, vv = np.meshgrid(vlogfrac, vlogvar, indexing='ij')
     ll = ff * 0. - np.inf
-    
+
+    # the truth parset and fit parset are different if we are not
+    # fitting for extra noise.
+    print(SD.Parset.model)
+    print(SD.Parset.noise)
+    print(SD.Parset.symm)
+    print(SD.Parset.mix)
+
+    Parsho = Pars1d(model=SD.Parset.model, noise=[], symm=[], \
+                    mix=SD.Parset.mix)
+
     # create our loglike object to (re-) compute the ln likelihood for
     # each mixture value
-    llike = lnprobs2d.Like(SD.Parset, SD.PTruth, SD.Obstarg)
+    llike = lnprobs2d.Like(Parsho, SD.PTruth, SD.Obstarg)
 
+    print(llike.covtran[3], mags[3])
+    print(llike.covtarg[3])
+    
+    #return
+    
     # Test uTvu
     precis = np.linalg.inv(llike.covsum)
     utvu_vec = utVu_vectorized(dxy, precis)
@@ -464,7 +483,7 @@ def mixmodvals(nfrac=20, nvar=20):
 
     # return
     
-    parsvec = np.copy(SD.Parset.pars)
+    parsvec = np.copy(Parsho.pars)
 
     # what do the outliers look like...
     #print(llike.covsum[isfg][0:3])
@@ -499,9 +518,9 @@ def mixmodvals(nfrac=20, nvar=20):
             # Update the source parset object (because when used for
             # real, the same parset is referenced by both Like and
             # Prior. So we want to update it OUTSIDE Like.
-            SD.Parset.updatepars(parsvec)
+            Parsho.updatepars(parsvec)
         
-            llike.updatelnlike(SD.Parset)
+            llike.updatelnlike(Parsho)
 
             ll[ifrac, jvxx] = np.copy(llike.sumlnlike)
 
@@ -511,7 +530,7 @@ def mixmodvals(nfrac=20, nvar=20):
             
             if ifrac is 40:
                 itell=3
-                print("%.2e, %.2e:: %.2e, %.2e, %.2e, %.2e, %.2e, %.2e, %i, %.1f" \
+                print("%.2e, %.2e:: %.2e, %.2e %.2e ##, %.2e, %.2e, %.2e -- %.2e, %.2e, %.2e >> %i, %.1f" \
                       % (llike.ffg, parsvec[-1], \
                       llike.lnlike_fg[itell], llike.lnlike_bg[itell], \
                          llike.lnlike_fg[itell] +  llike.lnlike_bg[itell], \
@@ -519,6 +538,9 @@ def mixmodvals(nfrac=20, nvar=20):
                          llike.covoutly[itell][0,0], \
                          llike.covoutly[itell][0,0] + \
                          llike.covsum[itell][0,0], \
+                         llike.covtarg[itell][0,0], \
+                         llike.covtran[itell][0,0], \
+                         llike.covextra[itell][0,0], \
                          isfg[itell], mags[itell]))
             
     # Now look at the result of our loops
