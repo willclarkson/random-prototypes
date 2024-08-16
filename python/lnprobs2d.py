@@ -64,7 +64,7 @@ class Prior(object):
         self.noise_max_c = 10.
         self.asymm_min_ryx = 0.
         self.asymm_max_ryx = 10.
-        self.asymm_min_corr = 0. # WATCHOUT
+        self.asymm_min_corr = -1. # WATCHOUT
         self.asymm_max_corr = 1.
         self.mix_min_fbg = 1.0e-5
         self.mix_max_vxx = 2.
@@ -535,6 +535,14 @@ Returns:
     if not np.isfinite(lnlike.sumlnlike):
         return -np.inf
 
+    # WATCHOUT - lnlike.sumlnlike is a sum over the datapoints (taking
+    # into account the model components including the mixture
+    # fraction), while lnprior.sumlnprior is a sum over the model
+    # components. If not zero or infinite, it needs to be multiplied
+    # by the number of datapoints. Do that here.
+    term_lnprior = lnprior.sumlnprior * obstarg.npts
+    term_lnlike = lnlike.sumlnlike
+    
     # OK if we got here, then both the sum of ln(prior) and ln(like)
     # should be finite. Return it!
-    return lnprior.sumlnprior + lnlike.sumlnlike
+    return term_lnprior + term_lnlike
