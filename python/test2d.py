@@ -385,10 +385,23 @@ Inputs:
     
     print(jvjt_vec[0])
 
-def mixmodvals(nfrac=20, nvar=20, logvarmin=-12., logvarmax=-5.):
+def mixmodvals(nfrac=20, nvar=20, logvarpadlo=1.5, logvarpadhi=2.5, \
+               doloops=True, showlog10resps=False):
 
-    """
-    Sets up a mixture model and plots the variation of fit statistic with trial mixture parameters. Example call:
+    """Sets up a mixture model and plots the variation of fit statistic with trial mixture parameters. 
+
+Inputs:
+
+    nfrac, nvar = number of grid points to use along log10(fbg),
+    log10(vxx), respectively
+
+    logvarpadlo, logvarpadhi = lower and upper distances from truth log10(vxx) to use for the grid
+
+    doloops = do the loop through the grid (takes about a minute)
+
+    showlog10resps = plot the responsibilities as log10(resps)
+
+Example call:
 
     test2d.mixmodvals(51,51, -10.,-7.)
 
@@ -423,12 +436,14 @@ Currently this is a complete mess. To be cleaned up!
     CB = CovarsNx2x2(cov_outliers)
     CB.eigensFromCovars()
 
-    print("-------------------------------")
+    print(" ")
+    print("Data covariance check:")
+    print("--------------------------------------------------------------")
     print("Truth set: covariance, all:")
     print(cov_inliers)
     print(CA.majors, CA.stdx, CA.stdy, np.log10(CA.majors))
-    
-    print("-------------------------------")
+
+    print("--------------------------------------------------------------")
     print("Truth set: covariance, inliers:")
     print(cov_inliers)
     print(CI.majors, CI.stdx, CI.stdy, np.log10(CI.majors))
@@ -437,7 +452,7 @@ Currently this is a complete mess. To be cleaned up!
     print("Outlier set: covariance, outliers:")
     print(cov_outliers)
     print(CB.majors, CB.stdx, CB.stdy, np.log10(CB.majors))
-    print("------------------------------")
+    print("--------------------------------------------------------------")
 
     # We have the truth parameters for everything. Try varying only
     # the mixture fraction and the (log-) covariance and trace the
@@ -447,7 +462,9 @@ Currently this is a complete mess. To be cleaned up!
     print("Truth mixture parameters:", truthmix)
     
     vlogfrac = np.linspace(-3., -0.1, nfrac, endpoint=True)
-    vlogvar = np.linspace(logvarmin, -5., nvar, endpoint=True)
+    vlogvar = np.linspace(truthmix[1]-logvarpadlo, \
+                          truthmix[1]+logvarpadhi, \
+                          nvar, endpoint=True)
 
     ff, vv = np.meshgrid(vlogfrac, vlogvar, indexing='ij')
     ll = ff * 0. - np.inf
@@ -459,57 +476,91 @@ Currently this is a complete mess. To be cleaned up!
     print(SD.Parset.symm)
     print(SD.Parset.mix)
 
+    # Create paramset object corresponding to the parameters we
+    # actually want to explore, create lnlike object to (re-)compute
+    # the likelihood for each mixture-variance pair
     Parsho = Pars1d(model=SD.Parset.model, noise=[], symm=[], \
                     mix=SD.Parset.mix)
 
-    # create our loglike object to (re-) compute the ln likelihood for
-    # each mixture value
     llike = lnprobs2d.Like(Parsho, SD.PTruth, SD.Obstarg)
 
-    print(llike.covtran[3], mags[3])
-    print(llike.covtarg[3])
-    
-    #return
+    # compute the responsibilities given the truth mixture values. NOT
+    # done as part of each function evaluation for speed and storage
+    # issues.
+    llike.calcresps()
     
     # Test uTvu
     precis = np.linalg.inv(llike.covsum)
+    t0 = time.time()
     utvu_vec = utVu_vectorized(dxy, precis)
+    t1 = time.time()
     utvu = lnprobs2d.uTVu(dxy, precis)
+    t2 = time.time()
 
+    print(" ")
+    print("utVu Test:")
+    print("----------------------------------------------------------")
+    print("utVu INFO - vectorized %.2e sec; einsum %.2e sec" \
+          % (t2-t1, t1-t0))
+    
     for isho in range(5):
         print("uTVu: %i, %.5f, %.5f, %.2e, %.2e, %.2e" \
               % (isfg[isho], utvu[isho], utvu_vec[isho], \
                  dxy[isho,0], dxy[isho,1], llike.covsum[isho,0,0]) )
+    print("----------------------------------------------------------")
 
     # return
-    
-    parsvec = np.copy(Parsho.pars)
 
     # what do the outliers look like...
     #print(llike.covsum[isfg][0:3])
     #print(llike.covsum[~isfg][0:3])  
 
     # Now take a look...
-    fig4 = plt.figure(4)
+    fig4 = plt.figure(4, figsize=(8.25, 4.8))
     fig4.clf()
-    fig4.subplots_adjust(hspace=0.4)
-    ax4 = fig4.add_subplot(121)
+    fig4.subplots_adjust(hspace=0.5)
+    # ax4 = fig4.add_subplot(121) # deferred to later
     ax42 = fig4.add_subplot(233)    
     ax43 = fig4.add_subplot(236)    
     
-    dumdxy = ax42.scatter(dxy[:,0], dxy[:,1], c=isfg, cmap='viridis')
-    cb42 = fig4.colorbar(dumdxy, ax=ax42)
+    dumdxy = ax42.scatter(dxy[:,0], dxy[:,1], c=isfg, cmap='viridis', s=4)
+    cb42 = fig4.colorbar(dumdxy, ax=ax42, label='foreground (1/0)')
 
-    # same thing, this time coded by uncertanty
+    # same thing, this time coded by uncertainty
     stdx = np.log10(llike.covsum[:,0,0])
-    dumss = ax43.scatter(dxy[:,0], dxy[:,1], c=stdx, cmap='viridis')
-    cb43 = fig4.colorbar(dumss, ax=ax43)
 
-    ax42.set_title('Colors: isfg')
-    ax43.set_title('Colors: log10(errx)')
+    respsho = llike.resps_fg
+    sresp = r'$\pi_{fg}$'
+    if showlog10resps:
+        respsho = np.log10(llike.resps_fg)
+        sresp = r'$log_{10}(\pi_{fg})$'
+        
+    dumss = ax43.scatter(dxy[:,0], dxy[:,1], \
+                         c=respsho, \
+                         cmap='viridis', s=4)
+    cb43 = fig4.colorbar(dumss, ax=ax43, label=sresp)
+
+    for ax in [ax42, ax43]:
+        ax.set_xlabel(r'$\Delta \xi$')
+        ax.set_ylabel(r'$\Delta \eta$')
+    
+    #ax42.set_title('Colors: isfg', fontsize=10)
+    #ax43.set_title(sresp, fontsize=10)
+
+    # option to return without doing all the loops
+    if not doloops:
+        return
+
+    # add the axis if we're going to use it
+    ax4 = fig4.add_subplot(121)
+
+    print(" ")
+    print("Loops through [log10(fbg), log10(vxx_bg)]:")
+    print("------------------------------------------------------------------------------")
     
     # Now populate the trial values. Do as meshgrid so that we can
     # easily contour the results.
+    parsvec = np.copy(Parsho.pars) # as might be sent in
     for ifrac in range(np.size(vlogfrac)):
         for jvxx in range(np.size(vlogvar)):
             parsvec[-2] = ff[ifrac, jvxx]
@@ -517,21 +568,18 @@ Currently this is a complete mess. To be cleaned up!
 
             # Update the source parset object (because when used for
             # real, the same parset is referenced by both Like and
-            # Prior. So we want to update it OUTSIDE Like.
+            # Prior. So we want to update it OUTSIDE Like).
             Parsho.updatepars(parsvec)
-        
+            
             llike.updatelnlike(Parsho)
 
             ll[ifrac, jvxx] = np.copy(llike.sumlnlike)
 
-            # what are those deltas doing?
-            #print(llike.dxy[0], llike.xytran[0], llike.obstarg.xy[0])
-            # continue
-            
+            # Print screen output
             if ifrac is 40:
                 itell=3
                 print("%.2e, %.2e:: %.2e, %.2e %.2e ##, %.2e, %.2e, %.2e -- %.2e, %.2e, %.2e >> %i, %.1f" \
-                      % (llike.ffg, parsvec[-1], \
+                      % (llike.fbg, parsvec[-1], \
                       llike.lnlike_fg[itell], llike.lnlike_bg[itell], \
                          llike.lnlike_fg[itell] +  llike.lnlike_bg[itell], \
                          llike.covsum[itell][0,0], \

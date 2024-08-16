@@ -19,10 +19,10 @@ supplied, this defaults to a single-component (foreground-only) model.
 
 Inputs:
 
-    mixpars = [ffg, vbg] = up to 2-element array of mixture model
-    parameters: fraction of foreground, variance of background
+    mixpars = [fbg, vbg] = up to 2-element array of mixture model
+    parameters: fraction of background, variance of background
 
-    islog10frac = foreground fraction ffg supplied as log10
+    islog10frac = background fraction fbg supplied as log10
 
     islog10vxx = background variance vxx supplied as log10
 
@@ -30,7 +30,7 @@ Inputs:
 
 Returns:
 
-    ffg = fraction of model component that is foreground. Returns 1.0
+    fbg = fraction of model component that is background. Returns 0.0
     if no mixture parameters were supplied.
 
     vxx = variance of model. 
@@ -38,22 +38,22 @@ Returns:
     """
 
     # Defaults
-    ffg = 1.
+    fbg = 0.
     vxx = vxxbg
     
     #covbg = np.eye(2) * vxxbg
 
     if np.size(mixpars) < 1:
-        return ffg, vxx
+        return fbg, vxx
 
     # Mixture fraction...
-    ffg = parsefraction(mixpars, islog10frac)
+    fbg = parsefraction(mixpars, islog10frac)
 
     # variance...
     if np.size(mixpars) > 1:
         vxx = parsefraction(mixpars[1], islog10vxx, maxval=np.inf, inclusive=False)
 
-    return ffg, vxx
+    return fbg, vxx
 
 
 def parsefraction(frac=None, islog10=False, badval=-np.inf, \

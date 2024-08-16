@@ -26,6 +26,9 @@ def uTVu(u, V):
 
     """
 
+    # Comment: in tests, this is faster than writing out the terms
+    # explicitly and computing the (three-term) evaluation.
+    
     Vu = np.einsum('ijk,ik -> ij', V, u)
     return np.einsum('ij,ji -> j', u.T, Vu)
 
@@ -63,7 +66,7 @@ class Prior(object):
         self.asymm_max_ryx = 10.
         self.asymm_min_corr = 0. # WATCHOUT
         self.asymm_max_corr = 1.
-        self.mix_min_ffg = 1.0e-5
+        self.mix_min_fbg = 1.0e-5
         self.mix_max_vxx = 2.
         
         # the lnpriors for all parts of the model. Initialize to
@@ -170,19 +173,19 @@ uniform within the limits."""
         if np.size(self.mix) < 1:
             return
 
-        ffg, vxx = mixfgbg.parsemixpars(self.mix, \
+        fbg, vxx = mixfgbg.parsemixpars(self.mix, \
                                         self.islog10_mix_frac, \
                                         self.islog10_mix_vxx, \
                                         vxxbg=0.)
 
         # Now we enforce the constraints. First, both must be
         # finite...
-        if not np.isfinite(ffg) or not np.isfinite(vxx):
+        if not np.isfinite(fbg) or not np.isfinite(vxx):
             self.lnprior_mix = -np.inf
             return
 
         # Avoid triggering bounds problems later on
-        if ffg < self.mix_min_ffg or vxx > self.mix_max_vxx:
+        if fbg < self.mix_min_fbg or vxx > self.mix_max_vxx:
             self.lnprior_mix = -np.inf
             return
 
@@ -233,7 +236,7 @@ class Like(object):
         self.covoutly = self.covtarg * 0.
 
         # Fraction in foreground
-        self.ffg = 1.
+        self.fbg = 0. 
         
         # Sum covariance, observed minus projected positions
         self.covsum = np.array([])
@@ -242,9 +245,12 @@ class Like(object):
         # Computed sum ln like and foreground/background components if
         # we're using a mixture model
         self.sumlnlike = -np.inf
-        self.lnlike_fg = 0.
-        self.lnlike_bg = 0.
+        self.lnlike_fg = np.array([0.])
+        self.lnlike_bg = np.array([-np.inf])
 
+        # responsibilities (foreground)
+        self.resps_fg = np.array([])
+        
         # Compute lnlikelihoods on initialization
         self.updatetrans()
         self.unpackmixpars()
@@ -275,13 +281,13 @@ class Like(object):
         # This is maybe a bit inefficient since this is already being
         # done upstram if the prior is evaluated first - which it
         # should be!
-        ffg, vxx = mixfgbg.parsemixpars(self.parset.mix, \
+        fbg, vxx = mixfgbg.parsemixpars(self.parset.mix, \
                                         self.parset.islog10_mix_frac, \
                                         self.parset.islog10_mix_vxx, \
                                         vxxbg=0.)
         
         # Update the instance
-        self.ffg = ffg
+        self.fbg = fbg
 
         # Slot the extra covariance into the outlier pieces - which
         # are already initialized to [N,2,2] * 0.
@@ -412,20 +418,58 @@ Returns:
 
         """Computes the ln(likelihood) in a mixture-aware way"""
 
-        if self.ffg >= 1:
+        if self.fbg <= 0:
             lnlike = self.getlnlike(isbg=False)
             self.sumlnlike = np.sum(lnlike)
+
+            # Update the foreground/background quantities
+            self.lnlike_fg = lnlike
+            self.lnlike_bg = -np.inf
             
             return
 
         # foreground, background components and their sum.
-        #
-        # WATCHOUT - self.ffg is I think the BACKGROUND fraction
-        
-        self.lnlike_fg = self.getlnlike(isbg=False) + np.log(1.0-self.ffg)
-        self.lnlike_bg = self.getlnlike(isbg=True) + np.log(self.ffg)
+        self.lnlike_fg = self.getlnlike(isbg=False) + np.log(1.0-self.fbg)
+        self.lnlike_bg = self.getlnlike(isbg=True) + np.log(self.fbg)
         self.sumlnlike = np.sum(np.logaddexp(self.lnlike_fg, self.lnlike_bg))
 
+    def calcresps(self, strictlyfinite=True):
+
+        """Calculates formal probability that each object belongs to the
+foreground component. If there is no mixture, all points belong to the
+foreground.
+
+        Only points with finite lnlike(background) are included in the
+        calculation. If strictlyfinite=True, then *all* objects must
+        have finite lnlike(bg) for any of the responsibilities to be
+        computed. While this is an option in this method, I think it
+        should always be set to True so that the number of valid
+        points is the same across all parameter-sets for the same
+        dataset. That said, if there are any points with lnlike_bg =
+        -np.inf, we are likely to see problems elsewhere.
+
+Inputs:
+
+        strictlyfinite = all objects must have finite
+        lnlike(background).
+
+        """
+
+        # Initialize as all belonging to the foreground
+        self.resps_fg = np.ones(self.obstarg.npts)
+        if self.fbg <= 0.:
+            return
+
+        binf = np.isinf(self.lnlike_bg)
+        if strictlyfinite and np.sum(binf) > 0:
+                return
+
+        self.resps_fg[~binf] = \
+            np.exp(self.lnlike_fg[~binf] - \
+                   np.logaddexp(self.lnlike_fg[~binf], self.lnlike_bg[~binf]) )
+        
+            
+        
     def updatelnlike(self, parset=None):
 
         """One-liner to update the parameters and compute the sum
