@@ -407,6 +407,7 @@ None.
         """Makes random uniform xy points within bounds set in the instance"""
 
         rng = np.random.default_rng(self.seed_data)
+        # 2024-08-16 I think this is a bug - should be rng.uniform?
         
         self.xy = np.random.uniform(size=(self.npts,2))
         self.xy[:,0] = self.xy[:,0]*(self.xmax-self.xmin) + self.xmin
