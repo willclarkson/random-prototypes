@@ -444,7 +444,7 @@ def mixmodvals(nfrac=20, nvar=20):
     print("Truth mixture parameters:", truthmix)
     
     vlogfrac = np.linspace(-3., -0.005, nfrac, endpoint=True)
-    vlogvar = np.linspace(-12., -1., nvar, endpoint=True)
+    vlogvar = np.linspace(-14., -1., nvar, endpoint=True)
 
     ff, vv = np.meshgrid(vlogfrac, vlogvar, indexing='ij')
     ll = ff * 0. - np.inf
@@ -453,6 +453,18 @@ def mixmodvals(nfrac=20, nvar=20):
     # each mixture value
     llike = lnprobs2d.Like(SD.Parset, SD.PTruth, SD.Obstarg)
 
+    # Test uTvu
+    precis = np.linalg.inv(llike.covsum)
+    utvu_vec = utVu_vectorized(dxy, precis)
+    utvu = lnprobs2d.uTVu(dxy, precis)
+
+    for isho in range(5):
+        print("uTVu: %i, %.5f, %.5f, %.2e, %.2e, %.2e" \
+              % (isfg[isho], utvu[isho], utvu_vec[isho], \
+                 dxy[isho,0], dxy[isho,1], llike.covsum[isho,0,0]) )
+
+    # return
+    
     parsvec = np.copy(SD.Parset.pars)
 
     # what do the outliers look like...
@@ -496,15 +508,16 @@ def mixmodvals(nfrac=20, nvar=20):
 
             # what are those deltas doing?
             #print(llike.dxy[0], llike.xytran[0], llike.obstarg.xy[0])
-            continue
+            # continue
             
-            if jvxx is 5:
-                print("%.2e, %.2e, %.2e, %.2e, %.2e, %.2e, %.2e, %i" \
+            if ifrac is 40:
+                itell=3
+                print("%.2e, %.2e:: %.2e, %.2e, %.2e, %.2e, %.2e, %i" \
                       % (llike.ffg, parsvec[-1], \
-                      llike.lnlike_fg[0], llike.lnlike_bg[0], \
-                         llike.lnlike_fg[0] +  llike.lnlike_bg[0], \
-                         llike.covsum[0][0,0], llike.covoutly[0][0,0], \
-                         isfg[0]))
+                      llike.lnlike_fg[itell], llike.lnlike_bg[itell], \
+                         llike.lnlike_fg[itell] +  llike.lnlike_bg[itell], \
+                         llike.covsum[itell][0,0], llike.covoutly[itell][0,0], \
+                         isfg[itell]))
             
     # Now look at the result of our loops
     dum = ax4.contour(ff, vv, ll, levels=20, zorder=10)
@@ -516,7 +529,7 @@ def mixmodvals(nfrac=20, nvar=20):
     ax4.set_xlabel(r'$log_{10}$(mixture fraction)')
     ax4.set_ylabel(r'$log_{10}(V_{xx})$')
 
-    cb = fig4.colorbar(dum, ax=ax4)
+    cb = fig4.colorbar(dumscatt, ax=ax4)
 
     # where is the minimum value?
     f1d = np.ravel(ff)
@@ -621,3 +634,29 @@ def JVJt_vectorized(jac=np.array([]), cov=np.array([])):
     jvjt[:,1,0] = var12
 
     return jvjt
+
+def utVu_vectorized(u=np.array([]), V=np.array([]) ):
+
+    """Vectorized version of (x-mu)^T V (x-mu) just to check that I haven't done something idiotic setting that up in lnprobs2d. 
+
+Inputs:
+
+    u = [N,2] array of deltas
+
+    V = [N,2,2] precision array
+
+Returns:
+
+    uT.V.u = [N] array of evaluates
+
+"""
+
+    s11 = V[:,0,0]
+    s22 = V[:,1,1]
+    s12 = V[:,0,1]
+
+    x = u[:,0]
+    y = u[:,1]
+
+    return s11*x**2 + s22*y**2 + 2.0*s12*x*y
+    

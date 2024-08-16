@@ -285,6 +285,7 @@ class Like(object):
 
         # Slot the extra covariance into the outlier pieces - which
         # are already initialized to [N,2,2] * 0.
+        self.covoutly *= 0.
         self.covoutly[:,0,0] = vxx
         self.covoutly[:,1,1] = vxx
         
@@ -384,7 +385,7 @@ Returns:
         # covariance rather than switching it in to avoid running into
         # singular outlier covariance if the walker goes that way.)
         if isbg:
-            # covars = self.covsum + self.covoutly
+            #covars = self.covsum + self.covoutly
             covars = self.covoutly
         else:
             covars = self.covsum

@@ -594,6 +594,10 @@ present."""
             + self.nudgexyextra \
             + self.nudgexyoutly
 
+        # uncomment this to replace the outlier nudges
+        #self.xytarg[self.isoutly] = self.xytran[self.isoutly] \
+        #    + self.nudgexyoutly[self.isoutly]
+        
     def packagemodelpars(self):
 
         """Packages the transformation and noise parameters into a Pars1d
