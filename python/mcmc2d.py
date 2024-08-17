@@ -12,6 +12,11 @@ import numpy as np
 
 from scipy.optimize import minimize
 
+# for corner plots
+import matplotlib.pylab as plt
+plt.ion()
+import corner
+
 import sim2d
 from parset2d import Pars1d, Pairset
 from fit2d import Guess, lnprobs2d
@@ -57,6 +62,10 @@ multiprocessing.
         # (useful for scaling the jitter ball)
         self.fracdiff = None
 
+        # Helpful attributes for plots of the samples
+        self.truths = None
+        self.labels = None
+        
         # Quantities for setting up the mcmc runs
         self.guess1d_refined = np.array([]) # convenience view
         self.scaleguess = np.array([])
@@ -69,6 +78,10 @@ multiprocessing.
         # Arguments to send to mcmc runs
         self.args_ensemble = {}
         self.args_run = {}
+
+        # Some arguments that will be useful for plotting and
+        # examining the results:
+        self.args_corner = {}
         
     def dosim(self):
 
@@ -219,6 +232,14 @@ for convenient comparison with the truth parameters"""
         # Find fractional difference (of guess) in matching parameters
         self.fracdiff = PP.fracdiff()
         self.fracdiff.pars = np.asarray(self.fracdiff.pars, 'float64')
+
+    def settruthsarray(self):
+
+        """Utility - populates the 'truths' array for future plots, matched to
+the guess array that will be plotted."""
+
+        PP = Pairset(self.sim.Parset, self.guess_parset)
+        self.truths = np.asarray(PP.set1on2.pars, 'float64')
         
     def ndimfromguess(self):
 
@@ -276,14 +297,47 @@ walker positions"""
 
         self.args_run = {'initial_state':self.pos, \
                          'nsteps':self.chainlen, 'progress':True}
-        
 
+    def setlabels_corner(self):
+
+        """Sets up plot labels for corner plot"""
+
+        # 1d labels
+        self.labels = self.guess_parset.getlabels()
+
+        # Refine the plot labels using the patternmatrix object in
+        # the guess transformation
+        pmatrix = self.guess.PGuess.pars2x
+        labelsx = pmatrix.setplotlabels('A')
+        labelsy = pmatrix.setplotlabels('B')
+        labelsxy = labelsx + labelsy
+        self.labels[0:len(labelsxy)] = labelsxy
+        
+        
+    def setargs_corner(self):
+
+        """Sets up arguments that will help in examining the output
+(e.g. truth parameters if simulating, etc.)"""
+
+        # Ensure we have a 'truths' array with the same length as the
+        # guess array
+        if self.truths is None:
+            self.settruthsarray()
+
+        self.args_corner['truths'] = self.truths
+
+        # plot labels
+        self.setlabels_corner()
+        if self.labels is not None:
+            self.args_corner['labels'] = self.labels
+        
     def setargs_emcee(self):
 
         """Sets up the arguments to send to emcee with multiprocessor"""
 
         self.setargs_ensemblesampler()
         self.setargs_emceerun()
+        self.setargs_corner()
 
     def returnargs_emcee(self, Verbose=True):
 
@@ -291,12 +345,102 @@ walker positions"""
 
         if Verbose:
             print("Returning emcee arguments:")
-            print("esargs, runargs")
+            print("esargs, runargs, showargs")
             print(" ")
             print("Now execute:")
             print("with Pool() as pool:")
             print("      sampler = emcee.EnsembleSampler(**esargs, pool=pool)")
             print("      sampler.run_mcmc(**runargs)")
+            print("      flat_samples = mcmc2d.getflatsamples(sampler)")
+            print("      mcmc2d.showcorner(flat_samples, **showargs)")
 
-        return self.args_ensemble, self.args_run
+        return self.args_ensemble, self.args_run, self.args_corner
         
+### Some methods follow that we want to be able to use from the
+### interpreter. Once an mcmc run is done, the interpreter will have
+### "samples" available to use. So we write the flat samples to disk
+
+def getflatsamples(sampler=None, pathflat='test_flat_samples.npy', \
+                   ntau=20, burnin=-1, Verbose=True):
+
+    """Gets flat samples and saves them to disk"""
+
+    if sampler is None:
+        print("mcmc2d.getflatsamples WARN - no sampler supplied")
+        return
+
+    # A few things we need
+    if Verbose:
+        print("mcmc2d.getflatsamples INFO - measuring autocorrelation time:")
+        
+    try:
+        tau = sampler.get_autocorr_time()
+        tauto = tau.max()
+
+        if Verbose:
+            print("mcmc2d.getflatsamples INFO - max autocorr time: %.2e" \
+                  % (tauto))
+        
+    except:
+        if Verbose:
+            print("mcmc2d.getflatsamples WARN - long autocorrelation time compared to chain length")
+        tauto = 50.
+
+    # Set sample parameters but allow override from arguments
+    nthrow = int(tauto * ntau)
+    nthin = int(tauto * 0.5)
+
+    if burnin > 0:
+        nthrow = np.copy(burnin)
+        
+    # now get the samples
+    flat_samples = sampler.get_chain(discard=nthrow, thin=nthin, flat=True)
+
+    if Verbose:
+        print("mcmc2d.getflatsamples INFO - flat samples shape:", \
+              flat_samples.shape)
+    
+    # save the samples to disk...
+    if len(pathflat) > 3:
+        np.save(pathflat, flat_samples)
+
+    # ... and return them to the interpreter
+    return flat_samples
+
+def showcorner(flat_samples=np.array([]), \
+               labels=None, truths=None, \
+               fignum=4, pathfig='test_corner_oo.png', \
+               minaxesclose=20):
+
+    """Utility - show corner plot from the flat samples"""
+
+    if np.size(flat_samples) < 1:
+        return
+
+    # Label keyword arguments
+    label_kwargs = {'fontsize':8, 'rotation':'horizontal'}
+    
+    # I prefer to set the figure up and then make the corner plot in
+    # the figure:
+    fig4 = plt.figure(4, figsize=(9,7))
+    fig4.clf()
+
+    print("mcmc2d.showcorner INFO - plotting corner plot...")
+    corn = corner.corner(flat_samples, labels=labels, truths=truths,\
+                         truth_color='b', fig=fig4, labelpad=0.7, \
+                         use_math_text=True, \
+                         label_kwargs = label_kwargs)
+    fig4.subplots_adjust(bottom=0.2, left=0.2, top=0.95)
+
+    # Adjust the label size
+    for ax in fig4.get_axes():
+        ax.tick_params(axis='both', labelsize=5)
+
+    # save figure to disk?
+    if len(pathfig) > 3:
+        fig4.savefig(pathfig)
+
+    # If the samples have "high" dimension then the corner plot may
+    # slow the interpreter. So we close the figure if "large":
+    if flat_samples.shape[-1] > minaxesclose:
+        plt.close(fig4)

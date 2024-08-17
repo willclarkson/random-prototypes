@@ -72,11 +72,18 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         self.lnoise = np.array([])
         self.lsymm = np.array([])
         self.lmix = np.array([])
-
+        
         # Descriptors for some of the non-transformation model
         # parameters
         self.islog10_mix_frac = islog10_mix_frac
         self.islog10_mix_vxx = islog10_mix_vxx
+
+        # stems for labels
+        self.labelstem_transf = 'A'
+        self.labels_noise = [r'$log_{10}(a)$', r'$log_{10}(b)$', r'$c$']
+        self.labels_asymm = [r'$s_y/s_x$', r'$\rho_{xy}$']
+        self.labels_mix = [r'$f_{bg}$', r'$V_{bg}$']
+        self.fixlabelstems()
         
         # partition the input model parameters if 1D supplied...
         if np.size(pars) > 0:
@@ -345,6 +352,31 @@ generalized into a loop.
 
         return pars[0:-nsplit], pars[-nsplit::]
 
+    def fixlabelstems(self):
+
+        """Ensures the noise parts of the plot labels are consistent with
+whether the quantities are being used as log_10"""
+
+        if self.islog10_mix_frac:
+            self.labels_mix[0] = r'$log_{10}(f_{bg})$'
+
+        if self.islog10_mix_vxx:
+            self.labels_mix[1] = r'$log_{10}(V_{bg})$'
+        
+    def getlabels(self):
+
+        """Utility - returns labels for use in plots"""
+
+        # Transformation parameters
+        labels_model = [r'$%s_{%i}$' % (self.labelstem_transf, i) \
+                        for i in range(np.size(self.model)) ]
+
+        labels_model += self.labels_noise[0:self.nnoise]
+        labels_model += self.labels_asymm[0:self.nshape]
+        labels_model += self.labels_mix[0:self.nmix]
+
+        return labels_model
+        
 class Pairset(object):
 
     """Pair of two Pars1d objects, with comparison method(s)"""
