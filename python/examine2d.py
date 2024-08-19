@@ -113,7 +113,8 @@ various things
         self.ndata = self.inp_lnlike.obstarg.xy.shape[0]
         
     def computeresps(self, samplesize=-1, keepmaster=True, \
-                     ireport=1000, Verbose=True):
+                     ireport=1000, Verbose=True, \
+                     pathresps='test_resps_samples.npy'):
 
         """Computes foreground probabilities for every sample.
 
@@ -126,6 +127,17 @@ Inputs:
         ireport = report every this many rows
 
         Verbose = report to screen
+
+        pathresps = paths to write master samples responsibilities file
+
+Returns: 
+
+        nothing
+
+Example call:
+
+        FS = examine2d.Flatsamples(flat_samples, esargs=esargs)
+        FS.computeresps()
 
 """
 
@@ -152,7 +164,7 @@ Inputs:
         self.resps_avg = np.zeros(self.ndata)
             
         if keepmaster:
-            self.resps_master = np.zeros(( imax, self.ndata ))
+            self.resps_samples = np.zeros(( imax, self.ndata ))
 
         t0 = time.time()
         if Verbose:
@@ -171,7 +183,7 @@ Inputs:
             
             # If we want to store all the responsibilities per sample
             if keepmaster:
-                self.resps_master[isample] = lnlike.resps_fg
+                self.resps_samples[isample] = lnlike.resps_fg
 
             # report out every so often
             if isample % ireport < 1 and isample > 0 and Verbose:
@@ -191,7 +203,31 @@ Inputs:
         
         # Evaluate the average
         self.resps_avg /= norm
-                
+
+        # Since those loops can take a while, write the
+        # responsibilities to disk by default
+        self.writeresps(pathresps)
+        
+    def writeresps(self, pathresps='test_resps_samples.npy'):
+
+        """Utility - write responsibilities array to disk (can be large).
+
+Inputs:
+        
+        test_resps_samples.npy  =  path to write to
+
+Returns: Nothing
+
+        """
+
+        if len(pathresps) < 1:
+            return
+
+        if np.size(self.resps_samples) < 1:
+            return
+
+        np.save(pathresps, self.resps_samples)
+        
 def showcorner(flat_samples=np.array([]), \
                labels=None, truths=None, \
                fignum=4, pathfig='test_corner_oo.png', \
