@@ -12,11 +12,6 @@ import numpy as np
 
 from scipy.optimize import minimize
 
-# for corner plots
-import matplotlib.pylab as plt
-plt.ion()
-import corner
-
 import sim2d
 from parset2d import Pars1d, Pairset
 from fit2d import Guess, lnprobs2d
@@ -31,8 +26,11 @@ multiprocessing.
     """
 
     def __init__(self, parfile_sim='', parfile_guess='', \
-                 chainlen=40000):
+                 chainlen=40000, Verbose=True):
 
+        # Contol variables
+        self.Verbose = Verbose
+        
         # Parameters for simulation and for guess
         self.parfile_sim = parfile_sim[:]
         self.parfile_guess = parfile_guess[:]
@@ -73,6 +71,7 @@ multiprocessing.
         self.ndim = 1
         self.nchains = -1
         self.fjitter = 3.
+        self.jitterscale_default = 0.05
         self.chainlen = chainlen
 
         # Arguments to send to mcmc runs
@@ -80,8 +79,10 @@ multiprocessing.
         self.args_run = {}
 
         # Some arguments that will be useful for plotting and
-        # examining the results:
-        self.args_corner = {}
+        # examining the results. Use sub-dictionaries for each
+        # destination for the arguments, so, e.g. corner plot
+        # arguments would go in self.args_show['corner'], etc.
+        self.args_show = {}
         
     def dosim(self):
 
@@ -136,7 +137,7 @@ parameters.
 
     def assembleargs(self):
 
-        """Assembles expected arguments for minimizert and/or emcee"""
+        """Assembles expected arguments for minimizer and/or emcee"""
 
         self.argspost = (self.guess.PGuess, self.guess.obstarg, \
                          self.guess.Parset, self.lnprior, self.lnlike)
@@ -154,7 +155,7 @@ parameters.
         self.lnlike = Like(self.guess.Parset, self.guess.PGuess, \
                            self.guess.obstarg)
 
-    def doguess1d(self):
+    def guessforminimizer(self):
 
         """Creates and perturbs initial guess for minimizer"""
 
@@ -198,11 +199,12 @@ been given as the guess)
             print("mcmc2d INFO - ... done in %.2e sec, status %s" \
                   % (t1-t0, self.minimizer_soln.success))
 
+        # copy the result across to 1d parameter array
         self.getguess_from_minimizer()
             
     def getguess_from_minimizer(self):
 
-        """Shunts the minimizer solution into the refined guess"""
+        """Copies the minimizer solution into the refined guess"""
 
         if not hasattr(self.minimizer_soln,'x'):
             print("refinedguess WARN - minimizer solution has no x")
@@ -215,7 +217,7 @@ been given as the guess)
         """Shunts the minimizer-found parameters into a new paramset object
 for convenient comparison with the truth parameters"""
 
-        if self.minimizer_soln is None:
+        if np.size(self.guess1d_refined) < 1:
             return
 
         self.guess_parset = Pars1d(self.guess1d_refined, \
@@ -227,9 +229,16 @@ for convenient comparison with the truth parameters"""
 
         """Compares the guess parameter-set with the truth parameter-set"""
 
+        # Nothing to do if we don't actually have a simulation
+        # paramset
+        if not hasattr(self.sim, 'Parset'):
+            return
+        
         PP = Pairset(self.sim.Parset, self.guess_parset)
 
-        # Find fractional difference (of guess) in matching parameters
+        # Find fractional difference (of guess) in matching
+        # parameters. Force this to become an np float array while I
+        # work out why it isn't that by default...
         self.fracdiff = PP.fracdiff()
         self.fracdiff.pars = np.asarray(self.fracdiff.pars, 'float64')
 
@@ -259,6 +268,14 @@ the guess array that will be plotted."""
         """Sets up the scale factors to multiply the offsets for the initial
 walker positions"""
 
+        # Initialize the jitter scale from the guess parameters
+        self.scaleguess = self.guess1d_refined * self.jitterscale_default
+        
+        # If we have truth parameters, use the fractional offset from
+        # the truth parameters to set the scale.
+        if not hasattr(self.fracdiff, 'pars'):
+            return
+        
         self.scaleguess = np.asarray(self.fracdiff.pars) * self.fjitter
 
     def initwalkers(self):
@@ -276,6 +293,10 @@ walker positions"""
 
         """Wrapper - sets up the walker characteristics for mcmc"""
 
+        # If we have truth parameters, use them to set the scale for
+        # the jitter ball for the mcmc initial state
+        self.calcfracdiff_truth_guess()
+        
         self.ndimfromguess()
         self.setnchains()
         self.setjitterscale()
@@ -324,12 +345,14 @@ walker positions"""
         if self.truths is None:
             self.settruthsarray()
 
-        self.args_corner['truths'] = self.truths
+        self.args_show['corner'] = {}
+            
+        self.args_show['corner']['truths'] = self.truths
 
         # plot labels
         self.setlabels_corner()
         if self.labels is not None:
-            self.args_corner['labels'] = self.labels
+            self.args_show['corner']['labels'] = self.labels
         
     def setargs_emcee(self):
 
@@ -344,22 +367,79 @@ walker positions"""
         """Returns the arguments to the interpreter, prints a helpful message"""
 
         if Verbose:
-            print("Returning emcee arguments:")
-            print("esargs, runargs, showargs")
-            print(" ")
+            print("Returning arguments: esargs, runargs, showargs")
             print("Now execute:")
+            print(" ")
             print("with Pool() as pool:")
             print("      sampler = emcee.EnsembleSampler(**esargs, pool=pool)")
             print("      sampler.run_mcmc(**runargs)")
             print("      flat_samples = mcmc2d.getflatsamples(sampler)")
-            print("      mcmc2d.showcorner(flat_samples, **showargs)")
+            print("      mcmc2d.showcorner(flat_samples, **showargs['corner'])")
 
-        return self.args_ensemble, self.args_run, self.args_corner
+        return self.args_ensemble, self.args_run, self.args_show
+
+
+    def doguess(self):
+
+        """Wrapper - sets up and performs initial fit to the data to serve as
+our initial state for MCMC exploration.
+
+        When this is done, self.guess_parset contains the minimizer
+        fit parameters.
+
+        """
+
+        # Sets up the guess object
+        self.setupguess()
+
+        # Do a linear leastsq fit to the data to serve as the
+        # initial guess for the minimizer
+        self.guessfromlstsq()
+
+        # Setup and run the minimizer using the lstsq fit as input,
+        # and shunt the result across to the guess object
+        self.setupfitargs()
+        self.guessforminimizer()
+        self.runminimizer(Verbose=self.Verbose)
+        self.populate_guess_parset()
         
 ### Some methods follow that we want to be able to use from the
 ### interpreter. Once an mcmc run is done, the interpreter will have
 ### "samples" available to use. So we write the flat samples to disk
 
+def setupmcmc(pathsim='test_sim_mixmod.ini', \
+             pathfit='test_guess_input.ini', \
+             chainlen=40000):
+
+    """Sets up for mcmc simulations. 
+
+Inputs:
+
+    pathsim = path to parameter file for simulating data
+
+    pathfit = path to parameter file for assembling the guess
+
+    chainlen = chain length for mcmc
+
+Returns:
+
+    esargs = dictionary of arguments for the ensemble sampler
+
+    runargs = dictionary of arguments for running mcmc
+
+    showargs = dictionary of arguments for analysing and showing the results
+
+"""
+
+    mc = MCMCrun(pathsim, pathfit, chainlen)
+    mc.dosim()
+    mc.doguess()
+    mc.setupwalkers()
+    mc.setargs_emcee()
+
+    # Get the arguments and print a helpful message...
+    return mc.returnargs_emcee(Verbose=True)
+    
 def getflatsamples(sampler=None, pathflat='test_flat_samples.npy', \
                    ntau=20, burnin=-1, Verbose=True):
 
@@ -407,40 +487,4 @@ def getflatsamples(sampler=None, pathflat='test_flat_samples.npy', \
     # ... and return them to the interpreter
     return flat_samples
 
-def showcorner(flat_samples=np.array([]), \
-               labels=None, truths=None, \
-               fignum=4, pathfig='test_corner_oo.png', \
-               minaxesclose=20):
 
-    """Utility - show corner plot from the flat samples"""
-
-    if np.size(flat_samples) < 1:
-        return
-
-    # Label keyword arguments
-    label_kwargs = {'fontsize':8, 'rotation':'horizontal'}
-    
-    # I prefer to set the figure up and then make the corner plot in
-    # the figure:
-    fig4 = plt.figure(4, figsize=(9,7))
-    fig4.clf()
-
-    print("mcmc2d.showcorner INFO - plotting corner plot...")
-    corn = corner.corner(flat_samples, labels=labels, truths=truths,\
-                         truth_color='b', fig=fig4, labelpad=0.7, \
-                         use_math_text=True, \
-                         label_kwargs = label_kwargs)
-    fig4.subplots_adjust(bottom=0.2, left=0.2, top=0.95)
-
-    # Adjust the label size
-    for ax in fig4.get_axes():
-        ax.tick_params(axis='both', labelsize=5)
-
-    # save figure to disk?
-    if len(pathfig) > 3:
-        fig4.savefig(pathfig)
-
-    # If the samples have "high" dimension then the corner plot may
-    # slow the interpreter. So we close the figure if "large":
-    if flat_samples.shape[-1] > minaxesclose:
-        plt.close(fig4)
