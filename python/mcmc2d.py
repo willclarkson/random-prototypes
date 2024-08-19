@@ -10,13 +10,14 @@
 import os, time
 import numpy as np
 
+import pickle
+
 from scipy.optimize import minimize
 
 import sim2d
 from parset2d import Pars1d, Pairset
 from fit2d import Guess, lnprobs2d
 from lnprobs2d import Prior, Like
-
 
 class MCMCrun(object):
 
@@ -353,6 +354,28 @@ walker positions"""
         self.setlabels_corner()
         if self.labels is not None:
             self.args_show['corner']['labels'] = self.labels
+
+    def setargs_truthset(self):
+
+        """Passes paramset object for the truth parameters as an output
+argument in args_show['truths']"""
+
+        # Return at least blank arguments
+        self.args_show['truthset'] = {}
+        
+        # Not much to do if nothing simulated
+        if not hasattr(self.sim, 'Parset'):
+            return
+        
+        self.args_show['truthset']['parset'] = self.sim.Parset
+
+        # also show truths forced to same length as guess
+        PP = Pairset(self.sim.Parset, self.guess_parset)
+        self.args_show['truthset']['parslikeguess'] = PP.set1on2
+
+        # Also send the un-perturbed simulated x, y positions
+        self.args_show['truthset']['xy'] = self.sim.xy
+        self.args_show['truthset']['xytran'] = self.sim.xytran
         
     def setargs_emcee(self):
 
@@ -361,7 +384,8 @@ walker positions"""
         self.setargs_ensemblesampler()
         self.setargs_emceerun()
         self.setargs_corner()
-
+        self.setargs_truthset() # useful for examining the truth (ha!)
+        
     def returnargs_emcee(self, Verbose=True):
 
         """Returns the arguments to the interpreter, prints a helpful message"""
@@ -374,11 +398,26 @@ walker positions"""
             print("      sampler = emcee.EnsembleSampler(**esargs, pool=pool)")
             print("      sampler.run_mcmc(**runargs)")
             print("      flat_samples = mcmc2d.getflatsamples(sampler)")
-            print("      mcmc2d.showcorner(flat_samples, **showargs['corner'])")
+            print("      examine2d.showcorner(flat_samples, **showargs['corner'])")
 
         return self.args_ensemble, self.args_run, self.args_show
 
+    def writeargs_emcee(self, stemargs='test'):
 
+        """Serializes the arguments for emcee to disk"""
+
+        if len(self.args_show.keys()) > 0:
+            with open('%s_showargs.pickle' % (stemargs), 'wb') as f:
+                pickle.dump(self.args_show, f)
+
+        if len(self.args_run.keys()) > 0:
+            with open('%s_runargs.pickle' % (stemargs), 'wb') as f:
+                pickle.dump(self.args_run, f)           
+        
+        if len(self.args_ensemble.keys()) > 0:
+            with open('%s_esargs.pickle' % (stemargs), 'wb') as f:
+                pickle.dump(self.args_ensemble, f)
+        
     def doguess(self):
 
         """Wrapper - sets up and performs initial fit to the data to serve as
@@ -437,12 +476,15 @@ Returns:
     mc.setupwalkers()
     mc.setargs_emcee()
 
+    # Try serializing the arguments to disk so we can retrieve them
+    # later
+    mc.writeargs_emcee()
+    
     # Get the arguments and print a helpful message...
     return mc.returnargs_emcee(Verbose=True)
     
 def getflatsamples(sampler=None, pathflat='test_flat_samples.npy', \
                    ntau=20, burnin=-1, Verbose=True):
-
     """Gets flat samples and saves them to disk"""
 
     if sampler is None:
