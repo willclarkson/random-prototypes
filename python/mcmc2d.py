@@ -287,8 +287,8 @@ walker positions"""
         magn = self.scaleguess * self.guess1d_refined
         self.pos = self.guess1d_refined + pertn * magn[None, :]
 
-        print("initwalkers INFO:", self.guess1d_refined.dtype, \
-              pertn.dtype, magn.dtype, self.scaleguess.dtype)
+        #print("initwalkers INFO:", self.guess1d_refined.dtype, \
+        #      pertn.dtype, magn.dtype, self.scaleguess.dtype)
         
     def setupwalkers(self):
 
