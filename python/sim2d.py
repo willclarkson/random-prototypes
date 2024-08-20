@@ -477,11 +477,14 @@ objects"""
 
         self.isoutly = np.repeat(False, self.npts)
 
+        if np.size(self.pars_mix) < 1:
+            return
+        
         # parse the mixture parameters
         foutliers = mixfgbg.parsefraction(self.pars_mix[0], \
                                           self.islog10_mix[0])
         
-        if foutliers <= 0. or foutliers > 1:
+        if foutliers <= 0. or foutliers > 1 or not np.isfinite(foutliers):
             return
 
         # now generate uniform random permuation:

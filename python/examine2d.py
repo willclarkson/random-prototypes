@@ -447,6 +447,10 @@ Inputs:
         """Sets bins of equal number of points"""
 
         self.lsor = np.argsort(self.mags)
+
+        if np.size(self.lsor) < 1:
+            return
+        
         self.ileft = np.asarray(np.arange(0, np.size(self.lsor), self.nperbin), 'int')
 
         # edge-case: nperbin a factor of size(lsor)

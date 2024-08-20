@@ -174,6 +174,13 @@ likely work better.)
                   % (pathconfig))
             return
 
+        # If the file is not found, config.read doesn't throw an
+        # exception. So:
+        if len(config.sections()) < 1:
+            print("Guess.loadconfig WARN - cnofig file not found: %s" \
+                  % (pathconfig))
+            return
+        
         # Can't proceed if the required section is missing
         if not self.conf_section in config.sections():
             print("Guess.loadconfig WARN - section %s missing from %s" \
