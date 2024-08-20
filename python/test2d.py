@@ -25,7 +25,8 @@ import fit2d
 def shownoisemodel(parsnoise=[-4., -20., 2.], \
                    parsshape=[], islog10_ryx=False, \
                    maglo=16., maghi=19.5, npts=1000, \
-                   ylog=False):
+                   ylog=False, showvar=False, \
+                   mag0=0.):
 
     """Tests noise model. 
 
@@ -48,16 +49,16 @@ This also compares the running stddevx vs magnitude against the model. To do so,
 
     # 1. Evaluate the noise vs magnitude model
     mags = np.random.uniform(maglo, maghi, npts)
-    stdxs = noisemodel2d.noisescale(parsnoise, mags)
+    stdxs = noisemodel2d.noisescale(parsnoise, mags, mag0=mag0)
 
     # For plotting things against magnitude as a function
     mfine = np.linspace(maglo, maghi, 100)
 
     # Constant and full model
     parsslope = np.hstack(( -99., parsnoise[1::] ))
-    yconst = noisemodel2d.noisescale(parsnoise[0], mfine)
-    yslope = noisemodel2d.noisescale(parsslope, mfine)
-    yfine = noisemodel2d.noisescale(parsnoise, mfine)
+    yconst = noisemodel2d.noisescale(parsnoise[0], mfine, mag0=mag0)
+    yslope = noisemodel2d.noisescale(parsslope, mfine, mag0=mag0)
+    yfine = noisemodel2d.noisescale(parsnoise, mfine, mag0=mag0)
 
     # 2. Shape model
     #stdx, stdy, corrxy = \
@@ -67,7 +68,8 @@ This also compares the running stddevx vs magnitude against the model. To do so,
     # 3. Generate covariance matrices using these parameters
     #CC = CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=corrxy)
 
-    CC = noisemodel2d.mags2noise(parsnoise, parsshape, mags, islog10_ryx)
+    CC = noisemodel2d.mags2noise(parsnoise, parsshape, mags, islog10_ryx, \
+                                 mag0=mag0)
     
     covars = CC.covars
 
@@ -110,43 +112,56 @@ This also compares the running stddevx vs magnitude against the model. To do so,
     ldum = np.argsort(xdum)
     lshow = ldum[0:nshow]
 
+    # Allow showing variance instead of stddev
+    powr=1.
+    if showvar:
+        powr=2.
+    
     if nshow < np.size(mags):
         snum = '%i of %s shown' % (nshow, f"{np.size(mags):,}")
         ax21.annotate(snum, (0.98, 0.98), xycoords='axes fraction', \
                       ha='right', va='top', \
                       fontsize=10, color=color_cc)
-    
-    dumfine = ax21.plot(mfine, yfine, color=color_model, ls='-', \
-                        label='Model: stddev(x)', \
+
+    dumfine = ax21.plot(mfine, yfine**powr, color=color_model, ls='-', \
+                        label='Model', \
                         zorder=20, alpha=0.8)
-    dumconst = ax21.plot(mfine, yconst, color=color_model, ls='--', \
+    dumconst = ax21.plot(mfine, yconst**powr, color=color_model, ls='--', \
                          zorder=2, alpha=0.8)
-    dumslope = ax21.plot(mfine, yslope, color=color_model, ls='-.', \
+    dumslope = ax21.plot(mfine, yslope**powr, color=color_model, ls='-.', \
                          zorder=2, alpha=0.8)
 
     # Now overplot the major axes and the determinant factors
-    dummajors = ax21.scatter(mags[lshow], cov_stds[lshow], \
+    styp='(as sqrt(var) )'
+    if powr > 1.:
+        styp = '(as var)'
+    dummajors = ax21.scatter(mags[lshow], cov_stds[lshow]**powr, \
                              color=color_cc, marker='o', \
                              alpha=0.5, s=16, zorder=10, \
-                             label='Major axis (as sqrt(var) )')
-    dumminors = ax21.scatter(mags[lshow], cov_minors[lshow], \
+                             label='Major axis %s' % (styp))
+    dumminors = ax21.scatter(mags[lshow], cov_minors[lshow]**powr, \
                              color=color_cc_minor, \
                              marker='x', \
                              alpha=0.5, s=16, zorder=10, \
-                             label='Minor axis (as sqrt(var) )')
+                             label='Minor axis %s' % (styp))
 
-    
-    dumfacts = ax21.scatter(mags[lshow], det_stds[lshow], \
+    spow = r'$|V|^{1/%i}$' % (4/powr)
+    dumfacts = ax21.scatter(mags[lshow], det_stds[lshow]**powr, \
                             color=color_det, marker='s', \
                             alpha=0.5, s=25, zorder=5, \
-                            label=r'$|V|^{1/4}$')
+                            label=spow)
 
     # If we have them, show the results of our test sample
     if np.size(covmid) > 0:
-        inum = int(countbin[0])
+        inum = int(countbin[0])        
         scomp = r'$\sqrt{s^2_x}$ at %s / bin' \
             % (f"{inum:,}")
-        dumcomp = ax21.scatter(magmid, covmid[:,0,0]**0.5, \
+
+        if powr > 1.:
+            scomp = r'$s^2_x$ at %s / bin' \
+                % (f"{inum:,}")
+        
+        dumcomp = ax21.scatter(magmid, (covmid[:,0,0]**0.5)**powr, \
                                alpha=0.95, color=color_comp, \
                                zorder=50, \
                                label=scomp)
@@ -158,6 +173,10 @@ This also compares the running stddevx vs magnitude against the model. To do so,
     ax21.set_xlabel('mag')
     ax21.set_ylabel(r'$\sigma$')
 
+    if powr > 0:
+        ax21.set_ylabel(r'$\sigma^%i$' % (powr))
+        
+    
     # Hack to convert the shape parameters into a single string for title
     sshp = ['%.2f' % (parsshape[i]) for i in range(len(parsshape)) ]
     strshape = '[%s]' % (', '.join(sshp))
@@ -179,9 +198,12 @@ This also compares the running stddevx vs magnitude against the model. To do so,
         ymin = np.min([yfine[0], cov_minors[ilo], \
                        cov_stds[ilo], det_stds[ilo]])
 
+        # we might be plotting variances instead of stddevs
+        ymin = ymin**powr
+        
         print("%.2e, %.2e, %.1e" % (ymin, yslope[0], ymin / yslope[0]))
         
-        if np.abs(ymin / yslope[0]) > 10.:
+        if np.abs(ymin / yslope[0]**powr) > 10.:
             ax21.set_ylim(bottom=ymin*0.7)
 
     # Now a figure 3, showing draws from our samples
@@ -254,7 +276,7 @@ This also compares the running stddevx vs magnitude against the model. To do so,
     fig3.suptitle(ssup, fontsize=10)
 
 def testcovtran(npts=1000, parsnoise=[-4.], \
-                xmin=-1., xmax=1., ymin=-1., ymax=1.):
+                xmin=-1., xmax=1., ymin=-1., ymax=1., mag0=0.):
 
     """Tests transformation of covariance from source to target frame.
 
@@ -291,7 +313,7 @@ Inputs:
     xy = np.random.uniform(low=-1., high=1., size=(npts, 2))
     mags = np.random.uniform(low=16., high=19.5, size=npts)
 
-    CC = noisemodel2d.mags2noise(parsnoise, parsshape, mags)
+    CC = noisemodel2d.mags2noise(parsnoise, parsshape, mags, mag0=mag0)
     covsxy = np.copy(CC.covars)
 
     # Populate an observation-set object with the data and domain info

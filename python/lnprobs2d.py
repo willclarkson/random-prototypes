@@ -228,6 +228,9 @@ class Like(object):
 
         # Transformed positions using the current parameters
         self.xytran = np.array([])
+
+        # Magnitude zeropoint to use when applying the noise model
+        self.mag0 = 0.
         
         # Noise components
         self.covtarg = self.obstarg.covxy
@@ -322,7 +325,8 @@ class Like(object):
         parsshape = self.parset.symm
         mags = self.obstarg.mags
         
-        CC = noisemodel2d.mags2noise(parsnoise, parsshape, mags)
+        CC = noisemodel2d.mags2noise(parsnoise, parsshape, mags, \
+                                     mag0=self.mag0)
 
         self.covextra = CC.covars
 

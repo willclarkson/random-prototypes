@@ -156,6 +156,10 @@ parameters.
         self.lnlike = Like(self.guess.Parset, self.guess.PGuess, \
                            self.guess.obstarg)
 
+        # Magnitude zeropoint for fitting... consider packaging this
+        # with obstarg?
+        self.lnlike.mag0 = self.guess.mag0
+        
     def guessforminimizer(self):
 
         """Creates and perturbs initial guess for minimizer"""

@@ -11,7 +11,7 @@ import numpy as np
 from weightedDeltas import CovarsNx2x2
 
 def noisescale(noisepars=np.array([]), mags=np.array([]), \
-               default_a = 0.):
+               default_log10a = -20., mag0=0.):
 
     """Magnitude-dependent scaling for noise. Returns a 1d array of noise
 scale factors with same length as the input apparent magnitudes mags[N]. 
@@ -19,11 +19,13 @@ scale factors with same length as the input apparent magnitudes mags[N].
 Inputs: 
 
     noisepars = [log10(A), log10(B), C] 
-                describing noise model A + B.exp(m C)
+                describing noise model A + B.exp((m-mag0)*C)
 
     mags = N-element array of apparent magnitudes
 
-    default_a = default value of "a" to use if no parameters supplied. In most cases we want this to be zero.
+    default_log10a = default value of log10(a) to use if no parameters supplied. In most cases we want this to be a very small value.
+
+    mag0 = zeropoint for magnitudes. 
 
 Returns:
 
@@ -35,29 +37,41 @@ Returns:
     if np.size(mags) < 1:
         return np.array([])
 
+    # slightly awkward: a, b are supplied as log10 while we really
+    # want them in ln for logaddexp. So we convert here.
+    log10toln = 1.0/np.log10(np.e)
+    
     # Initialize the model parameters
-    a = default_a
-    b = 0.
+    loga = default_log10a * log10toln
+    logb = -np.inf
     c = 0.
     
     # Parse the model parameters
     if np.isscalar(noisepars):
-        a = 10.0**(noisepars)
-
+        #a = 10.0**(noisepars)
+        loga = noisepars * log10toln
+        
     else:
         sz = np.size(noisepars)
         if sz < 1:
             return mags*0. # + 1.
 
         if sz > 0:
-            a = 10.0**(noisepars[0])
+            # a = 10.0**(noisepars[0])
+            loga = noisepars[0] * log10toln
         if sz > 1:
-            b = 10.0**(noisepars[1])
+            # b = 10.0**(noisepars[1])
+            logb = noisepars[1] * log10toln
         if sz > 2:
             c = noisepars[2]
 
+    # return b * np.exp(mags*c) + a
+
+            
     # OK now we have the a, b, c for our model. Apply it
-    return b * np.exp(mags*c) + a
+    logsum = np.logaddexp(c*(mags-mag0) + logb, loga)
+
+    return np.exp(logsum)
 
 def parsecorrpars(stdxs=np.array([]), parscov=np.array([]), \
                   unpack=False, islog10_ryx=False):
@@ -131,12 +145,11 @@ Returns:
 
 def mags2noise(parsmag=np.array([]), \
                parscov=np.array([]), mags=np.array([]), \
-               islog10_ryx=False):
+               islog10_ryx=False, mag0=0.):
 
-    """Returns a CovsNx2x2 object describing noise model covariance. The
-stdx of each 2x2 plane is computed from the model
+    """Returns a CovsNx2x2 object describing noise model covariance. The stdx of each 2x2 plane is computed from the model
 
-    stdx = a + b.exp(c.mags) 
+    stdx = a + b.exp(c.(mags-mag0)) 
 
 Inputs:
 
@@ -149,6 +162,8 @@ Inputs:
     islog10_ryx = if provided, stdy/stdx is supplied as
     log10(stdy/stdx)
 
+    mag0 = zeropoint for magnitudes
+
 Returns:
 
     Covars = CovarsNx2x2 object including .covars (Nx2x2 covariance array) and methods to draw samples.
@@ -157,7 +172,7 @@ Returns:
 
     # Unpack the model parameters and ensure all the pieces are
     # present
-    stdxs = noisescale(parsmag, mags)
+    stdxs = noisescale(parsmag, mags, mag0=mag0)
     stdx, stdy, corrxy = parsecorrpars(stdxs, parscov, unpack=True, \
                                        islog10_ryx=islog10_ryx)
 

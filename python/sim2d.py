@@ -75,7 +75,8 @@ class Simdata(object):
         self.magexpon = 1.5
         self.maglo, self.maghi = 16., 19.5
         self.seed_mag = None
-
+        self.mag0 = 0.
+        
         # "Truth" model parameters
         self.transf = unctytwod.Poly
         self.polytransf = 'Chebyshev'
@@ -128,7 +129,8 @@ class Simdata(object):
                          'asymm_ryx', 'asymm_corr', \
                          'mix_frac', 'mix_vxx', \
                          'extra_loga', 'extra_logb', 'extra_c', \
-                         'extra_ryx', 'extra_corr']
+                         'extra_ryx', 'extra_corr', \
+                         'mag0']
         self.conf_bool = ['gen_noise_model', 'add_uncty_extra', \
                           'nouncty_obs', 'nouncty_tran', 'add_outliers', \
                           'mix_islog10_frac', 'mix_islog10_vxx']
@@ -138,7 +140,7 @@ class Simdata(object):
         # attempt to put this into a sensible order.
         self.confpars = self.conf_bool[0:5] + self.conf_str + ['deg'] + \
             ['npts', 'xmin', 'xmax', 'ymin', 'ymax', 'seed_data'] + \
-            ['magexpon', 'maglo', 'maghi', 'seed_mag'] + \
+            ['magexpon', 'maglo', 'maghi', 'seed_mag', 'mag0'] + \
             ['transfexpon', 'transfscale', 'seed_params'] + \
             ['noise_loga', 'noise_logb','noise_c'] + \
             ['asymm_ryx', 'asymm_corr'] + \
@@ -441,7 +443,8 @@ noise
 
         self.CExtra = noisemodel2d.mags2noise(self.pars_extra_noise, \
                                               self.pars_extra_asymm, \
-                                              self.mags)
+                                              self.mags, \
+                                              mag0=self.mag0)
     def getmagcovars(self, \
                      pars_noise=np.array([]), \
                      pars_asymm=np.array([]), \
@@ -456,7 +459,8 @@ noise
         if np.size(mags) < 1:
             mags = self.mags
 
-        return noisemodel2d.mags2noise(pars_noise, pars_asymm, mags)
+        return noisemodel2d.mags2noise(pars_noise, pars_asymm, mags, \
+                                       mag0=self.mag0)
         
         
     def makeunifcovars(self):
@@ -468,7 +472,8 @@ noise
         
         self.Cxy = noisemodel2d.mags2noise(self.pars_noise[0], \
                                            self.pars_asymm, \
-                                           self.mags)
+                                           self.mags, \
+                                           mag0=self.mag0)
 
     def assignoutliers(self):
 

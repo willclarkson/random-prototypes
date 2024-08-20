@@ -94,7 +94,8 @@ likely work better.)
         self.conf_flt = ['guess_noise_loga', 'guess_noise_logb', \
                          'guess_noise_c', 'guess_asymm_ryx', \
                          'guess_asymm_corrxy', \
-                         'guess_mixmod_f', 'guess_mixmod_vxx']
+                         'guess_mixmod_f', 'guess_mixmod_vxx', \
+                         'mag0']
         self.conf_str = ['polyfit', 'conf_readpath']
         
         # Use this to restrict the attributes that can be set, and to
@@ -111,7 +112,8 @@ likely work better.)
                        'guess_mixmod_f', 'guess_mixmod_vxx', \
                        'guess_islog10_mix_frac', \
                        'guess_islog10_mix_vxx', \
-                       'conf_readpath']
+                       'conf_readpath', \
+                       'mag0']
         
         # Instance quantities that may depend on the above choices and
         # settings follow.
