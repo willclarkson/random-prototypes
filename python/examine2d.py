@@ -364,7 +364,178 @@ Returns: nothing
 
         self.dxyproj_truthpars = xyproj_truth - xytarg
 
-def showguess(esargs={}, fignum=2):
+class Binstats(object):
+
+    """Performs statistics on data binned by a quantity. Similar to
+astropy's binned_statistic.
+
+Inputs:
+    
+    mags = 1d array used to set the bins.
+
+    xy = [N, 2+] array of data on which to compute stats
+
+    nperbin = number of objects per bin
+
+    nbins = if set, the number of bins. Overrides nperbin.
+
+"""
+
+    def __init__(self, mags=np.array([]), xy=np.array([]), nperbin=15., \
+                 nbins=-1):
+
+        self.mags = mags
+        self.xy = xy
+        self.nperbin = nperbin
+
+        if nbins > 0:
+            self.calcnperbin(nbins)
+
+        # Bin information
+        self.lsor = np.array([])
+        self.xleft = np.array([])
+        self.binid = np.array([])
+        self.initbins()
+
+        # statistics
+        self.counts = np.array([])
+        self.medns = np.array([])
+        self.meansxy = np.array([])
+        self.covsxy = np.array([])
+        
+        # Set the bin boundaries and identify points with each bin
+        self.setbins()
+        self.initstats()
+        self.assignbins()
+        self.calcstats()
+
+    def calcnperbin(self, nbins=-1):
+
+        """Computes the number per bin given desired number of bins"""
+
+        if nbins < 1:
+            return
+
+        # Nothing to do if we have no data
+        ndata = np.size(self.mags)
+        if ndata < 1:
+            return
+
+        self.nperbin = int(ndata/float(nbins))
+        
+    def initbins(self):
+
+        """(Re-)initializes the bins"""
+
+        self.ileft = np.array([])
+        self.xleft = np.array([])
+        
+    def initstats(self):
+
+        """(Re)-initializes the statistics arrays"""
+
+        nbins = self.ileft.size
+        ndim = self.xy.shape[-1]
+        
+        self.counts = np.zeros(nbins, 'int') 
+        self.medns = np.zeros(nbins)
+        self.meansxy = np.zeros((nbins, ndim))
+        self.covsxy = np.zeros((nbins, ndim, ndim))
+
+    def setbins(self):
+
+        """Sets bins of equal number of points"""
+
+        self.lsor = np.argsort(self.mags)
+        self.ileft = np.asarray(np.arange(0, np.size(self.lsor), self.nperbin), 'int')
+
+        # edge-case: nperbin a factor of size(lsor)
+        if self.ileft[-1] == np.size(self.lsor):
+            self.ileft = self.ileft[0:-1]
+
+        # Ensure the rightmost bin has enough points
+        if self.lsor.size - self.ileft[-1] < self.nperbin:
+            self.ileft = self.ileft[0:-1]
+
+        # array of magnitude values at left edges of bins
+        self.xleft = self.mags[self.lsor[self.ileft]]
+        self.xleft[0] -= 0.01 # left edge < min datapoint
+        
+    def assignbins(self):
+
+        """Assigns bins to input datapoints and counts the number of points
+per bin"""
+
+        # Nothing to do if arrays not set up yet
+        if self.xleft.size < 1:
+            return
+
+        if self.mags.size < 1:
+            return
+
+        self.binid = np.digitize(self.mags, self.xleft, right=False)
+        self.counts = np.bincount(self.binid)[1::] # sic
+        self.binid -= 1 # sic
+
+    def calcstats(self):
+
+        """Computes the binned statistics"""
+
+        nbins = self.counts.size
+        if nbins < 1:
+            return
+        
+        # Examine bins that are actually populated
+        bocc = self.counts > 0
+        if np.sum(bocc) < 1:
+            return
+
+        lbin = np.arange(nbins, dtype='int')[bocc]
+        for ibin in lbin:
+            bthis = self.binid == ibin
+
+            # Defensive programming - this should never happen
+            if np.sum(bthis) < 1:            
+                continue
+
+            self.medns[ibin] = np.median(self.mags[bthis])
+
+            if self.xy.size < 2:
+                continue
+
+            self.meansxy[ibin] = np.mean(self.xy[bthis], axis=0)
+            self.covsxy[ibin] = np.cov(self.xy[bthis], rowvar=False)
+
+    def getstats(self):
+
+        """Returns the binned statistics to the calling method.
+
+Inputs: None.
+
+Returns:
+
+        mmed  =  [nbins]: median "magnitude" in the bin
+
+        meansxy = [nbins, dim] = mean position
+
+        covsxy = [nbins, ndim, ndim] = positional covariance
+
+        counts = [nbins] = number of points within the bin
+
+Example call:
+        
+        BC = Binstats(mags, xy, 15)
+
+        midpt, means, covs, counts = BC.getstats()
+
+        """
+
+        return self.medns, self.meansxy, self.covsxy, self.counts
+
+            
+            
+def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
+              pathfig='test_guess_deltas.png'):
 
     """Plots up the guess transformation, noise, etc., before running mcmc.
 
@@ -373,6 +544,14 @@ Inputs:
     esargs = {} = dictionary of ensemble sampler arguments.
 
     fignum = matplotlib figure number to use
+
+    npermagbin = number of points per magnitude bin (when estimating
+    delta vs mag for foreground objects)
+
+    respfg = threshold for identifying objects as "foreground" when
+    estimating the running statistics
+
+    nmagbins = number of magnitude bins (for running statistics). If >0, overrides npermagbin.
 
     """
 
@@ -413,10 +592,23 @@ Inputs:
     if np.size(llike.resps_fg) < 1:
         llike.calcresps()
 
-    # Now set up the figure
-    fig2=plt.figure(fignum, figsize=(8.25, 6.00))
-    fig2.clf()
+    # Compute binned statistics on "foreground" objects
+    bfg = llike.resps_fg > respfg
+    BG = Binstats(mags[bfg], dxytran[bfg], npermagbin, nbins=nmagbins)
+    magbins, dxymeans, dxycovs, counts = BG.getstats()
 
+    # Try objects identified as background
+    bbg = llike.resps_fg < 0.2
+    BB = Binstats(mags[bbg], dxytran[bbg], nbins=int(nmagbins*0.7))
+    magbins_bg, dxymeans_bg, dxycovs_bg, counts_bg = BB.getstats()
+    
+    # A couple of things useful to standardize
+    fontsz=10
+    
+    # Now set up the figure
+    fig2=plt.figure(fignum, figsize=(9., 7.))
+    fig2.clf()
+    
     # Positional residual plots
     ax37=fig2.add_subplot(337)
     ax38=fig2.add_subplot(338, sharey=ax37)
@@ -440,7 +632,8 @@ Inputs:
     residxy = ax31.scatter(dxytran[:,0], xytarg[:,1], c=mags, s=1)
 
     # Some axis label carpentry
-    ax37.set_xlabel(r'$\Delta \xi$')
+    for ax in [ax37, ax31, ax34]:
+        ax.set_xlabel(r'$\Delta \xi$') # now that there's room
     ax37.set_ylabel(r'$\Delta \eta$')
 
     ax38.set_xlabel(r'$\xi$')
@@ -451,14 +644,19 @@ Inputs:
     # How do our responsibilities look?
     ax35 = fig2.add_subplot(335)
     dum35 = ax35.scatter(dxytran[:,0], dxytran[:,1], c=llike.resps_fg, \
-                         cmap='inferno_r', s=16, edgecolor='k', vmax=1.)
+                         cmap='inferno', s=4, edgecolor=None, vmax=1., \
+                         alpha=0.7)
     cbar35 = fig2.colorbar(dum35, ax=ax35, label=r'$f_fg$')
+    ax35.set_xlabel(r'$\Delta \xi$')
     
     # Colorbars
     for obj, ax in zip([resid, residyx, residyy, residxx, residxy], \
                        [ax37, ax38, ax39, ax34, ax31]):
-        cbar = fig2.colorbar(obj, ax=ax, label='mag')
+        cbar = fig2.colorbar(obj, ax=ax)
 
+    # label where we can fit it in
+    ax31.set_title('Colors: mag')
+        
     # ... now do the vs magnitude plots
     for ax, quan, label in zip([ax32, ax33], \
                                [covobs[:,0,0], covtarg[:,0,0]], \
@@ -479,21 +677,38 @@ Inputs:
         cextra = ax33.scatter(mags, covextra[:,0,0], c='#702082', \
                               label='Model extra', s=4)
 
-    # Finally, the sum covariance assumed by the guess
+    # Show, the sum covariance assumed by the "guess"
     if np.size(covsum) > 1:
         csum = ax33.scatter(mags, covsum[:,0,0], c='#75988d', \
                             label='covsum', s=4)
 
-    print("INFO:", np.size(covsum), np.size(covobs), np.size(covsum) is np.size(covobs))
-        
+    # Show the statistics for the covariance against magnitude, for
+    # "foreground" objects
+    cemp = ax33.scatter(magbins, dxycovs[:,0,0], c='#9A3324', \
+                        label='fg, %i / bin' % (counts[0]), s=9)
+
+    # try the same for background objects
+    if np.size(magbins_bg) > 1:
+        cbg = ax33.scatter(magbins_bg, dxycovs_bg[:,0,0], c='#D86018', \
+                           label='bg, %i / bin' % (counts_bg[0]), s=9, marker='s')
+    
     for ax in [ax32, ax33]:
         ax.set_xlabel('mag')
         ax.set_yscale('log')
     ax32.set_ylabel(r'$V_{xx}$')
     ax33.set_ylabel(r'$V_{\xi\xi}$')
 
-    leg = ax33.legend()
+    leg = ax33.legend(fontsize=5)
+
+    ax32.set_title('Source frame', fontsize=fontsz)
+    ax33.set_title('Target frame', fontsize=fontsz)
     
+    # a few cosmetic things
+    fig2.subplots_adjust(hspace=0.4, wspace=0.4)
+
+    # save to disk
+    if len(pathfig) > 3:
+        fig2.savefig(pathfig)
     
 def showresps(flatsamples=None, fignum=8, logx=False, creg=1.0e5, wantbg=True, \
               clobber=True):
@@ -635,7 +850,7 @@ Example call:
     
     # I prefer to set the figure up and then make the corner plot in
     # the figure:
-    fig4 = plt.figure(4, figsize=(9,7))
+    fig4 = plt.figure(fignum, figsize=(9,7))
     fig4.clf()
 
     print("examine2d.showcorner INFO - plotting corner plot...")

@@ -394,6 +394,8 @@ argument in args_show['truths']"""
             print("Returning arguments: esargs, runargs, showargs")
             print("Now execute:")
             print(" ")
+            print("examine2d.showguess(esargs)")
+            print(" ")
             print("with Pool() as pool:")
             print("      sampler = emcee.EnsembleSampler(**esargs, pool=pool)")
             print("      sampler.run_mcmc(**runargs)")
