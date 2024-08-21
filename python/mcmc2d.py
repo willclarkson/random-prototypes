@@ -71,7 +71,7 @@ multiprocessing.
         self.pos = np.array([])
         self.ndim = 1
         self.nchains = -1
-        self.fjitter = 3.
+        self.fjitter = 1. # was 3, but that sends the noise pars off
         self.jitterscale_default = 0.05
         self.chainlen = chainlen
 
@@ -229,7 +229,9 @@ for convenient comparison with the truth parameters"""
                                    self.guess.Parset.nnoise, \
                                    self.guess.Parset.nshape, \
                                    self.guess.Parset.nmix, \
-                                   mag0=self.mag0)
+                                   mag0=self.guess.mag0, \
+                                   islog10_noise_c = \
+                                   self.guess.guess_islog10_noise_c)
         
     def calcfracdiff_truth_guess(self):
 
@@ -381,6 +383,20 @@ argument in args_show['truths']"""
         # Also send the un-perturbed simulated x, y positions
         self.args_show['truthset']['xy'] = self.sim.xy
         self.args_show['truthset']['xytran'] = self.sim.xytran
+
+    def setargs_guess(self):
+
+        """Smuggles information about the guess and scale back to the
+interpreter"""
+
+        self.args_show['guess'] = {}
+        self.args_show['guess']['fracdiff'] = self.fracdiff.pars
+        self.args_show['guess']['scaleguess'] = self.scaleguess
+        self.args_show['guess']['fjitter'] = self.fjitter
+        self.args_show['guess']['guess1d_refined'] \
+            = self.guess1d_refined
+        self.args_show['guess']['guess1d'] \
+            = self.guess1d
         
     def setargs_emcee(self):
 
@@ -390,6 +406,7 @@ argument in args_show['truths']"""
         self.setargs_emceerun()
         self.setargs_corner()
         self.setargs_truthset() # useful for examining the truth (ha!)
+        self.setargs_guess() # useful for checking the input guess
         
     def returnargs_emcee(self, Verbose=True):
 
@@ -483,6 +500,9 @@ Returns:
     mc.setupwalkers()
     mc.setargs_emcee()
 
+    #print("setupMCMC INFO - fracdiff:", mc.fracdiff.pars)
+    #print("setupMCMC INFO - scaleguess:", mc.scaleguess)
+    
     # Try serializing the arguments to disk so we can retrieve them
     # later
     mc.writeargs_emcee()

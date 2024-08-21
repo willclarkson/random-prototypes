@@ -11,7 +11,7 @@ import numpy as np
 from weightedDeltas import CovarsNx2x2
 
 def noisescale(noisepars=np.array([]), mags=np.array([]), \
-               default_log10a = -20., mag0=0.):
+               default_log10a = -20., mag0=0., islog10_c=False):
 
     """Magnitude-dependent scaling for noise. Returns a 1d array of noise
 scale factors with same length as the input apparent magnitudes mags[N]. 
@@ -26,6 +26,8 @@ Inputs:
     default_log10a = default value of log10(a) to use if no parameters supplied. In most cases we want this to be a very small value.
 
     mag0 = zeropoint for magnitudes. 
+
+    islog10_c = "c" is supplied as log10(c)
 
 Returns:
 
@@ -63,7 +65,10 @@ Returns:
             # b = 10.0**(noisepars[1])
             logb = noisepars[1] * log10toln
         if sz > 2:
-            c = noisepars[2]
+            if islog10_c:
+                c = 10.0**noisepars[2]
+            else:
+                c = noisepars[2]
 
     # return b * np.exp(mags*c) + a
 
@@ -146,7 +151,7 @@ Returns:
 def mags2noise(parsmag=np.array([]), \
                parscov=np.array([]), mags=np.array([]), \
                islog10_ryx=False, mag0=0., \
-               returnarrays=False):
+               returnarrays=False, islog10_c=False):
 
     """Returns a CovsNx2x2 object describing noise model covariance. The stdx of each 2x2 plane is computed from the model
 
@@ -165,6 +170,9 @@ Inputs:
 
     mag0 = zeropoint for magnitudes
 
+    islog10_c = the "c" parameter in the noise model is supplied as
+    log10
+
     returnarrays = True if we want the covariance components and not a
     CovarsNx2x2 object
 
@@ -180,7 +188,7 @@ Returns:
 
     # Unpack the model parameters and ensure all the pieces are
     # present
-    stdxs = noisescale(parsmag, mags, mag0=mag0)
+    stdxs = noisescale(parsmag, mags, mag0=mag0, islog10_c=islog10_c)
     stdx, stdy, corrxy = parsecorrpars(stdxs, parscov, unpack=True, \
                                        islog10_ryx=islog10_ryx)
     if not returnarrays:

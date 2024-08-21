@@ -40,6 +40,10 @@ Inputs:
 
     ptruths = Pars1d object containing the truth parameters, if known
 
+    log_probs = [nsamples] array of log-probabilities returned by the sampler
+
+    path_log_probs = path to log_probs
+
     """
 
     def __init__(self, flat_samples=np.array([]), path_samples='NA', \
@@ -742,6 +746,9 @@ Example call:
     else:
         mag0 = flatsamples.inp_parset.mag0
 
+    # Noise model option
+    islog10_c = flatsamples.inp_lnlike.parset.islog10_noise_c
+        
     # Magnitude ranges
     mags = flatsamples.inp_lnlike.obstarg.mags
     mshow = np.linspace(mags.min(), mags.max(), 100, endpoint=True)
@@ -753,7 +760,8 @@ Example call:
 
     stdxs, stdys, corrxys = noisemodel2d.mags2noise(parsnoise.T, parssymm.T, \
                                                     mshow[:,None], \
-                                                    mag0=mag0, returnarrays=True)
+                                                    mag0=mag0, returnarrays=True, \
+                                                    islog10_c=islog10_c)
 
     # pick a random sample to show
     ldum = np.argsort(np.random.uniform(size=parsnoise.shape[0]))
@@ -794,8 +802,10 @@ Example call:
                         color=Cmap(aux[ishow]) )
         
     # Does this understand colorbars?
-    labels = [r'$log_{10}(a)$', r'$log_{10}(b)$', r'$c$']
-    cbar = fig9.colorbar(sm, ax=ax90, label=labels[jaux] )
+    pset = flatsamples.inp_parset
+    noiselabels =pset.labels_noise[0:pset.nnoise]
+    
+    cbar = fig9.colorbar(sm, ax=ax90, label=noiselabels[jaux] )
     cbar.solids.set(alpha=1)
     
     if logy:
@@ -843,7 +853,7 @@ Example call:
                              vmin=vmin, vmax=vmax, \
                              s=1)
 
-        ax.set_ylabel(labels[j])
+        ax.set_ylabel(noiselabels[j])
 
         # Only show the colorbar if not the same as we're already
         # plotting on the larger panel

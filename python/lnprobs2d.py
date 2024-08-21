@@ -51,6 +51,7 @@ class Prior(object):
         self.islog10_mix_frac = True
         self.islog10_mix_vxx = True
         self.islog10_noise_ryx = False
+        self.islog10_noise_c = False
         
         # Distribute the parameters and options on initialization
         self.distributepars()
@@ -102,6 +103,9 @@ which we have parameters
         self.islog10_mix_frac = self.parset.islog10_mix_frac
         self.islog10_mix_vxx = self.parset.islog10_mix_vxx
 
+        if hasattr(self.parset, 'islog10_noise_c'):
+            self.islog10_noise_c = self.parset.islog10_noise_c
+        
     def lnprior_transf_rect(self):
 
         """Rectangular prior for transformation parameters"""
@@ -137,6 +141,9 @@ uniform within the limits."""
             return
 
         c = self.noise[2]
+        if self.islog10_noise_c:
+            c = 10.0**self.noise[2]
+            
         if not (self.noise_min_c < c < self.noise_max_c):
             self.lnprior_noise = -np.inf
             return
@@ -326,7 +333,8 @@ class Like(object):
         mags = self.obstarg.mags
         
         CC = noisemodel2d.mags2noise(parsnoise, parsshape, mags, \
-                                     mag0=self.mag0)
+                                     mag0=self.mag0, \
+                                     islog10_c=self.parset.islog10_noise_c)
 
         self.covextra = CC.covars
 

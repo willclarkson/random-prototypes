@@ -43,6 +43,8 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
 
     islog10_mix_vxx = mixture variance vxx specified as log10
 
+    islog10_noise_c = noise model parameter c specified as log10
+
     mag0 = magnitude zeropoint for the noise model
 
     """
@@ -51,6 +53,7 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
                  model=np.array([]), noise=np.array([]), symm=np.array([]), \
                  mix=np.array([]), \
                  islog10_mix_frac=True, islog10_mix_vxx=True, \
+                 islog10_noise_c=False, \
                  mag0=0.):
 
         # 1D array of parameters as expected by e.g. minimize. Can be
@@ -80,7 +83,8 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         # parameters
         self.islog10_mix_frac = islog10_mix_frac
         self.islog10_mix_vxx = islog10_mix_vxx
-
+        self.islog10_noise_c = islog10_noise_c
+        
         # Some other quantities we need but which are not model
         # parameters
         self.mag0 = mag0 # magnitude zeropoint
@@ -369,7 +373,10 @@ whether the quantities are being used as log_10"""
 
         if self.islog10_mix_vxx:
             self.labels_mix[1] = r'$log_{10}(V_{bg})$'
-        
+
+        if self.islog10_noise_c:
+            self.labels_noise[2] = r'$log_{10}(c)$'
+            
     def getlabels(self):
 
         """Utility - returns labels for use in plots"""

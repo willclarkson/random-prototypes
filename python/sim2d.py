@@ -93,6 +93,7 @@ class Simdata(object):
         self.noise_loga = -4. # stdx vs mag
         self.noise_logb = -20.
         self.noise_c = 2.
+        self.islog10_noise_c = False
         self.asymm_ryx = 0.8  # noise shape
         self.asymm_corr = 0.1
         
@@ -133,7 +134,8 @@ class Simdata(object):
                          'mag0']
         self.conf_bool = ['gen_noise_model', 'add_uncty_extra', \
                           'nouncty_obs', 'nouncty_tran', 'add_outliers', \
-                          'mix_islog10_frac', 'mix_islog10_vxx']
+                          'mix_islog10_frac', 'mix_islog10_vxx', \
+                          'islog10_noise_c']
         self.conf_str = ['polytransf']
 
         # The configuration file should also be human-readable... Here's an
@@ -142,7 +144,7 @@ class Simdata(object):
             ['npts', 'xmin', 'xmax', 'ymin', 'ymax', 'seed_data'] + \
             ['magexpon', 'maglo', 'maghi', 'seed_mag', 'mag0'] + \
             ['transfexpon', 'transfscale', 'seed_params'] + \
-            ['noise_loga', 'noise_logb','noise_c'] + \
+            ['noise_loga', 'noise_logb','noise_c', 'islog10_noise_c'] + \
             ['asymm_ryx', 'asymm_corr'] + \
             ['mix_frac', 'mix_vxx','mix_islog10_frac','mix_islog10_vxx'] + \
             ['extra_loga', 'extra_logb', 'extra_c'] + \
@@ -444,7 +446,9 @@ noise
         self.CExtra = noisemodel2d.mags2noise(self.pars_extra_noise, \
                                               self.pars_extra_asymm, \
                                               self.mags, \
-                                              mag0=self.mag0)
+                                              mag0=self.mag0, \
+                                              islog10_c=self.islog10_noise_c)
+        
     def getmagcovars(self, \
                      pars_noise=np.array([]), \
                      pars_asymm=np.array([]), \
@@ -460,7 +464,8 @@ noise
             mags = self.mags
 
         return noisemodel2d.mags2noise(pars_noise, pars_asymm, mags, \
-                                       mag0=self.mag0)
+                                       mag0=self.mag0, \
+                                       islog10_c=self.islog10_noise_c)
         
         
     def makeunifcovars(self):
@@ -468,7 +473,7 @@ noise
         """Makes uniform covariances"""
 
         # Identical to makemagcovars except only the first noise
-        # parameter is used.
+        # parameter is used. 
         
         self.Cxy = noisemodel2d.mags2noise(self.pars_noise[0], \
                                            self.pars_asymm, \
@@ -616,7 +621,8 @@ object"""
                              noise=self.pars_noise, \
                              symm=self.pars_asymm, \
                              mix=self.pars_mix, \
-                             mag0=self.mag0)
+                             mag0=self.mag0, \
+                             islog10_noise_c=self.islog10_noise_c)
 
     def packagesourcedata(self):
 

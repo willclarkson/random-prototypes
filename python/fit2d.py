@@ -78,6 +78,8 @@ likely work better.)
 
         self.guess_islog10_mix_frac = True
         self.guess_islog10_mix_vxx = True
+
+        self.guess_islog10_noise_c = False
         
         # Configuration parameters we may want to write or
         # read. Again, we need to partition these by type when reading
@@ -88,6 +90,7 @@ likely work better.)
                           'ignore_uncty_obs', 'ignore_uncty_targ', \
                           'guess_islog10_mix_frac', \
                           'guess_islog10_mix_vxx', \
+                          'guess_islog10_noise_c', \
                           'fit_noise_model', 'fit_noise_asymm', \
                           'fit_mixmod']
         self.conf_int = ['deg']
@@ -112,6 +115,7 @@ likely work better.)
                        'guess_mixmod_f', 'guess_mixmod_vxx', \
                        'guess_islog10_mix_frac', \
                        'guess_islog10_mix_vxx', \
+                       'guess_islog10_noise_c', \
                        'conf_readpath', \
                        'mag0']
         
@@ -459,7 +463,8 @@ supplied as None"""
                              noise=self.guess_noise_model, \
                              symm=self.guess_asymm, \
                              mix=self.guess_mixmod, \
-                             mag0=self.mag0)
+                             mag0=self.mag0, \
+                             islog10_noise_c=self.guess_islog10_noise_c)
 
     def populateguesstransf(self):
 
