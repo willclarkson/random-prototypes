@@ -404,7 +404,7 @@ argument in args_show['truths']"""
             print("with Pool() as pool:")
             print("      sampler = emcee.EnsembleSampler(**esargs, pool=pool)")
             print("      sampler.run_mcmc(**runargs)")
-            print("      flat_samples = mcmc2d.getflatsamples(sampler)")
+            print("      flat_samples, lnprobs = mcmc2d.getflatsamples(sampler)")
             print("      examine2d.showcorner(flat_samples, **showargs['corner'])")
 
         return self.args_ensemble, self.args_run, self.args_show
@@ -490,9 +490,35 @@ Returns:
     # Get the arguments and print a helpful message...
     return mc.returnargs_emcee(Verbose=True)
     
-def getflatsamples(sampler=None, pathflat='test_flat_samples.npy', \
+def getflatsamples(sampler=None, \
+                   pathflat='test_flat_samples.npy', \
+                   pathprobs='test_log_probs.npy', \
                    ntau=20, burnin=-1, Verbose=True):
-    """Gets flat samples and saves them to disk"""
+    
+    """Gets flat samples and saves them to disk.
+
+Inputs:
+
+    sampler = emcee sampler
+
+    pathflat = path to write flattened samples
+
+    pathprobs = path to write lnprobs
+
+    ntau = multiple of autocorrelation timescale to use
+
+    burnin = user-specified burnin interval (overrides automatic
+    choice if >0)
+
+    Verbose = print messages to screen
+
+Returns:
+
+    flat_samples = [nsamples, npars] array of flattened samples
+    
+    logprobs = [nsamples] array of log-probabilities from the samples
+
+    """
 
     if sampler is None:
         print("mcmc2d.getflatsamples WARN - no sampler supplied")
@@ -525,6 +551,9 @@ def getflatsamples(sampler=None, pathflat='test_flat_samples.npy', \
     # now get the samples
     flat_samples = sampler.get_chain(discard=nthrow, thin=nthin, flat=True)
 
+    # get the log probabilities for this flattened sample.
+    log_probs = sampler.get_log_prob(discard=nthrow, thin=nthin, flat=True)
+    
     if Verbose:
         print("mcmc2d.getflatsamples INFO - flat samples shape:", \
               flat_samples.shape)
@@ -533,7 +562,10 @@ def getflatsamples(sampler=None, pathflat='test_flat_samples.npy', \
     if len(pathflat) > 3:
         np.save(pathflat, flat_samples)
 
+    if len(pathprobs) > 3:
+        np.save(pathprobs, log_probs)        
+        
     # ... and return them to the interpreter
-    return flat_samples
+    return flat_samples, log_probs
 
 

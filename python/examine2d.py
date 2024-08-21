@@ -43,7 +43,8 @@ Inputs:
     """
 
     def __init__(self, flat_samples=np.array([]), path_samples='NA', \
-                 esargs={}, ptruths=None):
+                 esargs={}, ptruths=None, log_probs=np.array([]), \
+                 path_log_probs='NA'):
 
         self.flat_samples = np.copy(flat_samples)
         self.path_samples = path_samples[:]
@@ -52,6 +53,12 @@ Inputs:
         if np.size(self.flat_samples) < 1:
             self.loadsamples()
 
+        # log probs
+        self.log_probs = np.copy(log_probs)
+        self.path_log_probs = path_log_probs[:]
+        if np.size(self.log_probs) < 1:
+            self.loadlogprobs()
+            
         # Populate the shape attributes that we will need to access
         self.nsamples = 0
         self.npars = 0
@@ -102,10 +109,22 @@ Inputs:
             return
 
         try:
-            self.flat_samples = np.load(self.path_samples())
+            self.flat_samples = np.load(self.path_samples)
         except:
             nosamples = True
-            
+
+    def loadlogprobs(self):
+
+        """Loads log probabilities"""
+
+        if len(self.path_log_probs) < 4:
+            return
+
+        try:
+            self.log_probs = np.load(self.path_log_probs)
+        except:
+            nologprobs = True
+        
     def countsamples(self):
 
         """Gets the samples shape"""
@@ -651,7 +670,10 @@ Example call:
 def shownoisesamples(flatsamples=None, nshow=100, fignum=9, \
                      logy=True, showvar=True, \
                      cmap='inferno_r', jaux=2, \
-                     alpha=0.1):
+                     alpha=0.1, \
+                     showlogprobs=True, \
+                     pathfig='test_noisemags.png', \
+                     closeaftersave=False):
 
     """Shows the covariances corresponding to the noise model samples.
 
@@ -673,12 +695,16 @@ Inputs:
 
     alpha = opacity for (noise vs mag) plots
 
+    showlogprobs = color-code flat samples plot by log probability
+
+    closeaftersave = Close the figure after saving
+
 Example call:
 
-    FS = examine2d.Flatsamples(flat_samples, esargs=esargs)
+    FS = examine2d.Flatsamples(flat_samples, esargs=esargs, log_probs=log_probs)
     shownoisesamples(FS)
 
-"""
+    """
 
     if flatsamples is None:
         return
@@ -687,8 +713,13 @@ Example call:
     if flatsamples.nsamples < 1:
         return
     
-    nshow = min([flatsamples.nsamples, nshow])
+    nshow = min([flatsamples.nsamples, nshow])    
 
+    # log probabilities from the Flatsamples object
+    logprobs = np.array([])
+    if hasattr(flatsamples, 'log_probs'):
+        logprobs = flatsamples.log_probs
+    
     # This will be using noisemodel directly, so will need the parset
     if not hasattr(flatsamples, 'inp_parset'):
         print("examine2d.shownoisesamples WARN - flatsamples has no parset")
@@ -763,7 +794,8 @@ Example call:
                         color=Cmap(aux[ishow]) )
         
     # Does this understand colorbars?
-    cbar = fig9.colorbar(sm, ax=ax90, label='Noise param %i' % (jaux))
+    labels = [r'$log_{10}(a)$', r'$log_{10}(b)$', r'$c$']
+    cbar = fig9.colorbar(sm, ax=ax90, label=labels[jaux] )
     cbar.solids.set(alpha=1)
     
     if logy:
@@ -776,22 +808,62 @@ Example call:
     ax90.set_xlabel('mag')
     ax90.set_ylabel(squan)
 
-    # Now show the flat samples
+    # Annotation for sample shown
+    nsamples = parsnoise.shape[0]
+    sanno = f"{nshow:,} of {nsamples:,} shown"
+    ax90.annotate(sanno, (0.04,0.97), xycoords='axes fraction', \
+                  fontsize=8, \
+                  ha='left', va='top')
+    
+    # Now show the flat samples.
     lsam = np.arange(parsnoise.shape[0], dtype='int')
+
+    # Colors to use
+    caux = parsnoise[lsam, jaux]
+    vmin = zmin
+    vmax = zmax
+    cmapaux = cmap
+    ok_logprobs = False
+    
+    if showlogprobs:
+        if np.size(logprobs) == parsnoise.shape[0]:
+            caux = logprobs[lsam]
+            vmin = None
+            vmax = None
+            cmapaux = 'viridis'
+            ok_logprobs = True
+        else:
+            print("shownoisesamples WARN - logprobs the wrong shape or not provided. Not showing.")
+            
     for ax, j in zip([axf0, axf1, axf2], [0,1,2]):
         dumflat = ax.scatter(lsam, parsnoise[lsam, j], \
-                             c=parsnoise[lsam,jaux], \
+                             c=caux, \
                              alpha=0.25, \
-                             cmap=cmap, vmin=zmin, vmax=zmax, \
-                             s=1) 
+                             cmap=cmapaux, \
+                             vmin=vmin, vmax=vmax, \
+                             s=1)
 
+        ax.set_ylabel(labels[j])
+
+        # Only show the colorbar if not the same as we're already
+        # plotting on the larger panel
+        if ok_logprobs:
+            clabel = ''
+            if j < 1:
+                clabel = r'ln(prob)'
+            cbar = fig9.colorbar(dumflat, ax=ax, label=clabel)
+            cbar.solids.set(alpha=1)
+            
     axf2.set_xlabel('Flat sample number')
-    axf0.set_ylabel(r'$\log_{10}(a)$')
-    axf1.set_ylabel(r'$\log_{10}(b)$')
-    axf2.set_ylabel(r'$c$')
 
     # A few cosmetics
     fig9.subplots_adjust(hspace=0.05, wspace=0.4)
+
+    if len(pathfig) > 3:
+        fig9.savefig(pathfig)
+
+        if closeaftersave:
+            plt.close(fig9)
     
 def showcorner(flat_samples=np.array([]), \
                labels=None, truths=None, \
