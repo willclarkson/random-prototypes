@@ -617,13 +617,25 @@ present."""
         """Packages the transformation and noise parameters into a Pars1d
 object"""
 
+        # These are going to serve as truth parameters against which
+        # the guess will be compared. So the noise parameters are the
+        # EXTRA noise.
+        
+        #self.Parset = Pars1d(model=self.pars_transf, \
+        #                     noise=self.pars_noise, \
+        #                     symm=self.pars_asymm, \
+        #                     mix=self.pars_mix, \
+        #                     mag0=self.mag0, \
+        #                     islog10_noise_c=self.islog10_noise_c)
+
         self.Parset = Pars1d(model=self.pars_transf, \
-                             noise=self.pars_noise, \
-                             symm=self.pars_asymm, \
+                             noise=self.pars_extra_noise, \
+                             symm=self.pars_extra_asymm, \
                              mix=self.pars_mix, \
                              mag0=self.mag0, \
                              islog10_noise_c=self.islog10_noise_c)
 
+        
     def packagesourcedata(self):
 
         """Packages the source data into an obset object. Includes the domain
