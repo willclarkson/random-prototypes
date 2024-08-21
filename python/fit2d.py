@@ -458,7 +458,8 @@ supplied as None"""
         self.Parset = Pars1d(model=self.guess_transf,\
                              noise=self.guess_noise_model, \
                              symm=self.guess_asymm, \
-                             mix=self.guess_mixmod)
+                             mix=self.guess_mixmod, \
+                             mag0=self.mag0)
 
     def populateguesstransf(self):
 

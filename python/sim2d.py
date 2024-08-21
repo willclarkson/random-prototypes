@@ -615,7 +615,8 @@ object"""
         self.Parset = Pars1d(model=self.pars_transf, \
                              noise=self.pars_noise, \
                              symm=self.pars_asymm, \
-                             mix=self.pars_mix)
+                             mix=self.pars_mix, \
+                             mag0=self.mag0)
 
     def packagesourcedata(self):
 

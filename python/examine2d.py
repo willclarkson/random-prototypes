@@ -10,8 +10,10 @@ import os, time
 import numpy as np
 import copy
 
-# For binned statistics
+# For computing some needed pieces
 from binstats2d import Binstats
+import noisemodel2d
+
 
 # for corner plots
 import matplotlib.pylab as plt
@@ -645,7 +647,152 @@ Example call:
         ax.set_ylabel(r'$\Delta \eta$')
 
     fig9.subplots_adjust(left=0.3, bottom=0.11, hspace=0.4)
+
+def shownoisesamples(flatsamples=None, nshow=100, fignum=9, \
+                     logy=True, showvar=True, \
+                     cmap='inferno_r', jaux=2, \
+                     alpha=0.1):
+
+    """Shows the covariances corresponding to the noise model samples.
+
+Inputs:
+
+    flatsamples = Flatsamples object including flattened samples
+
+    nshow = number of samples to show
+
+    fignum = matpotlib figure number to use
+
+    logy = use log10 scale for y axis
+
+    showvar = show variance (instead of stddev)
+
+    cmap = colormap to use
+
+    jaux = (0,1,2) - index of noise model parameter to use for colors
+
+    alpha = opacity for (noise vs mag) plots
+
+Example call:
+
+    FS = examine2d.Flatsamples(flat_samples, esargs=esargs)
+    shownoisesamples(FS)
+
+"""
+
+    if flatsamples is None:
+        return
+
+    # Ensure the number of sets to show makes sense
+    if flatsamples.nsamples < 1:
+        return
+    
+    nshow = min([flatsamples.nsamples, nshow])
+
+    # This will be using noisemodel directly, so will need the parset
+    if not hasattr(flatsamples, 'inp_parset'):
+        print("examine2d.shownoisesamples WARN - flatsamples has no parset")
+        return
+
+    # Which indices are the ones we want in the flat samples?
+    lnoise = flatsamples.inp_parset.lnoise
+    lsymm = flatsamples.inp_parset.lsymm
+    
+    # If the flat samples don't actually have a noise model, there's
+    # nothing much to do.
+    if np.size(lnoise) < 1:
+        print("examine2d.shownoisesamples WARN - no indices for noise model")
+        return
+
+    # Zeropoint magnitude. This SHOULD come across in the parset, if
+    # not, look at the likelihood object
+    if not hasattr(flatsamples.inp_parset, 'mag0'):
+        mag0 = flatsamples.inp_lnlike.mag0
+    else:
+        mag0 = flatsamples.inp_parset.mag0
+
+    # Magnitude ranges
+    mags = flatsamples.inp_lnlike.obstarg.mags
+    mshow = np.linspace(mags.min(), mags.max(), 100, endpoint=True)
         
+    # Try computing the stdx, stdy, corrxy components from the
+    # flatsamples.
+    parsnoise = flatsamples.flat_samples[:,lnoise]
+    parssymm = flatsamples.flat_samples[:,lsymm]
+
+    stdxs, stdys, corrxys = noisemodel2d.mags2noise(parsnoise.T, parssymm.T, \
+                                                    mshow[:,None], \
+                                                    mag0=mag0, returnarrays=True)
+
+    # pick a random sample to show
+    ldum = np.argsort(np.random.uniform(size=parsnoise.shape[0]))
+    lsho = ldum[0:nshow]
+    
+    # now, finally, plot the figure
+    fig9=plt.figure(fignum)
+    fig9.clf()
+    ax90 = fig9.add_subplot(122)
+
+    # axes for the flat samples themselves
+    axf0 = fig9.add_subplot(321)
+    axf1 = fig9.add_subplot(323)
+    axf2 = fig9.add_subplot(325)
+
+    for ax in axf0, axf1:
+        ax.tick_params(labelbottom=False)
+    
+    # showing variance or stddev?
+    powr = 1.
+    if showvar:
+        powr = 2.
+
+    # Color-code our plots by auxiliary quantity
+    zmin = np.min(parsnoise[:,jaux])
+    zmax = np.max(parsnoise[:,jaux])
+    if jaux == 2:
+        zmin = 0. 
+    aux = (parsnoise[:,jaux] - zmin)/(zmax - zmin)
+    Cmap = plt.get_cmap(cmap)
+
+    # make a scalar mappable that will correspond to this
+    sm = plt.cm.ScalarMappable(cmap=Cmap, \
+                               norm=plt.Normalize(vmin=zmin, vmax=zmax))
+    
+    for ishow in lsho:
+        dum = ax90.plot(mshow, stdxs[:,ishow]**powr, alpha=alpha, \
+                        color=Cmap(aux[ishow]) )
+        
+    # Does this understand colorbars?
+    cbar = fig9.colorbar(sm, ax=ax90, label='Noise param %i' % (jaux))
+    cbar.solids.set(alpha=1)
+    
+    if logy:
+        ax90.set_yscale('log')
+
+    # Axis label
+    squan = r'$s_{\xi}$'
+    if showvar:
+        squan = r'$%s^2$' % (squan.replace('$',''))
+    ax90.set_xlabel('mag')
+    ax90.set_ylabel(squan)
+
+    # Now show the flat samples
+    lsam = np.arange(parsnoise.shape[0], dtype='int')
+    for ax, j in zip([axf0, axf1, axf2], [0,1,2]):
+        dumflat = ax.scatter(lsam, parsnoise[lsam, j], \
+                             c=parsnoise[lsam,jaux], \
+                             alpha=0.25, \
+                             cmap=cmap, vmin=zmin, vmax=zmax, \
+                             s=1) 
+
+    axf2.set_xlabel('Flat sample number')
+    axf0.set_ylabel(r'$\log_{10}(a)$')
+    axf1.set_ylabel(r'$\log_{10}(b)$')
+    axf2.set_ylabel(r'$c$')
+
+    # A few cosmetics
+    fig9.subplots_adjust(hspace=0.05, wspace=0.4)
+    
 def showcorner(flat_samples=np.array([]), \
                labels=None, truths=None, \
                fignum=4, pathfig='test_corner_oo.png', \
@@ -708,3 +855,5 @@ Example call:
     # slow the interpreter. So we close the figure if "large":
     if flat_samples.shape[-1] > minaxesclose:
         plt.close(fig4)
+
+

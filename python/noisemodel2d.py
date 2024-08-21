@@ -145,7 +145,8 @@ Returns:
 
 def mags2noise(parsmag=np.array([]), \
                parscov=np.array([]), mags=np.array([]), \
-               islog10_ryx=False, mag0=0.):
+               islog10_ryx=False, mag0=0., \
+               returnarrays=False):
 
     """Returns a CovsNx2x2 object describing noise model covariance. The stdx of each 2x2 plane is computed from the model
 
@@ -164,9 +165,16 @@ Inputs:
 
     mag0 = zeropoint for magnitudes
 
+    returnarrays = True if we want the covariance components and not a
+    CovarsNx2x2 object
+
 Returns:
 
     Covars = CovarsNx2x2 object including .covars (Nx2x2 covariance array) and methods to draw samples.
+
+    or, if returnarray = True:
+
+    stdx, stdy, corrxy = covariance components
 
     """
 
@@ -175,9 +183,11 @@ Returns:
     stdxs = noisescale(parsmag, mags, mag0=mag0)
     stdx, stdy, corrxy = parsecorrpars(stdxs, parscov, unpack=True, \
                                        islog10_ryx=islog10_ryx)
+    if not returnarrays:
+        return CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=corrxy)
 
-    return CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=corrxy)
-
+    return stdx, stdy, corrxy
+    
 def unifnoise(npts=1000, stdx=0.1, parscov=np.array([]) ):
 
     """Returns uniform covariances with shape given. 

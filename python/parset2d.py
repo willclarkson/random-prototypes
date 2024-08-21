@@ -43,12 +43,15 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
 
     islog10_mix_vxx = mixture variance vxx specified as log10
 
+    mag0 = magnitude zeropoint for the noise model
+
     """
 
     def __init__(self, pars=np.array([]), nnoise=0, nshape=0, nmix=0, \
                  model=np.array([]), noise=np.array([]), symm=np.array([]), \
                  mix=np.array([]), \
-                 islog10_mix_frac=True, islog10_mix_vxx=True):
+                 islog10_mix_frac=True, islog10_mix_vxx=True, \
+                 mag0=0.):
 
         # 1D array of parameters as expected by e.g. minimize. Can be
         # a numpy array or a list
@@ -78,6 +81,10 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         self.islog10_mix_frac = islog10_mix_frac
         self.islog10_mix_vxx = islog10_mix_vxx
 
+        # Some other quantities we need but which are not model
+        # parameters
+        self.mag0 = mag0 # magnitude zeropoint
+        
         # stems for labels
         self.labelstem_transf = 'A'
         self.labels_noise = [r'$log_{10}(a)$', r'$log_{10}(b)$', r'$c$']
@@ -422,7 +429,8 @@ they are padded with self.padval in set 1.
         mix = self.pad1to2(self.set1.mix, self.set2.mix)
 
         # Now construct the padded set out of this
-        set1on2 = Pars1d(model=model, noise=noise, symm=asymm, mix=mix)
+        set1on2 = Pars1d(model=model, noise=noise, symm=asymm, mix=mix, \
+                         mag0=self.set1.mag0)
 
         if retval:
             return set1on2

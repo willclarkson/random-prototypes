@@ -228,7 +228,8 @@ for convenient comparison with the truth parameters"""
         self.guess_parset = Pars1d(self.guess1d_refined, \
                                    self.guess.Parset.nnoise, \
                                    self.guess.Parset.nshape, \
-                                   self.guess.Parset.nmix)
+                                   self.guess.Parset.nmix, \
+                                   mag0=self.mag0)
         
     def calcfracdiff_truth_guess(self):
 
