@@ -19,7 +19,9 @@ scale factors with same length as the input apparent magnitudes mags[N].
 Inputs: 
 
     noisepars = [log10(A), log10(B), C] 
-                describing noise model A + B.exp((m-mag0)*C)
+                describing noise model A + B.((flux/flux_0)**C) 
+
+               = A + B.exp(+0.921(m-m_0)c)
 
     mags = N-element array of apparent magnitudes
 
@@ -42,6 +44,9 @@ Returns:
     # slightly awkward: a, b are supplied as log10 while we really
     # want them in ln for logaddexp. So we convert here.
     log10toln = 1.0/np.log10(np.e)
+
+    # Also the conversion for fluxtomag (the 0.921)
+    fluxtomag = np.log(10.)/2.5 
     
     # Initialize the model parameters
     loga = default_log10a * log10toln
@@ -74,7 +79,7 @@ Returns:
 
             
     # OK now we have the a, b, c for our model. Apply it
-    logsum = np.logaddexp(c*(mags-mag0) + logb, loga)
+    logsum = np.logaddexp(c*(mags-mag0)*fluxtomag + logb, loga)
 
     return np.exp(logsum)
 

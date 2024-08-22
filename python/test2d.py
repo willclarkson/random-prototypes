@@ -26,7 +26,7 @@ def shownoisemodel(parsnoise=[-4., -20., 2.], \
                    parsshape=[], islog10_ryx=False, \
                    maglo=16., maghi=19.5, npts=1000, \
                    ylog=False, showvar=False, \
-                   mag0=0.):
+                   mag0=0., islog10_c=False):
 
     """Tests noise model. 
 
@@ -49,16 +49,19 @@ This also compares the running stddevx vs magnitude against the model. To do so,
 
     # 1. Evaluate the noise vs magnitude model
     mags = np.random.uniform(maglo, maghi, npts)
-    stdxs = noisemodel2d.noisescale(parsnoise, mags, mag0=mag0)
+    stdxs = noisemodel2d.noisescale(parsnoise, mags, mag0=mag0, islog10_c=islog10_c)
 
     # For plotting things against magnitude as a function
     mfine = np.linspace(maglo, maghi, 100)
 
     # Constant and full model
     parsslope = np.hstack(( -99., parsnoise[1::] ))
-    yconst = noisemodel2d.noisescale(parsnoise[0], mfine, mag0=mag0)
-    yslope = noisemodel2d.noisescale(parsslope, mfine, mag0=mag0)
-    yfine = noisemodel2d.noisescale(parsnoise, mfine, mag0=mag0)
+    yconst = noisemodel2d.noisescale(parsnoise[0], mfine, mag0=mag0, \
+                                     islog10_c=islog10_c)
+    yslope = noisemodel2d.noisescale(parsslope, mfine, mag0=mag0, \
+                                     islog10_c=islog10_c)
+    yfine = noisemodel2d.noisescale(parsnoise, mfine, mag0=mag0, \
+                                    islog10_c=islog10_c)
 
     # 2. Shape model
     #stdx, stdy, corrxy = \
@@ -69,7 +72,7 @@ This also compares the running stddevx vs magnitude against the model. To do so,
     #CC = CovarsNx2x2(stdx=stdx, stdy=stdy, corrxy=corrxy)
 
     CC = noisemodel2d.mags2noise(parsnoise, parsshape, mags, islog10_ryx, \
-                                 mag0=mag0)
+                                 mag0=mag0, islog10_c=islog10_c)
     
     covars = CC.covars
 
