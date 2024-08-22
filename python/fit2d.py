@@ -139,7 +139,7 @@ likely work better.)
 
         # Now we prepare for the fit
         self.populatenontransf()
-        self.applyunctyignorance()
+        # self.applyunctyignorance()
         
     def writeconfig(self, pathconfig=''):
 
@@ -251,6 +251,11 @@ likely work better.)
         # Finally, update the config path we just read in.
         self.conf_readpath = pathconfig[:]
 
+        # If we are ignoring all the data uncertainties then we must
+        # fit the nosie as part of the model. Apply that here.
+        if self.ignore_uncty_obs and self.ignore_uncty_targ:
+            self.fit_noise_model=True
+        
         # If this is called outside self.__init__ then we want to do
         # any processing that init would do to the parameters before
         # proceeding.
@@ -286,12 +291,20 @@ in-place without affecting things upstream."""
         """If asked, zero out the uncertainties in the (local copies of) the
 uncertainty estimates in the source and/or target frame.
 
+        Copies the input covariances across to backup quantities so
+        that we can "unforget" them later if needed
+
         """
 
+        self.bak_covxyobs = np.array([])
+        self.bak_covxytarg = np.array([])
+        
         if self.ignore_uncty_obs:
+            self.bak_covxyobs = np.copy(self.obssrc.covxy)
             self.obssrc.covxy *= 0.
 
         if self.ignore_uncty_targ:
+            self.bak_covxytarg = np.copy(self.obstarg.covxy)
             self.obstarg.covxy *= 0.
         
     def initguessesnontransf(self):

@@ -552,10 +552,17 @@ Inputs:
     if np.size(magbins_bg) > 1:
         cbg = ax33.scatter(magbins_bg, dxycovs_bg[:,0,0], c='#D86018', \
                            label='bg, %i / bin' % (counts_bg[0]), s=9, marker='s')
-    
+
+
     for ax in [ax32, ax33]:
         ax.set_xlabel('mag')
-        ax.set_yscale('log')
+
+    # We always want to log-scale the target frame, we only want to
+    # log-scale the source frame if it has nonzero values
+    bpos = covobs[:,0,0] > 0.
+    if np.sum(bpos) > 2:
+        ax32.set_yscale('log')
+    ax33.set_yscale('log')
     ax32.set_ylabel(r'$V_{xx}$')
     ax33.set_ylabel(r'$V_{\xi\xi}$')
 
@@ -604,6 +611,12 @@ Example call:
 
     """
 
+    # Return if no responsibilities yet
+    if np.size(flatsamples.resps_avg) < 1:
+        print("examine2d.showresps WARN - responsibilities not populated yet")
+        print("examine2d.showresps WARN - suggest: FS.computeresps() .")
+        return
+    
     # If the regression hasn't been done yet, do it now
     if flatsamples.clf is None or wantbg != flatsamples.regress_on_bg or clobber:
         flatsamples.creg = creg
@@ -615,6 +628,7 @@ Example call:
     resp_sim = flatsamples.resp_sim
     resp_post = flatsamples.resp_post
 
+    
     # For overplotting the regression:
     xfine = np.linspace(np.min(resp_post), 1., 100)
     yfine = expit(xfine * clf.coef_ + clf.intercept_).ravel()
@@ -645,8 +659,9 @@ Example call:
     
     ax8.set_xlabel('p(is %s), MCMC' % (slabel))
     ax8.set_ylabel('Simulated as %s' % (slabel))
-
+    
     if np.size(flatsamples.dxyproj_truthpars) < 1:
+        print("dxyproj_truthpars:", np.shape(flatsamples.dxyproj_truthpars))
         return
 
     # now set up the scatter plot
@@ -878,7 +893,8 @@ Example call:
 def showcorner(flat_samples=np.array([]), \
                labels=None, truths=None, \
                fignum=4, pathfig='test_corner_oo.png', \
-               minaxesclose=20):
+               minaxesclose=20, \
+               nmodel=-1, colornuisance='#9A3324'):
 
     """Corner plot of flattened samples from mcmc run.
 
@@ -897,6 +913,9 @@ Inputs:
     minaxesclose = closes the figure (after saving to disk) if there
     are >= minaxesclose quantities to plot. Useful to free up memory.
 
+    nmodel = number of parameters that constitute the non-nuisance
+    parameters. Defaults to no selection
+
 Returns:
     
     None.
@@ -910,6 +929,12 @@ Example call:
     if np.size(flat_samples) < 1:
         return
 
+    # number of model parameters that are non-nuisance (default to no
+    # selection)
+    nsamples, ndim = flat_samples.shape
+    if nmodel < 1 or nmodel > ndim:
+        nmodel = ndim
+    
     # Label keyword arguments
     label_kwargs = {'fontsize':8, 'rotation':'horizontal'}
     
@@ -925,6 +950,25 @@ Example call:
                          label_kwargs = label_kwargs)
     fig4.subplots_adjust(bottom=0.2, left=0.2, top=0.95)
 
+    # If we have nuisance parameters, highlight them. Follows the API
+    # documentation for corner.corner:
+    # https://corner.readthedocs.io/en/latest/pages/custom/
+    if nmodel < ndim:
+        print("examine2d.showcorner INFO - highlighting nuisance parameters")
+        axes = np.array(fig4.axes).reshape((ndim, ndim))
+        for yi in range(ndim-nmodel-1, ndim):
+            for xi in range(ndim):
+                ax = axes[yi, xi]
+
+                # Change the spine color
+                for spine in ['bottom','top','left','right']:
+                    ax.spines[spine].set_color(colornuisance)
+                
+                # Change the label color
+                ax.yaxis.label.set_color(colornuisance)
+                if xi >= ndim-nmodel-1:
+                    ax.xaxis.label.set_color(colornuisance)
+                
     # Adjust the label size
     for ax in fig4.get_axes():
         ax.tick_params(axis='both', labelsize=5)
