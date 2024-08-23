@@ -19,7 +19,7 @@ scale factors with same length as the input apparent magnitudes mags[N].
 Inputs: 
 
     noisepars = [log10(A), log10(B), C] 
-                describing noise model A + B.((flux/flux_0)**C) 
+                describing noise model A + B.((flux/flux_0)**-C) 
 
                = A + B.exp(+0.921(m-m_0)c)
 
