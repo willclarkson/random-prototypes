@@ -8,6 +8,8 @@
 
 import os, time
 import numpy as np
+import numpy.ma as ma
+
 import copy
 
 # For computing some needed pieces
@@ -51,7 +53,7 @@ Inputs:
 
     def __init__(self, flat_samples=np.array([]), path_samples='NA', \
                  esargs={}, ptruths=None, log_probs=np.array([]), \
-                 path_log_probs='NA'):
+                 path_log_probs='NA', showargs={}):
 
         self.flat_samples = np.copy(flat_samples)
         self.path_samples = path_samples[:]
@@ -201,7 +203,7 @@ various things
             self.labels_transf = self.showargs['guess']['labels_transf']
 
         if 'lstsq_uncty_formal' in self.showargs['guess'].keys():
-            self.lstqs_covars = self.showargs['guess']['lstsq_uncty_formal']
+            self.lstsq_covars = self.showargs['guess']['lstsq_uncty_formal']
             
     def getsimisfg(self):
 
@@ -1096,7 +1098,7 @@ Example call:
 
     covsmcmc = flatsamples.param_covars
     covslsq = flatsamples.lstsq_covars
-    slabels = flatsamples.inp_parset.labels
+    slabels = flatsamples.labels_transf
     
     # The MCMC may also be exploring noise parameters or mixture model
     # fractions, which the LSQ approach can't do. In that instance,
@@ -1105,7 +1107,9 @@ Example call:
     nlsq = np.shape(covslsq)[0]
     if nmcmc > nlsq:
         covsmcmc = covsmcmc[0:nlsq, 0:nlsq]
-        slabels = dcovs[keylabels][0:nlsq]
+
+        # not sure this is still needed - comment out for the moment
+        # slabels = dcovs[keylabels][0:nlsq]
     
     # Showing a heatmap of one of the quantities
     fig6 = plt.figure(6, figsize=(8,6))
