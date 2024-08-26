@@ -397,6 +397,19 @@ interpreter"""
             = self.guess1d_refined
         self.args_show['guess']['guess1d'] \
             = self.guess1d
+
+        # formal uncertainty in lstsq estimate
+        self.args_show['guess']['lstsq_guess_transf'] \
+            = self.guess.guess_transf
+        self.args_show['guess']['lstsq_uncty_formal'] \
+            = self.guess.guess_uncty_formal
+
+        # labels for plotting
+        pmatrix = self.guess.PGuess.pars2x
+        labelsx = pmatrix.setplotlabels('A')
+        labelsy = pmatrix.setplotlabels('B')
+        self.args_show['guess']['labels_transf'] = \
+            labelsx + labelsy
         
     def setargs_emcee(self):
 

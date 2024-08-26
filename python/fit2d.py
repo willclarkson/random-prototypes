@@ -124,6 +124,9 @@ likely work better.)
         
         # guess for transformation
         self.guess_transf = np.array([])
+
+        # formal covariance estimate of the transformation parameters
+        self.guess_uncty_formal = np.array([])
         
         # Weights for any weighted estimates (e.g. lstsq)
         self.wts = np.array([])
@@ -467,6 +470,9 @@ supplied as None"""
             return
 
         self.guess_transf = np.copy(self.LSQ.pars)
+
+        # populate the formal uncertainty estimate
+        self.guess_uncty_formal = np.linalg.inv(self.LSQ.H)
         
     def populateparset(self):
 

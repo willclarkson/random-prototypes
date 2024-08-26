@@ -44,6 +44,9 @@ Inputs:
 
     path_log_probs = path to log_probs
 
+    showargs = {} = dictionary of arguments that show routines may
+    need (not strict yet)
+
     """
 
     def __init__(self, flat_samples=np.array([]), path_samples='NA', \
@@ -71,6 +74,9 @@ Inputs:
         # Dictionary of arguments that were passed to emcee.
         self.esargs = esargs
 
+        # Dictionary of arguments sent to "show" routines
+        self.showargs = showargs
+        
         # Quantities we get from this dictionary
         self.inp_pguess = None
         self.inp_obstarg = None
@@ -98,12 +104,21 @@ Inputs:
         self.resp_sim = np.array([])
         self.resp_post = np.array([]) 
         self.dxyproj_truthpars = np.array([])
+
+        # covariance among flat samples parameters
+        self.param_covars = np.array([])
+        self.lstsq_covars = np.array([])
+        self.labels_transf = None
         
         # Unpack the arguments passed in
         self.unpack_esargs()
         self.countdata()
         self.getsimisfg()
         self.unpacktruths()
+        self.unpack_showargs()
+
+        # Compute the parameter covariances among the flat samples
+        self.computecovars()
         
     def loadsamples(self):
 
@@ -175,6 +190,19 @@ various things
         # run this without try/except first
         self.ndata = self.inp_lnlike.obstarg.xy.shape[0]
 
+    def unpack_showargs(self):
+
+        """Unpacks arguments passed in"""
+
+        if not 'guess' in self.showargs.keys():
+            return
+
+        if 'labels_transf' in self.showargs['guess'].keys():
+            self.labels_transf = self.showargs['guess']['labels_transf']
+
+        if 'lstsq_uncty_formal' in self.showargs['guess'].keys():
+            self.lstqs_covars = self.showargs['guess']['lstsq_uncty_formal']
+            
     def getsimisfg(self):
 
         """Gets the foreground/background IDs from the simulation"""
@@ -392,8 +420,15 @@ Returns: nothing
 
         self.dxyproj_truthpars = xyproj_truth - xytarg
 
+    def computecovars(self):
 
-            
+        """Computes covariances between the parameter samples"""
+
+        if np.size(self.flat_samples) < 1:
+            return
+
+        self.param_covars = np.cov(self.flat_samples, rowvar=False)
+        
             
 def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
               pathfig='test_guess_deltas.png'):
@@ -983,3 +1018,285 @@ Example call:
         plt.close(fig4)
 
 
+def showcovarscomp(flatsamples=None, \
+                   pathcovs='test_flatsamples.pickle', dcovs={}, \
+                   keymcmc='covpars', keylsq='lsq_hessian_inv', \
+                   keylabels='slabels', \
+                   fignum=6, \
+                   sqrt=True, \
+                   log=True, \
+                   pathfig=''):
+    
+    """Visualizes the comparison in parameter covariance between the ltsq
+and the mcmc evaluations
+
+Inputs:
+
+    flatsamples = Flassamples object - [TO BE UPDATED]
+
+    pathcovs = path to pickle file holding the covariances. Ignored if
+    dcovs is supplied
+
+    dcovs = dictionary holding the samples.
+
+    keymcmc = dictionary key corresponding to the MCMC covariances
+    
+    keylsq = dictionary key corresponding to the LSQ covariances
+
+    keylabels = dictionary key corresponding to the labels
+
+    fignum = matplotlib figure number to use
+
+    log = use log scale for the MCMC and LSQ heatmaps
+
+    sqrt = use sqrt scale for the MCMC and LSQ heatmaps
+
+    pathfig = file path to save figure (must contain ".")
+
+    nextramcmc = number of "extra" arguments in mcmc parameters. (For
+    example, might be noise parameters that the lsq array doesn't
+    have).
+
+Returns:
+
+    No return quantities. See the figure.
+
+Example call:
+
+    fittwod.showcovarscomp(pathcovs='./no_src_uncty_linear/test_flatsamples.pickle', pathfig='lsq_mcmc_covars.png', sqrt=True, log=True)
+
+    """
+
+    # 2024-08-26: allow reading in of pickle file as an option. May
+    # get rid of this option in future.
+    if len(pathcovs) > 3:
+        try:
+            with open(pathcovs, "rb") as robj:
+                dcovs = pickle.load(robj)
+        except:
+            nopath = True
+
+        # Check to see if all the right entries are present
+        lkeys = dcovs.keys()
+        for key in [keymcmc, keylsq, keylabels]:
+            if not key in lkeys:
+                print("showcovarscomp WARN - key not in dictionary: %s" \
+                      % (key))
+                return
+
+        # convenience views
+        covslsq = dcovs[keylsq]
+        covsmcmc = np.copy(dcovs[keymcmc])
+        slabels = dcovs[keylabels]
+
+    # 2024-08-26 updating to read these quantities from a Flatsamples
+    # instance instead of a pickle file
+    if flatsamples is None:
+        return
+
+    covsmcmc = flatsamples.param_covars
+    covslsq = flatsamples.lstsq_covars
+    slabels = flatsamples.inp_parset.labels
+    
+    # The MCMC may also be exploring noise parameters or mixture model
+    # fractions, which the LSQ approach can't do. In that instance,
+    # take just the model parameters
+    nmcmc = np.shape(covsmcmc)[0]
+    nlsq = np.shape(covslsq)[0]
+    if nmcmc > nlsq:
+        covsmcmc = covsmcmc[0:nlsq, 0:nlsq]
+        slabels = dcovs[keylabels][0:nlsq]
+    
+    # Showing a heatmap of one of the quantities
+    fig6 = plt.figure(6, figsize=(8,6))
+    fig6.clf()
+    ax61 = fig6.add_subplot(221)
+    ax62 = fig6.add_subplot(222)
+    ax63 = fig6.add_subplot(224)
+
+    # if log, we can meaningfully show the text. Otherwise
+    # don't. (Kept out as a separate quantity in case we want to add
+    # more conditions here.)
+    showtxt = log
+
+    # fontsize for annotations
+    fontsz=5
+    if covsmcmc.shape[0] < 10:
+        fontsz=6
+    
+    showheatmap(covsmcmc, slabels, ax=ax61, fig=fig6, \
+                log=log, sqrt=sqrt, \
+                cmap='viridis_r', title='MCMC', \
+                showtext=showtxt, fontsz=fontsz)
+    showheatmap(covslsq, slabels, ax=ax62, fig=fig6, \
+                log=log, sqrt=sqrt, \
+                cmap='viridis_r', title='LSQ', \
+                showtext=showtxt, fontsz=fontsz)
+
+    # find the fractional difference. The mcmc has already been cut
+    # down to match the lsq length above, so if the arrays still
+    # mismatch their lengths then something is wrong with the input.
+    fdiff = (covslsq - covsmcmc)/covsmcmc
+    titlediff = r'(LSQ - MCMC)/MCMC'
+    showheatmap(fdiff, slabels[0:nlsq], ax=ax63, fig=fig6, log=False, \
+                cmap='RdBu_r', title=titlediff, showtext=True, \
+                symmetriclimits=True, symmquantile=0.99, \
+                fontcolor='#D86018', fontsz=fontsz)
+
+    # Warn on the plots if more mcmc parameters were supplied than
+    # used. In all the use cases these should be noise parameters that
+    # the LSQ covariances don't have, so it's not an "error".
+    if nmcmc > nlsq:
+        ax61.annotate('MCMC params ignored: %i' % (nmcmc-nlsq), \
+                      (0.97,0.97), xycoords='axes fraction', \
+                      ha='right', va='top', fontsize=8, \
+                      color='#9A3324')
+    
+    # save figure to disk?
+    if len(pathfig) > 0:
+        if pathfig.find('.') > 0:
+            fig6.savefig(pathfig)
+    
+def showheatmap(arr=np.array([]), labels=[], \
+                ax=None, fig=None, fignum=6, \
+                cmap='viridis', \
+                showtext=False, fontsz=6, fontcolor='w', \
+                addcolorbar=True, \
+                sqrt=False, \
+                log=False, \
+                title='', \
+                maskupperright=True, \
+                symmetriclimits=False, \
+                symmquantile=1.):
+
+    """Plots 2D array as a heatmap on supplied axis. Intended use:
+visualizing the covariance matrix output by an MCMC or other parameter
+estimation.
+
+Inputs:
+
+    arr = [M,M] array of quantities to plot
+
+    labels = [M] length array or list of quantity labels. If there are
+    more labels than datapoints, only 0:M are included. This may not
+    be what you want.
+
+    ax = axis on which to draw the plot
+
+    fig = figure object in which to put the axis
+
+    fignum = figure number, if creating a new figure
+
+    cmap = color map for the heatmap
+
+    showtext = annotate each tile with the array value?
+
+    fontsz = font size for tile annotations
+
+    addcolorbar = add colorbar to the axis?
+
+    sqrt = take sqrt(abs(arr)) before plotting
+
+    log = colormap on a log10 scale (Note: if sqrt and log are both
+    true, then the quantity plotted is log10(sqrt(abs(arr))).  )
+
+    title = '' -- string for axis title
+
+    maskupperright -- don't plot the duplicate upper-right (off
+    diagonal) corner values
+
+    symmetriclimits -- if not logarithmic plot, makes the color limits
+    symmetric about zero (useful with diverging colormaps)
+
+    symmquantile -- if using symmetric limits, quantile of the limits
+    to use as the max(abs value). Defaults to 1.0
+
+Outputs:
+
+    None
+
+    """
+
+    # Must be given a 2D array
+    if np.ndim(arr) != 2:
+        return
+    
+    # Ensure we know where we're plotting
+    if fig is None:
+        fig = plt.figure(fignum)
+        
+    if ax is None:
+        ax = fig.add_subplot(111)
+
+    # What are we showing?
+    labelz = r'$V_{xy}$'
+    arrsho = np.copy(arr)
+
+    if sqrt:
+        labelz = r'$\sqrt{|V_{xy}|}$'
+        arrsho = np.sqrt(np.abs(arr))
+
+    # log10 - notice this happens on ARRSHO (i.e. after we might have
+    # taken the square root).
+    if log:
+        labelz = r'$log_{10} \left(%s\right)$' % \
+            (labelz.replace('$',''))
+        arrsho = np.log10(np.abs(arrsho))
+
+    # make arrsho a masked array to make things a bit more consistent
+    # below
+    arrsho = ma.masked_array(arrsho)
+        
+    # Mask upper-left (duplicate points)?
+    if maskupperright:
+        iur = np.triu_indices(np.shape(arrsho)[0], 1)
+        arrsho[iur] = ma.masked
+
+    # compute symmetric colorbar limits?
+    vmin = None
+    vmax = None
+    if symmetriclimits and not log and not sqrt:
+        maxlim = np.quantile(np.abs(arrsho), symmquantile)
+        vmin = 0. - maxlim
+        vmax = 0. + maxlim
+        
+    # imshow the dataset
+    im = ax.imshow(arrsho, cmap=cmap, vmin=vmin, vmax=vmax)
+
+    # Ensure labels are set, assuming symmetry
+    ncov = np.shape(arrsho)[0]
+    nlab = np.size(labels)
+
+    if nlab < ncov:
+        labls = ['p%i' % (i) for i in range(ncov)]
+    else:
+        labls = labels[0:ncov]        
+
+    # Now set up the ticks
+    ax.set_xticks(np.arange(ncov))
+    ax.set_yticks(np.arange(ncov))
+    ax.set_xticklabels(labls)
+    ax.set_yticklabels(labls)
+
+    # Text annotations (this might be messy)
+    if showtext:
+        for i in range(len(labls)):
+            for j in range(len(labls)):
+                if arrsho[i,j] is ma.masked:
+                    continue
+                
+                text = ax.text(j, i, \
+                               "%.2f" % (arrsho[i,j]), \
+                               ha="center", va="center", \
+                               color=fontcolor, \
+                               fontsize=fontsz)
+
+    if addcolorbar:
+        cbar = fig.colorbar(im, ax=ax, label=labelz)
+
+    # Set title
+    if len(title) > 0:
+        ax.set_title(title)
+        
+    # Some cosmetic settings
+    fig.tight_layout()
