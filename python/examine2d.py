@@ -40,7 +40,8 @@ Inputs:
 
     esargs = {} = dictionary of mcmc run arguments
 
-    ptruths = Pars1d object containing the truth parameters, if known
+    ptruths = Pars1d object containing the truth parameters, if
+    known. Overridden by showargs if ptruths is present there.
 
     log_probs = [nsamples] array of log-probabilities returned by the sampler
 
@@ -113,11 +114,11 @@ Inputs:
         self.labels_transf = None
         
         # Unpack the arguments passed in
+        self.unpack_showargs()
         self.unpack_esargs()
         self.countdata()
         self.getsimisfg()
         self.unpacktruths()
-        self.unpack_showargs()
 
         # Compute the parameter covariances among the flat samples
         self.computecovars()
@@ -204,6 +205,11 @@ various things
 
         if 'lstsq_uncty_formal' in self.showargs['guess'].keys():
             self.lstsq_covars = self.showargs['guess']['lstsq_uncty_formal']
+
+        # Imports ptruths if present in input showargs
+        if 'truthset' in self.showargs.keys():
+            if 'parset' in self.showargs['truthset'].keys():
+                self.ptruths = self.showargs['truthset']['parset']
             
     def getsimisfg(self):
 
@@ -576,7 +582,7 @@ Inputs:
     # On the "target frame" mag plot, show the source frame
     # uncertainty, propagated out to the target frame.
     ctransf = ax33.scatter(mags, transf.covtran[:,0,0], c='#702082', \
-                           label='source transformed', s=2)
+                           label='source transformed', s=2, alpha=0.6)
         
     # On the "target frame" mag plot, show the quad sum of the target
     # assumed covariance and the covariance projected from the source
@@ -589,7 +595,7 @@ Inputs:
     # THIS IN even if zero, it's useful to ensure we're not adding
     # noise when we shouldn't be.
     if np.size(covextra) > 1:
-        cextra = ax33.scatter(mags, covextra[:,0,0], c='#702082', \
+        cextra = ax33.scatter(mags, covextra[:,0,0], c='#9B9A6D', \
                               label='Model extra', s=4)
 
     # Show, the sum covariance assumed by the "guess"
