@@ -297,6 +297,17 @@ Example call:
         if keepmaster:
             self.resps_samples = np.zeros(( imax, self.ndata ))
 
+        # Safety valve - if the model doesn't have a mixture, there's
+        # no need to recalculate everything:
+        nmix = np.size(self.inp_lnlike.parset.mix)
+        if nmix < 1:
+            self.resps_avg += 1.
+            if keepmaster:
+                self.resps_samples += 1.
+            print("examine2d.computeresps INFO - no mixture, all responsibilities 1.0")
+            return
+
+            
         t0 = time.time()
         if Verbose:
             print("examine2d.computeresps INFO - starting responsibility loop...")
@@ -322,7 +333,7 @@ Example call:
                 itpersec = float(isample)/telapsed
                 tremain = 0.
                 if itpersec > 0.:
-                    tremain = float(imax)/itpersec
+                    tremain = float(imax-isample)/itpersec
                 print("examine2d.computeresps INFO - iteration %i of %i after %.2e seconds: %.1f it/sec. Est %.2e sec remain" \
                       % (isample, imax, telapsed, itpersec, tremain), end='\r')
 
