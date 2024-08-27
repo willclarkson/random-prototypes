@@ -96,8 +96,21 @@ class Simdata(object):
         self.islog10_noise_c = False
         self.asymm_ryx = 0.8  # noise shape
         self.asymm_corr = 0.1
-        
-        self.mix_frac = -1.  # mixture model
+
+        # Parameters for noise generation in the target frame. By
+        # default, noise is propagated from the obs frame to the
+        # target frame. If the parameters below are not none, then the
+        # noise is generated separately for the target frame
+        self.gen_noise_targ = False
+        self.noise_targ_loga = None
+        self.noise_targ_logb = None
+        self.noise_targ_c = None
+        self.mag0_targ = None        
+        self.asymm_targ_ryx = None
+        self.asymm_targ_corr = None
+
+        # Mixture fraction - for outliers
+        self.mix_frac = -1.
         self.mix_vxx = -8.5
         self.mix_islog10_frac = True
         self.mix_islog10_vxx = True
@@ -109,6 +122,15 @@ class Simdata(object):
         self.extra_ryx = None
         self.extra_corr = None
 
+        # Initialise pars lists
+        self.pars_noise = []
+        self.pars_noise_targ = []
+        self.pars_asymm = []
+        self.pars_asymm_targ = []
+        self.pars_mix = []
+        self.pars_extra_noise = []
+        self.pars_extra_asymm = []
+        
         # Populate the noise etc. parameter lists from these
         # scalars. This populates pars_noise, pars_asymm, pars_mix,
         # islog10_mix, extra_noise, extra_asymm.
@@ -131,11 +153,15 @@ class Simdata(object):
                          'mix_frac', 'mix_vxx', \
                          'extra_loga', 'extra_logb', 'extra_c', \
                          'extra_ryx', 'extra_corr', \
-                         'mag0']
+                         'mag0', \
+                         'noise_targ_loga', 'noise_targ_logb', \
+                         'noise_targ_c', 'mag0_targ', \
+                         'asymm_targ_ryx', 'asymm_targ_corr']
         self.conf_bool = ['gen_noise_model', 'add_uncty_extra', \
                           'nouncty_obs', 'nouncty_tran', 'add_outliers', \
                           'mix_islog10_frac', 'mix_islog10_vxx', \
-                          'islog10_noise_c']
+                          'islog10_noise_c', \
+                          'gen_noise_targ']
         self.conf_str = ['polytransf']
 
         # The configuration file should also be human-readable... Here's an
@@ -146,6 +172,9 @@ class Simdata(object):
             ['transfexpon', 'transfscale', 'seed_params'] + \
             ['noise_loga', 'noise_logb','noise_c', 'islog10_noise_c'] + \
             ['asymm_ryx', 'asymm_corr'] + \
+            ['gen_noise_targ', 'noise_targ_loga', 'noise_targ_logb', \
+             'noise_targ_c', 'mag0_targ', \
+             'asymm_targ_ryx', 'asymm_targ_corr'] + \
             ['mix_frac', 'mix_vxx','mix_islog10_frac','mix_islog10_vxx'] + \
             ['extra_loga', 'extra_logb', 'extra_c'] + \
             ['extra_ryx','extra_corr'] + \
@@ -244,6 +273,18 @@ respectively.
         if self.noise_c is not None:
             self.pars_noise.append(self.noise_c)
 
+        # ... noise parameters for the target frame...
+        self.pars_noise_targ = []
+
+        if self.noise_targ_loga is not None:
+            self.pars_noise_targ = [self.noise_targ_loga]
+
+        if self.noise_targ_logb is not None:
+            self.pars_noise_targ.append(self.noise_targ_logb)
+
+        if self.noise_targ_c is not None:
+            self.pars_noise_targ.append(self.noise_targ_c)
+        
         # Noise symmetry parameters...
         self.pars_asymm = []
 
@@ -253,6 +294,15 @@ respectively.
         if self.asymm_corr is not None:
             self.pars_asymm.append(self.asymm_corr)
 
+        # ... noise asymmetry in the target frame...
+        self.pars_asymm_targ = []
+
+        if self.asymm_targ_ryx is not None:
+            self.pars_asymm_targ = [self.asymm_targ_ryx]
+
+        if self.asymm_targ_corr is not None:
+            self.pars_asymm_targ.append(self.asymm_targ_corr)
+            
         # Mixture parameters...
         self.pars_mix = []
 
@@ -430,8 +480,27 @@ None.
 
         """Generates magnitude-dependent covariances."""
 
-        self.Cxy = self.getmagcovars(self.pars_noise, self.pars_asymm)
+        self.Cxy = self.getmagcovars(self.pars_noise, self.pars_asymm, \
+                                     mag0=self.mag0)
 
+    def maketargcovars(self):
+
+        """Makes covariances in the target frame if parameters supplied"""
+
+        # Allow control variable to override
+        if not self.gen_noise_targ:
+            return
+
+        if len(self.pars_noise_targ) < 1:
+            return
+        
+        self.Ctran = self.getmagcovars(self.pars_noise_targ, \
+                                       self.pars_asymm_targ, \
+                                       mag0=self.mag0_targ)
+
+        # Update self.covtran accordingly
+        self.covtran = np.copy(self.Ctran.covars)
+        
     def makeextracovars(self):
 
         """Generates (magnitude-dependent) covariance due to unmodeled
@@ -452,7 +521,7 @@ noise
     def getmagcovars(self, \
                      pars_noise=np.array([]), \
                      pars_asymm=np.array([]), \
-                     mags=np.array([]) ):
+                     mags=np.array([]), mag0=None):
 
         """Returns magnitude-dependent covariances"""
 
@@ -463,8 +532,12 @@ noise
         if np.size(mags) < 1:
             mags = self.mags
 
+        # Magnitude zeropoint
+        if mag0 is None:
+            mag0 = np.copy(self.mag0)
+            
         return noisemodel2d.mags2noise(pars_noise, pars_asymm, mags, \
-                                       mag0=self.mag0, \
+                                       mag0=mag0, \
                                        islog10_c=self.islog10_noise_c)
         
         
@@ -558,7 +631,7 @@ objects"""
         self.PTruth.propagate()
         self.xytran = np.copy(self.PTruth.xytran)
         self.covtran = np.copy(self.PTruth.covtran)
-        
+
         self.Ctran = CovarsNx2x2(self.PTruth.covtran)
 
     def initnudges(self):
@@ -580,7 +653,7 @@ present."""
 
         if not self.nouncty_obs and self.Cxy is not None:
             self.nudgexy += self.Cxy.getsamples()
-
+            
         if not self.nouncty_tran and self.Ctran is not None:
             self.nudgexytran += self.Ctran.getsamples()
 
@@ -675,6 +748,13 @@ of arguments to the minimizer"""
         self.setupxytran()
         self.initnudges()
 
+        # If separate noise parameters were provided for the noise in
+        # the target frame, generate the noise using those parameters
+        # and replace the covariance in the transformed frame with
+        # those covariances. This method will do nothing if
+        # self.gen_noise_targ is False.
+        self.maketargcovars()
+        
         # set up any outliers and/or extra unmodeled covariances
         self.makeoutliers()
         self.makeextracovars()

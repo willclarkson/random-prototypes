@@ -556,11 +556,17 @@ Inputs:
     ax31.set_title('Colors: mag')
         
     # ... now do the vs magnitude plots
-    for ax, quan, label in zip([ax32, ax33], \
+    for ax, quan, label, color in zip([ax32, ax33], \
                                [covobs[:,0,0], covtarg[:,0,0]], \
-                               ['assumed (src)', 'assumed (target)']):
-        dumobs = ax.scatter(mags, quan, c='#00274C', s=2, label=label)
+                                       ['assumed (src)', 'assumed (target)'], \
+                                       ['#702082','#00274C']):
+        dumobs = ax.scatter(mags, quan, c=color, s=2, label=label)
 
+    # On the "target frame" mag plot, show the source frame
+    # uncertainty, propagated out to the target frame.
+    ctransf = ax33.scatter(mags, transf.covtran[:,0,0], c='#702082', \
+                           label='source transformed', s=2)
+        
     # On the "target frame" mag plot, show the quad sum of the target
     # assumed covariance and the covariance projected from the source
     # frame. This is what a hypothetical observer might adopt as the
