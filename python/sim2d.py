@@ -661,7 +661,8 @@ present."""
         if self.add_uncty_extra:
             if self.CExtra is not None:
                 self.nudgexyextra = self.CExtra.getsamples()
-            
+                # print("makenudges INFO:", np.sum(self.nudgexyextra))
+                
         # Any outliers
         if self.add_outliers:
             if np.sum(self.isoutly) > 0 and self.Coutliers is not None:
