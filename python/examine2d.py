@@ -112,6 +112,13 @@ Inputs:
         self.param_covars = np.array([])
         self.lstsq_covars = np.array([])
         self.labels_transf = None
+
+        # Percentiles of the computed uncertainties, options about
+        # what those entries are to be
+        self.pctiles = [50., 15.9, 84.1, 0.135, 99.865]
+        self.covsum_samples_pctiles = np.array([])
+        self.covsum_samples_has_corrxy = True
+        self.covsum_samples_has_ryx = True
         
         # Unpack the arguments passed in
         self.unpack_showargs()
@@ -448,7 +455,95 @@ Returns: nothing
 
         self.param_covars = np.cov(self.flat_samples, rowvar=False)
         
+    def computesamplescovars(self, ireport=1000, Verbose=True, samplesize=-1):
+
+        """Computes the uncertainties (as covariances) in the target plane for
+the samples.
+
+Inputs:
+
+        ireport = report every this many loops
+
+        Verbose = produce screen output
+
+        samplesize = number of loops to do (useful in development)
+
+Returns:
+
+        None - updates class attribute self.covsum_samples_pctiles , a
+        [3, ndata, 2, 2] array that contains the [16., 50., 84]'th
+        percentile covariance for each datapoint.
+
+        """
+
+        # Do this the simple (if slow) way: loop through the samples
+        # and use the exact same methods that were used to evaluate
+        # these quantities. Currently these methods are inside the
+        # Like() object.
+
+        # First we make a copy of the Like() object that was used in
+        # the simulation
+        if not hasattr(self.inp_lnlike,'obstarg'):
+            return
+
+        llike = copy.deepcopy(self.inp_lnlike)
+
+        # How far are we going to go?
+        imax = np.copy(self.nsamples)
+        if 0 < samplesize < self.nsamples:
+            imax = samplesize
+        
+        # Now create a master array in which to store the covariance
+        # estimates 
+        covs_samples = np.zeros((self.nsamples, self.ndata, 2, 2))
+        if Verbose:
+            print("computesamplescovars INFO - covs shape:", covs_samples.shape)
+
             
+        # Loop through the samples comes here.
+        t0 = time.time()
+        for isample in range(imax):
+            llike.parset.updatepars(self.flat_samples[isample])
+            llike.updatesky(llike.parset)
+
+            covs_samples[isample] = np.copy(llike.covsum)
+
+            # Report out every so often
+            if isample % ireport < 1 and isample > 0:
+                telapsed = time.time() - t0
+                itpersec = float(isample)/telapsed
+                tremain = 0.
+                if itpersec > 0.:
+                    tremain = float(imax-isample)/itpersec
+                print("computesamplescovars INFO - iteration %i of %i after %.2e seconds: %.1f it/sec. Est %.2e sec remain" \
+                      % (isample, imax, telapsed, itpersec, tremain), end='\r')
+
+        # are off-diagonals to be correlation coefficients:
+        if self.covsum_samples_has_corrxy:
+            rho = covs_samples[:,:,0,1] / \
+                np.sqrt(covs_samples[:,:,0,0] * covs_samples[:,:,1,1])
+            covs_samples[:,:,0,1] = rho
+            covs_samples[:,:,1,0] = rho
+
+        # Do we want vy/vx instead of vy
+        if self.covsum_samples_has_ryx:
+            covs_samples[:,:,1,1] = covs_samples[:,:,1,1] / covs_samples[:,:,0,0]
+            
+        # compute the median and percentiles here
+        if Verbose:
+            print(" ")
+            print("computesamplescovars INFO - computing percentiles...")
+            
+        self.covsum_samples_pctiles = \
+            np.percentile(covs_samples, self.pctiles, axis=0)
+
+        if Verbose:
+            print("computesamplescovars INFO - ... done:", \
+                  self.covsum_samples_pctiles.shape)
+        
+        # Force free the memory
+        covs_samples = None
+        
 def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
               pathfig='test_guess_deltas.png'):
 
@@ -746,6 +841,82 @@ Example call:
 
     fig9.subplots_adjust(left=0.3, bottom=0.11, hspace=0.4)
 
+def showunctysamples(flatsamples=None, fignum=7):
+
+    """Shows the range of uncertainty (variance) samples as percentiles"""
+
+    if flatsamples is None:
+        return
+
+    if np.size(flatsamples.covsum_samples_pctiles) < 1:
+        print("showunctysamples WARN - sample percentiles not populated: covsum_samples_pcctiles")
+        return
+
+    if np.size(flatsamples.pctiles) < 1:
+        print("showunctysamples WARN - percentile levels not populated: pctiles")
+        return
+
+    # must have input magnitudes to show
+    if not hasattr(flatsamples, 'inp_lnlike'):
+        return
+
+    # magnitudes, along with sorting index
+    mags = flatsamples.inp_lnlike.obstarg.mags
+    lmag = np.argsort(mags)
+    
+    # Convenience views
+    pctiles = flatsamples.pctiles
+    levels = flatsamples.covsum_samples_pctiles
+
+    print("showunctysamples INFO - mags, pctiles, levels:", \
+          mags.shape, np.shape(pctiles), levels.shape)
+
+    # Now set up the figure:
+    fig7 = plt.figure(fignum)
+    fig7.clf()
+    ax7xx = fig7.add_subplot(221)
+    ax7yy = fig7.add_subplot(224)
+    ax7xy = fig7.add_subplot(222)
+
+    # entry in the [npctile, ndata,2,2] covariance matrices
+    icov = [0,1,0]
+    jcov = [0,1,1]
+    lax = [ax7xx, ax7yy, ax7xy]
+
+    # linestyles for each percentile
+    lls = ['-','--','--', '-.', '-.']
+    lws = [2,1,1,1,1]
+    colos = ['k', '0.3', '0.3', '0.3', '0.3']
+    
+    for ax, i, j in zip(lax, icov, jcov):
+        for k in range(levels.shape[0]):
+            var = levels[k,:,i,j]
+            dum = ax.plot(mags[lmag], var[lmag], \
+                          ls=lls[k], lw=lws[k], \
+                          color=colos[k])
+
+    # The vxx axis label
+    ax7xx.set_yscale('log')
+
+    # The vyy axis label
+    ax7yy.set_ylabel(r'$V_{\eta \eta} / V_{\xi \xi}$')
+    if not flatsamples.covsum_samples_has_ryx:
+        ax7yy.set_yscale('log')
+        ax7yy.set_ylabel(r'$V_{\eta \eta}$')
+
+    # the vxy axis label
+    ax7xy.set_ylabel(r'$\rho_{\xi \eta}$')
+    if not flatsamples.covsum_samples_has_corrxy:
+        ax7xy.set_ylabel(r'$V_{\xi \eta}$')
+        
+    # Control labels out of the loop
+    for ax in [ax7xx, ax7yy, ax7xy]:
+        ax.set_xlabel('mag')
+
+    # Cosmetics
+    fig7.subplots_adjust(wspace=0.3, hspace=0.3)
+                        
+                         
 def shownoisesamples(flatsamples=None, nshow=100, fignum=9, \
                      logy=True, showvar=True, \
                      cmap='inferno_r', jaux=2, \
@@ -838,6 +1009,7 @@ Example call:
                                                     mag0=mag0, returnarrays=True, \
                                                     islog10_c=islog10_c)
 
+    
     # pick a random sample to show
     ldum = np.argsort(np.random.uniform(size=parsnoise.shape[0]))
     lsho = ldum[0:nshow]
