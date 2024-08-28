@@ -113,6 +113,10 @@ Inputs:
         self.lstsq_covars = np.array([])
         self.labels_transf = None
 
+        # Statistics on projected deltas, binned by magnitude
+        self.binstats_fg = None
+        self.binstats_bg = None
+        
         # Percentiles of the computed uncertainties, options about
         # what those entries are to be
         self.pctiles = [50., 15.9, 84.1, 0.135, 99.865]
@@ -126,9 +130,12 @@ Inputs:
         self.countdata()
         self.getsimisfg()
         self.unpacktruths()
-
+        
         # Compute the parameter covariances among the flat samples
         self.computecovars()
+
+        # Compute binned statistics
+        self.computebinnedstats()
         
     def loadsamples(self):
 
@@ -525,13 +532,13 @@ Returns:
             covs_samples[:,:,0,1] = rho
             covs_samples[:,:,1,0] = rho
 
-        # Do we want vy/vx instead of vy
+        # Do we want stdy/stdx instead of vy
         if self.covsum_samples_has_ryx:
-            covs_samples[:,:,1,1] = covs_samples[:,:,1,1] / covs_samples[:,:,0,0]
+            covs_samples[:,:,1,1] = np.sqrt(covs_samples[:,:,1,1] / covs_samples[:,:,0,0])
             
         # compute the median and percentiles here
         if Verbose:
-            print(" ")
+            print("")
             print("computesamplescovars INFO - computing percentiles...")
             
         self.covsum_samples_pctiles = \
@@ -543,7 +550,52 @@ Returns:
         
         # Force free the memory
         covs_samples = None
+
+    def computebinnedstats(self, threshfg=0.9, threshbg=0.2, nbins=10, \
+                           minperbin=16):
+
+        """Computes binned statistics on datapoints identified as foreground
+and background"""
+
+        # Read the needed pieces from the lnlike object
+        if not hasattr(self.inp_lnlike,'obstarg'):
+            return
+
+        if not hasattr(self.inp_lnlike,'transf'):
+            return
         
+        mags = self.inp_lnlike.obstarg.mags
+        xytarg = self.inp_lnlike.obstarg.xy
+        resps_fg = self.inp_lnlike.resps_fg
+        xytran = self.inp_lnlike.transf.xytran
+
+        dxytran = xytran - xytarg
+
+        # Now identify foreground and background objects. Assume all
+        # objects are foreground unless we have already computed the
+        # responsibilities.
+        bfg = np.isfinite(mags)
+        bbg = np.array([])
+        if np.size(resps_fg) > 0:
+            bbg = (bfg) & (resps_fg < threshbg)
+            bfg = (bfg) & (resps_fg > threshfg)
+
+        # Nothing to do if there are no foreground objects (neat trick...)
+        if np.sum(bfg) < 1:
+            print("computebinnedstats WARN - no foreground objects")
+            return
+            
+        # Set up binstats objects and compute
+        if np.sum(bfg) > 1:
+            self.binstats_fg = Binstats(mags[bfg], dxytran[bfg], \
+                                        minperbin, nbins=nbins)
+
+        if np.sum(bbg) > 1:
+            self.binstats_bg = Binstats(mags[bbg], dxytran[bbg], \
+                                        minperbin)
+            
+        
+            
 def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
               pathfig='test_guess_deltas.png'):
 
@@ -843,7 +895,16 @@ Example call:
 
 def showunctysamples(flatsamples=None, fignum=7):
 
-    """Shows the range of uncertainty (variance) samples as percentiles"""
+    """Shows the range of uncertainty (variance) samples as percentiles.
+
+    Example call:
+
+    FS = examine2d.Flatsamples(flat_samples, esargs=esargs, log_probs=lnprobs, showargs=showargs)
+    FS.computebinnedstats()
+    FS.computesamplescovars()
+    examine2d.showunctysamples(FS)
+
+    """
 
     if flatsamples is None:
         return
@@ -871,6 +932,12 @@ def showunctysamples(flatsamples=None, fignum=7):
     print("showunctysamples INFO - mags, pctiles, levels:", \
           mags.shape, np.shape(pctiles), levels.shape)
 
+    # compute binned statistics if not already done:
+    if flatsamples.binstats_fg is None:
+        flatsamples.computebinnedstats()
+
+    binmag, _, bincov, bincounts = flatsamples.binstats_fg.getstats()
+    
     # Now set up the figure:
     fig7 = plt.figure(fignum)
     fig7.clf()
@@ -887,19 +954,44 @@ def showunctysamples(flatsamples=None, fignum=7):
     lls = ['-','--','--', '-.', '-.']
     lws = [2,1,1,1,1]
     colos = ['k', '0.3', '0.3', '0.3', '0.3']
+    labls = ['median', r'"$1\sigma$"','',r'"$3\sigma$"','']
     
+    # Plot the percentiles for the covsums
     for ax, i, j in zip(lax, icov, jcov):
         for k in range(levels.shape[0]):
             var = levels[k,:,i,j]
             dum = ax.plot(mags[lmag], var[lmag], \
                           ls=lls[k], lw=lws[k], \
-                          color=colos[k])
+                          color=colos[k], label=labls[k])
 
+    # Overplot the binned datapoints
+    sbin = 'fg, %i / bin' % (bincounts[0])
+    ax7xx.scatter(binmag, bincov[:,0,0], c='#9A3324', s=9, \
+                  label=sbin)
+
+    overyy = np.copy(bincov[:,1,1])
+    if flatsamples.covsum_samples_has_ryx:
+        overyy = np.sqrt(bincov[:,1,1]/bincov[:,0,0])
+
+    overxy = np.copy(bincov[:,0,1])
+    if flatsamples.covsum_samples_has_corrxy:
+        overxy = bincov[:,0,1]/np.sqrt(bincov[:,0,0]*bincov[:,1,1])
+
+    ax7yy.scatter(binmag, overyy, c='#9A3324', s=9, \
+                  label=sbin)
+
+    ax7xy.scatter(binmag, overxy, c='#9A3324', s=9, \
+                  label=sbin)
+
+    
+    # legends for the axes
+    leg7xx = ax7xx.legend(fontsize=9)
+    
     # The vxx axis label
     ax7xx.set_yscale('log')
 
     # The vyy axis label
-    ax7yy.set_ylabel(r'$V_{\eta \eta} / V_{\xi \xi}$')
+    ax7yy.set_ylabel(r'$\sqrt{V_{\eta \eta} / V_{\xi \xi}}$')
     if not flatsamples.covsum_samples_has_ryx:
         ax7yy.set_yscale('log')
         ax7yy.set_ylabel(r'$V_{\eta \eta}$')
@@ -1017,7 +1109,8 @@ Example call:
     # now, finally, plot the figure
     fig9=plt.figure(fignum)
     fig9.clf()
-    ax90 = fig9.add_subplot(122)
+    ax90 = fig9.add_subplot(222)
+    ax92 = fig9.add_subplot(224)
 
     # axes for the flat samples themselves
     axf0 = fig9.add_subplot(321)
@@ -1047,6 +1140,10 @@ Example call:
     for ishow in lsho:
         dum = ax90.plot(mshow, stdxs[:,ishow]**powr, alpha=alpha, \
                         color=Cmap(aux[ishow]) )
+
+        dum2 = ax92.plot(mshow, stdys[:,ishow]**powr/stdxs[:,ishow]**powr, \
+                         alpha=alpha, \
+                         color=Cmap(aux[ishow]) )
         
     # Does this understand colorbars?
     pset = flatsamples.inp_parset
@@ -1054,9 +1151,14 @@ Example call:
     
     cbar = fig9.colorbar(sm, ax=ax90, label=noiselabels[jaux] )
     cbar.solids.set(alpha=1)
+
+    cbar2 = fig9.colorbar(sm, ax=ax92, label=noiselabels[jaux] )
+    cbar2.solids.set(alpha=1)
+
     
     if logy:
         ax90.set_yscale('log')
+        #ax92.set_yscale('log')
 
     # Axis label
     squan = r'$s_{\xi}$'
@@ -1064,6 +1166,8 @@ Example call:
         squan = r'$%s^2$' % (squan.replace('$',''))
     ax90.set_xlabel('mag')
     ax90.set_ylabel(squan)
+    ax92.set_xlabel('mag')
+    ax92.set_ylabel(r'covar ratio')
 
     # Annotation for sample shown
     nsamples = parsnoise.shape[0]
