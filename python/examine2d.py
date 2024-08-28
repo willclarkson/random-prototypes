@@ -597,7 +597,7 @@ and background"""
         
             
 def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
-              pathfig='test_guess_deltas.png'):
+              pathfig='test_guess_deltas.png', showargs={}):
 
     """Plots up the guess transformation, noise, etc., before running mcmc.
 
@@ -615,8 +615,14 @@ Inputs:
 
     nmagbins = number of magnitude bins (for running statistics). If >0, overrides npermagbin.
 
+    showargs = {} = arguments returned from setupmcmc that include
+    truth parameters
+
     """
 
+    # DO NOT REFACTOR the binning into Flatsamples: we want this to
+    # work before we have flatsamples populated!
+    
     # Parse the keywords in the input arguments
     try:
         llike = esargs['args'][4]
@@ -626,6 +632,14 @@ Inputs:
         print("examine2d.showguess WARN - problem parsing ensemble sampler arguments")
         return
 
+    # it would be very useful to plot the predictions of the truth
+    # parameters if we have them, particularly for the vs-mag
+    # graph...
+    ptruth = None
+    if 'truthset' in showargs.keys():
+        if 'parset' in showargs['truthset'].keys():
+            ptruth = showargs['truthset']['parset']
+    
     # Views of necessary pieces: target frame...
     xytarg = obstarg.xy
     mags = obstarg.mags
@@ -681,6 +695,14 @@ Inputs:
     # noise vs mag plots
     ax32 = fig2.add_subplot(332)
     ax33 = fig2.add_subplot(333)
+
+    # truth parameters if we have them
+    ax36=None
+    if ptruth is not None:
+        ax36 = fig2.add_subplot(336)
+        ltruth = copy.deepcopy(llike)
+        ltruth.updatesky(ptruth)
+        
     
     # Do the positional scatter plots...
     resid = ax37.scatter(dxytran[:,0], dxytran[:,1], c=mags, s=1)
@@ -742,7 +764,7 @@ Inputs:
     # THIS IN even if zero, it's useful to ensure we're not adding
     # noise when we shouldn't be.
     if np.size(covextra) > 1:
-        cextra = ax33.scatter(mags, covextra[:,0,0], c='#9B9A6D', \
+        cextra = ax33.scatter(mags, covextra[:,0,0], c='#D86018', \
                               label='Model extra', s=4)
 
     # Show, the sum covariance assumed by the "guess"
@@ -760,7 +782,31 @@ Inputs:
         cbg = ax33.scatter(magbins_bg, dxycovs_bg[:,0,0], c='#D86018', \
                            label='bg, %i / bin' % (counts_bg[0]), s=9, marker='s')
 
+    # Truth parameters if we have them
+    if ax36 is not None:
+        # show the data again...
+        dum = ax36.scatter(magbins, dxycovs[:,0,0], c='#9A3324', \
+                           label='fg, %i / bin' % (counts[0]), s=9, \
+                           zorder=25)
 
+        ctarg2 = ax36.scatter(mags, ltruth.covrarg[:,0,0], c='#00274', \
+                              label='target (truth)', s=2)
+        
+        ctransf2 = ax36.scatter(mags, ltruth.covtran[:,0,0], c='#702082', \
+                           label='source transformed', s=2, alpha=0.6)
+        
+        cextra2 = ax36.scatter(mags, ltruth.covextra[:,0,0], c='#D86018', \
+                              label='Model extra', s=4)
+        
+        # ... now overplot the covariances using the truth model
+        dum2 = ax36.scatter(mags, ltruth.covsum[:,0,0], c='#75988d', \
+                            label='covsum, truth model', zorder=10, s=4)
+
+        ax36.set_title('Truth model')
+        ax36.set_yscale('log')
+        
+    # now label the vs-mag plots
+        
     for ax in [ax32, ax33]:
         ax.set_xlabel('mag')
 
@@ -777,7 +823,7 @@ Inputs:
 
     ax32.set_title('Source frame', fontsize=fontsz)
     ax33.set_title('Target frame', fontsize=fontsz)
-    
+
     # a few cosmetic things
     fig2.subplots_adjust(hspace=0.4, wspace=0.4)
 
@@ -985,7 +1031,7 @@ def showunctysamples(flatsamples=None, fignum=7):
 
     
     # legends for the axes
-    leg7xx = ax7xx.legend(fontsize=9)
+    leg7xx = ax7xx.legend(fontsize=8)
     
     # The vxx axis label
     ax7xx.set_yscale('log')
