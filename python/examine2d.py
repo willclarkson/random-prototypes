@@ -1316,7 +1316,8 @@ Example call:
     nsamples, ndim = flat_samples.shape
     if nmodel < 1 or nmodel > ndim:
         nmodel = ndim
-    
+
+        
     # Label keyword arguments
     label_kwargs = {'fontsize':8, 'rotation':'horizontal'}
     
@@ -1338,7 +1339,7 @@ Example call:
     if nmodel < ndim:
         print("examine2d.showcorner INFO - highlighting nuisance parameters")
         axes = np.array(fig4.axes).reshape((ndim, ndim))
-        for yi in range(ndim-nmodel-1, ndim):
+        for yi in range(nmodel, ndim):
             for xi in range(ndim):
                 ax = axes[yi, xi]
 
@@ -1348,7 +1349,7 @@ Example call:
                 
                 # Change the label color
                 ax.yaxis.label.set_color(colornuisance)
-                if xi >= ndim-nmodel-1:
+                if xi >= nmodel:
                     ax.xaxis.label.set_color(colornuisance)
                 
     # Adjust the label size
