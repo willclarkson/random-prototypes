@@ -334,6 +334,11 @@ walker positions"""
         # 1d labels
         self.labels = self.guess_parset.getlabels()
 
+        # 2024-08-39 uncomment this to get the labels from the
+        # transformation object.
+        #labelsxy = self.guess.PGuess.getlabels()
+        #self.labels[0:len(labelsxy)] = labelsxy
+        
         # Refine the plot labels using the patternmatrix object in
         # the guess transformation
         pmatrix = self.guess.PGuess.pars2x

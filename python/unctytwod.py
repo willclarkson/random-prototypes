@@ -935,7 +935,14 @@ parameters. Anticipating the eventual use-case, the x and y parameters are assum
         self.populatejacpoly()
         self.combinejac()
 
+    def getlabels(self, labelx='A', labely='B'):
+
+        """Returns parameter labels"""
+
+        labelsx = self.pars2x.setplotlabels(labelx)
+        labelsy = self.pars2x.setplotlabels(labely)
         
+        return labelsx + labelsy
         
 class Polynom(object):
 
@@ -1423,6 +1430,12 @@ pointing is changed"""
 
         return dv
 
+    def getlabels(self):
+
+        """Returns labels for plots (the coordinates of the tangent point)"""
+
+        return [r'$\alpha_0$', r'$\delta_0$']
+        
 class Equ2tan(object):
 
     """Object handling the transformation of coordinates and covariances
@@ -1653,6 +1666,15 @@ jacobian. Updates self.covtran in the instance.
 
         return dv
 
+    def getlabels(self):
+
+        """Returns list of labels to use for plots. This class only has two
+parameters: the ra, dec of the tangent point.
+
+        """
+
+        return [r'$\alpha_0$', r'$\delta_0$']
+        
 class Sky(object):
 
     ### REPLACED by Tan2equ() and Equ2tan(), in order to have
@@ -1908,6 +1930,12 @@ naming convention as the Polynom() object. Updates quantities self.xtran, self.y
         self.xtran = self.possky[:,0]
         self.ytran = self.possky[:,1]
 
+    def getlabels(self):
+
+        """Returns labels for plots (the coordinates of the tangent point)"""
+
+        return [r'$\alpha_0$', r'$\delta_0$']
+        
 # utility - return a grid of xi, eta points
 def gridxieta(sidelen=2.1, ncoarse=11, nfine=41, llzero=False):
 

@@ -698,12 +698,21 @@ Inputs:
 
     # truth parameters if we have them
     ax36=None
+    magbins_fg_truth = np.array([])                            
     if ptruth is not None:
         ax36 = fig2.add_subplot(336)
         ltruth = copy.deepcopy(llike)
         ltruth.updatesky(ptruth)
+
+        # Note that the binned statistics for the "target" plot are
+        # post-fit responsibilities. But if we have truths, then we
+        # also know which *are* the foreground objects. So show them
+        # too.
+        bfg_truth = isfg > 0
+        BT = Binstats(mags[bfg_truth], dxytran[bfg_truth], \
+                      npermagbin, nbins=nmagbins)
+        magbins_fg_truth, _, dxycovs_fg_truth, counts_fg_truth = BT.getstats()
         
-    
     # Do the positional scatter plots...
     resid = ax37.scatter(dxytran[:,0], dxytran[:,1], c=mags, s=1)
 
@@ -789,7 +798,7 @@ Inputs:
                            label='fg, %i / bin' % (counts[0]), s=9, \
                            zorder=25)
 
-        ctarg2 = ax36.scatter(mags, ltruth.covrarg[:,0,0], c='#00274', \
+        ctarg2 = ax36.scatter(mags, ltruth.covtarg[:,0,0], c='#00274C', \
                               label='target (truth)', s=2)
         
         ctransf2 = ax36.scatter(mags, ltruth.covtran[:,0,0], c='#702082', \
@@ -802,6 +811,14 @@ Inputs:
         dum2 = ax36.scatter(mags, ltruth.covsum[:,0,0], c='#75988d', \
                             label='covsum, truth model', zorder=10, s=4)
 
+        # ... and the covariances using those objects simulated as foreground
+        dumt = ax36.scatter(magbins_fg_truth, \
+                            dxycovs_fg_truth[:,0,0], \
+                            c='r', \
+                            label='fg (sim), %i / bin' % (counts_fg_truth[0]), \
+                            s=9, \
+                            zorder=25)
+        
         ax36.set_title('Truth model')
         ax36.set_yscale('log')
         

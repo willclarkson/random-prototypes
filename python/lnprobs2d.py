@@ -68,6 +68,7 @@ class Prior(object):
         self.asymm_min_corr = -1. # WATCHOUT
         self.asymm_max_corr = 1.
         self.mix_min_fbg = 1.0e-5
+        self.mix_max_fbg = 0.7 # WATCHOUT
         self.mix_max_vxx = 2.
         
         # the lnpriors for all parts of the model. Initialize to
@@ -192,7 +193,8 @@ uniform within the limits."""
             return
 
         # Avoid triggering bounds problems later on
-        if fbg < self.mix_min_fbg or vxx > self.mix_max_vxx:
+        if fbg < self.mix_min_fbg or vxx > self.mix_max_vxx \
+           or fbg > self.mix_max_fbg:
             self.lnprior_mix = -np.inf
             return
 
