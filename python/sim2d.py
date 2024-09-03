@@ -24,32 +24,6 @@ from weightedDeltas import CovarsNx2x2
 
 from obset2d import Obset
 
-# REFACTORED into obset2d.py
-#
-#class Obset(object):
-#
-#    """Convenience-object to hold positions, covariances, and other
-#information like apparent magnitudes for hypothetical observations."""
-
-#    def __init__(self, xy=np.array([]), covxy=np.array([]), \
-#                 mags=np.array([]), isfg=np.array([]), \
-#                 xmin=None, xmax=None, ymin=None, ymax=None):
-
-#        self.xy = np.copy(xy)
-#        self.covxy = np.copy(covxy)
-#        self.mags = np.copy(mags)
-#        self.isfg = np.copy(isfg)
-
-#        # Domain of the source data (assumed detector)
-#        self.xmin = xmin
-#        self.xmax = xmax
-#        self.ymin = ymin
-#        self.ymax = ymax
-        
-#        # Number of datapoints
-#        self.npts = np.shape(xy)[0]
-        
-#    # Self-checking methods could come here.
 
 class Simdata(object):
 
@@ -85,6 +59,10 @@ class Simdata(object):
         self.transfscale = 1.
         self.pars_transf = np.array([])
         self.seed_params = None
+
+        # Tangent point
+        self.alpha0 = 0.
+        self.delta0 = 0.
         
         # Non-transformation model parameters. These are all specified
         # here as scalars because the configuration writer/reader
@@ -156,12 +134,14 @@ class Simdata(object):
                          'mag0', \
                          'noise_targ_loga', 'noise_targ_logb', \
                          'noise_targ_c', 'mag0_targ', \
-                         'asymm_targ_ryx', 'asymm_targ_corr']
+                         'asymm_targ_ryx', 'asymm_targ_corr', \
+                         'alpha0', 'delta0']
         self.conf_bool = ['gen_noise_model', 'add_uncty_extra', \
                           'nouncty_obs', 'nouncty_tran', 'add_outliers', \
                           'mix_islog10_frac', 'mix_islog10_vxx', \
                           'islog10_noise_c', \
                           'gen_noise_targ']
+        self.conf_class = ['transf']
         self.conf_str = ['polytransf']
 
         # The configuration file should also be human-readable... Here's an
@@ -178,7 +158,9 @@ class Simdata(object):
             ['mix_frac', 'mix_vxx','mix_islog10_frac','mix_islog10_vxx'] + \
             ['extra_loga', 'extra_logb', 'extra_c'] + \
             ['extra_ryx','extra_corr'] + \
-            ['seed_outly']
+            ['seed_outly'] + \
+            ['alpha0', 'delta0'] + \
+            ['transf']
         
         # Number of parameters per non-transformation
         # parameter. Useful when splitting the 1D parameters into
@@ -428,6 +410,16 @@ None.
             except:
                 lfailed.append(key)
 
+        # ... the attributes of unctytwod...
+        for key in self.conf_class:
+            try:
+                sattr = conf[key]
+                if sattr.find('None') < 0:
+                    if hasattr(unctytwod, sattr):
+                        setattr(self, key, getattr(unctytwod, sattr))
+            except:
+                lfailed.append(key)
+                
         # ... and the strings
         for key in self.conf_str:
             try:
@@ -443,6 +435,16 @@ None.
         # again that those lists are accurate.
         self.parstolists()
         self.countpars()
+
+        # If points are to be generated on the sky, adjust the xmin,
+        # xmax, ymin, ymax accordingly. NOTE that this corresponds to
+        # catalog positions selected by rectangle on the sky (rather
+        # than from another observation-set projected onto the sky).
+        if self.transf.__name__.find('Equ2tan') > -1:
+            self.xmin += self.alpha0
+            self.xmax += self.alpha0
+            self.ymin += self.delta0
+            self.ymax += self.delta0
         
         if len(lfailed) > 0 and self.Verbose:
             print("Simdata.loadconfig WARN - parse problems with keywords:", \
@@ -595,8 +597,23 @@ objects"""
 
         # for debug:
         # print("sim2d.makeoutliers INFO:", vxx, stdxs[0], self.Coutliers.covars[0])
-        
+
     def makepars(self):
+
+        """Generates parameters for the simulation"""
+
+        # 2024-09-03: either a linear model OR a pointing model.
+        transfname = self.transf.__name__
+        if transfname.find('Tan2equ') < 0 and \
+           transfname.find('Equ2tan') < 0:
+            self.makepars_linear()
+            return
+
+        # If all we are doing is generating a pointing, then we shunt
+        # the pointing information into the pars_transf attribute.
+        self.pars_transf = np.array([self.alpha0, self.delta0])
+        
+    def makepars_linear(self):
 
         """Generates fake parameters for the linear model"""
 
@@ -734,6 +751,7 @@ of arguments to the minimizer"""
 
         """Wrapper - generates fake data"""
 
+        
         # Baseline x, y, covars in source frame
         self.makefakexy()
         self.makefakemags()        

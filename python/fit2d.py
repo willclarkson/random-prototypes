@@ -98,12 +98,16 @@ likely work better.)
                          'guess_noise_c', 'guess_asymm_ryx', \
                          'guess_asymm_corrxy', \
                          'guess_mixmod_f', 'guess_mixmod_vxx', \
-                         'mag0']
+                         'mag0', \
+                         'alpha0', 'delta0']
         self.conf_str = ['polyfit', 'conf_readpath']
+
+        # config strings that are classes
+        self.conf_class = ['transf']
         
         # Use this to restrict the attributes that can be set, and to
         # put the configuration file in a human-readable order
-        self.confpars=['polyfit', 'deg', 'lsq_nowts', \
+        self.confpars=['transf', 'polyfit', 'deg', 'lsq_nowts', \
                        'ignore_uncty_obs', 'ignore_uncty_targ', \
                        'fit_noise_model', \
                        'guess_noise_loga', 'guess_noise_logb', \
@@ -117,10 +121,15 @@ likely work better.)
                        'guess_islog10_mix_vxx', \
                        'guess_islog10_noise_c', \
                        'conf_readpath', \
-                       'mag0']
+                       'mag0', \
+                       'alpha0', 'delta0']
         
         # Instance quantities that may depend on the above choices and
         # settings follow.
+
+        # guess for pointing
+        self.alpha0 = 0.
+        self.delta0 = 0.
         
         # guess for transformation
         self.guess_transf = np.array([])
@@ -236,6 +245,16 @@ likely work better.)
             except:
                 lfailed.append(key)
 
+        # ... classes in unctytwod...
+        for key in self.conf_class:
+            try:
+                sattr = conf[key]
+                if sattr.find('None') < 0:
+                    if hasattr(unctytwod, sattr):
+                        setattr(self, key, getattr(unctytwod, sattr))
+            except:
+                lfailed.append(key)
+                
         # ... and the strings
         for key in self.conf_str:
             try:

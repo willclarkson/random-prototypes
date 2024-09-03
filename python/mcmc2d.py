@@ -336,16 +336,16 @@ walker positions"""
 
         # 2024-08-39 uncomment this to get the labels from the
         # transformation object.
-        #labelsxy = self.guess.PGuess.getlabels()
-        #self.labels[0:len(labelsxy)] = labelsxy
-        
-        # Refine the plot labels using the patternmatrix object in
-        # the guess transformation
-        pmatrix = self.guess.PGuess.pars2x
-        labelsx = pmatrix.setplotlabels('A')
-        labelsy = pmatrix.setplotlabels('B')
-        labelsxy = labelsx + labelsy
+        labelsxy = self.guess.PGuess.getlabels()
         self.labels[0:len(labelsxy)] = labelsxy
+        
+        ## Refine the plot labels using the patternmatrix object in
+        ## the guess transformation
+        #pmatrix = self.guess.PGuess.pars2x
+        #labelsx = pmatrix.setplotlabels('A')
+        #labelsy = pmatrix.setplotlabels('B')
+        #labelsxy = labelsx + labelsy
+        #self.labels[0:len(labelsxy)] = labelsxy
         
         
     def setargs_corner(self):
@@ -410,11 +410,14 @@ interpreter"""
             = self.guess.guess_uncty_formal
 
         # labels for plotting
-        pmatrix = self.guess.PGuess.pars2x
-        labelsx = pmatrix.setplotlabels('A')
-        labelsy = pmatrix.setplotlabels('B')
-        self.args_show['guess']['labels_transf'] = \
-            labelsx + labelsy
+        labelsxy = self.guess.PGuess.getlabels()
+        self.args_show['guess']['labels_transf'] = labelsxy
+        
+        #pmatrix = self.guess.PGuess.pars2x
+        #labelsx = pmatrix.setplotlabels('A')
+        #labelsy = pmatrix.setplotlabels('B')
+        #self.args_show['guess']['labels_transf'] = \
+        #    labelsx + labelsy
         
     def setargs_emcee(self):
 
@@ -473,9 +476,22 @@ our initial state for MCMC exploration.
         # Sets up the guess object
         self.setupguess()
 
-        # Do a linear leastsq fit to the data to serve as the
-        # initial guess for the minimizer
-        self.guessfromlstsq()
+        if self.guess.transf.__name__.find('Poly') < 0:
+
+            # For the moment, generate perturbations for a pointing
+            # model
+            guess_pointing = \
+                np.array([self.guess.alpha0, self.guess.delta0])
+            pertn = np.random.normal(size=2)*3.0/3600.
+            self.guess.guess_transf = guess_pointing + pertn
+
+            self.guess.populateparset()
+            self.guess.populateguesstransf()
+            
+        else:
+            # Do a linear leastsq fit to the data to serve as the
+            # initial guess for the minimizer
+            self.guessfromlstsq()
 
         # Setup and run the minimizer using the lstsq fit as input,
         # and shunt the result across to the guess object
@@ -513,7 +529,7 @@ Returns:
 """
 
     mc = MCMCrun(pathsim, pathfit, chainlen)
-    mc.dosim()
+    mc.dosim()    
     mc.doguess()
     mc.setupwalkers()
     mc.setargs_emcee()

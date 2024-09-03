@@ -398,7 +398,7 @@ polynomial objects and methods. Should allow polynomials, legendre,
 chebyshev and hermite depending on which of numpy's methods we
 choose."""
 
-    # WATCHOUT - numpys convenience methods DO account for the domain,
+    # WATCHOUT - numpy's convenience methods DO account for the domain,
     # but the convenience *functions* like chebval2d DO NOT. However,
     # in the numpy implementation, series cannot be multiplied if
     # their domains are different, which will be problematic when
@@ -1194,14 +1194,21 @@ transformations"""
 class Tan2equ(object):
 
     """Object handling the transformation of coordinates and covariances
-from the tangent plane to the sky"""
+from the tangent plane to the sky.
+
+    (Arguments kind, checkparsy, xmin, xmax, ymin, ymax are for
+    compatibility with other calls, and are currently ignored.)
+
+"""
 
     # Convention: x, y => xi, eta
     
     def __init__(self, xi=np.array([]), eta=np.array([]), \
                  covxieta=np.array([]), \
                  pars=np.array([]), degrees=True, \
-                 Verbose=True):
+                 Verbose=True,
+                 kind=None, checkparsy=False, \
+                 xmin=None, xmax=None, ymin=None, ymax=None):
 
         self.x = xi
         self.y = eta
@@ -1439,14 +1446,22 @@ pointing is changed"""
 class Equ2tan(object):
 
     """Object handling the transformation of coordinates and covariances
-from the sky to the tangent plane"""
+from the sky to the tangent plane.
+
+    (Arguments kind, checkparsy, xmin, xmax, ymin, ymax are for
+    compatibility with other calls, and are currently ignored)
+
+    """
 
     # convention: x, y --> ra, dec
 
     def __init__(self, ra=np.array([]), dec=np.array([]), \
                  covradec=np.array([]), \
                  pars=np.array([]), degrees=True, \
-                 Verbose=True):
+                 Verbose=True, \
+                 kind=None, \
+                 checkparsy=False, \
+                 xmin=None, xmax=None, ymin=None, ymax=None):
 
         self.x = ra
         self.y = dec
