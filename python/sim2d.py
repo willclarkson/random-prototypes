@@ -607,6 +607,15 @@ objects"""
         if transfname.find('Tan2equ') < 0 and \
            transfname.find('Equ2tan') < 0:
             self.makepars_linear()
+
+            # A little awkward again... if doing a polynomial-then-sky
+            # model, swap in the field center for the simulation
+            if transfname.find('xy2equ') > -1:
+                print("makepars INFO - swapping in field center:")
+                ihalf = int(np.size(self.pars_transf)*0.5)
+                self.pars_transf[0] = self.alpha0
+                self.pars_transf[ihalf] = self.delta0
+            
             return
 
         # If all we are doing is generating a pointing, then we shunt

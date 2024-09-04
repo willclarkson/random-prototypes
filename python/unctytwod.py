@@ -1807,7 +1807,7 @@ Inputs:
 
     pars = [alpha0, delta0, parsxy] array of transformation parameters
 
-    kindpoly = what kind of polynomial to use for XY --> tangent plane
+    kind = what kind of polynomial to use for XY --> tangent plane
 
     Verbose = control variable: print output to screen
 
@@ -1816,9 +1816,10 @@ Inputs:
 """
 
     def __init__(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
-                 pars=np.array([]), kindpoly='Polynomial', \
+                 pars=np.array([]), kind='Polynomial', \
                  Verbose=False, \
-                 xmin=None, xmax=None, ymin=None, ymax=None):
+                 xmin=None, xmax=None, ymin=None, ymax=None, \
+                 checkparsy=None):
 
         # Control variable
         self.Verbose = Verbose
@@ -1826,16 +1827,26 @@ Inputs:
         # Set up the relevant parameters
         self.initpars()
         self.updatepars(pars)
+
+        # Provide the attributes that calling methods expect
+        self.x = x
+        self.y = y
+        self.covxy = covxy
+        
         
         # Set up the transformation objects
         self.xy2tp = Poly(x, y, covxy, self.parsx, self.parsy, \
-                          kind=kindpoly, checkparsy=False, \
+                          kind=kind, checkparsy=False, \
                           Verbose=self.Verbose, \
                           xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
 
         # Methods to transform from the tangent plane to equatorial
         self.tp2equ = Tan2equ(pars=self.tangentpoint, \
                               Verbose=self.Verbose)
+
+        # Initialize a couple of needed things
+        self.inittran()
+
         
     def initpars(self):
 
@@ -1845,6 +1856,13 @@ Inputs:
         self.parsy = np.array([])
         self.tangentpoint = np.array([])
         self.polyhasxy0 = True
+
+    def inittran(self):
+
+        """Initialize the xytran and covxytran attributes"""
+
+        self.covxytran = self.xy2tp.covxy * 0.
+        self.xytran = self.xy2tp.xytran * 0.
         
     def updatepars(self, pars=np.array([]) ):
 
@@ -1864,7 +1882,7 @@ individual transformation objects as it does"""
 
         self.xy2tp.tranpos()
         self.tp2equ.x = self.xy2tp.xtran
-        self.tp2equ.y = self.ty2tp.ytran
+        self.tp2equ.y = self.xy2tp.ytran
 
         self.tp2equ.tranpos()
         self.xtran = self.tp2equ.xtran
@@ -1882,7 +1900,7 @@ individual transformation objects as it does"""
         # little speed for safety.
         self.xy2tp.tranpos()
         self.tp2equ.x = self.xy2tp.xtran
-        self.tp2equ.y = self.ty2tp.ytran
+        self.tp2equ.y = self.xy2tp.ytran
         
         self.xy2tp.trancov()
         self.tp2equ.covxy = self.xy2tp.covtran
@@ -1901,6 +1919,31 @@ individual transformation objects as it does"""
         self.xytran[:,0] = self.xtran
         self.xytran[:,1] = self.ytran
 
+    def updatetransf(self, pars=np.array([]) ):
+
+        """One-liner to update the transformation parameters for both
+transformations
+
+        """
+
+        # Both the transformations have this check too. 
+        if np.size(pars) < 1:
+            return
+
+        # update the parameters...
+        self.updatepars(pars)
+
+        parsxy = np.hstack(( self.parsx, self.parsy ))
+        self.xy2tp.updatetransf(parsxy)
+
+        # ... again, the jacobian for the sky piece depends on
+        # coordinates. So we propagate those too.
+        self.xy2tp.tranpos()
+        self.tp2equ.x = self.xy2tp.xtran
+        self.tp2equ.y = self.xy2tp.ytran
+        self.tp2equ.updatetransf(self.tangentpoint)
+        
+        
     def getlabels(self):
 
         """Gets plot labels for the full transformation"""

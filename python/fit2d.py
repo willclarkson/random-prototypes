@@ -130,6 +130,11 @@ likely work better.)
         # guess for pointing
         self.alpha0 = 0.
         self.delta0 = 0.
+
+        # Indicator: does the transformation have the tangent point as
+        # its first two entries?
+        self.transfswithtp = ['xy2equ', 'Equ2tan', 'Tan2equ']
+        self.hastangentpoint = False
         
         # guess for transformation
         self.guess_transf = np.array([])
@@ -152,6 +157,9 @@ likely work better.)
         # Now we prepare for the fit
         self.populatenontransf()
         # self.applyunctyignorance()
+
+        # set our indicator
+        self.classifywithtp()
         
     def writeconfig(self, pathconfig=''):
 
@@ -277,13 +285,27 @@ likely work better.)
         # fit the nosie as part of the model. Apply that here.
         if self.ignore_uncty_obs and self.ignore_uncty_targ:
             self.fit_noise_model=True
-        
+
+        # Set the indicator flag (has tangent point or not)
+        self.classifywithtp()
+            
         # If this is called outside self.__init__ then we want to do
         # any processing that init would do to the parameters before
         # proceeding.
         self.populatenontransf()
         self.applyunctyignorance()
 
+    def classifywithtp(self):
+
+        """Sets the indicator attribute for whether the transformation
+parameters include the tangent point (useful for perturbing initial
+guesses)
+
+        """
+
+        self.hastangentpoint = self.transf.__name__ in self.transfswithtp
+        
+        
     def copyobset(self, obset=None):
 
         """Creates a copy of observation-set object so that we can modify it

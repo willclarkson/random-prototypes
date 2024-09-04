@@ -19,6 +19,8 @@ from parset2d import Pars1d, Pairset
 from fit2d import Guess, lnprobs2d
 from lnprobs2d import Prior, Like
 
+
+
 class MCMCrun(object):
 
     """Sets up for an emcee run that would be performed via
@@ -40,6 +42,11 @@ multiprocessing.
         self.sim = None
         self.guess = None
 
+        # Does the transformation have the tangent plane as its first
+        # two entries?
+        self.classeswithtp = ['xy2equ', 'Equ2tan', 'Tan2equ']
+        self.hastangentpoint = False
+        
         # Method that will be used for ln(posterior), its arguments
         self.methpost = lnprobs2d.lnprob
         self.argspost = ()
@@ -48,8 +55,10 @@ multiprocessing.
         self.guess1d = np.array([])
 
         # For perturbing the initial guess (1d) for the minimizer
-        self.nudge_guess1d = 1.0e-2
+        self.nudgescale_guess1d = 1.0e-2
+        self.nudge_guess1d = np.array([])
         self.nudge_seed = None
+        self.nudge_pointing_arcsec = 5. # for pointing arguments
 
         # The minimizer output, and some settings
         self.minimizer_soln = None
@@ -113,6 +122,22 @@ dataset"""
         self.guess = Guess(self.sim.Obssrc, self.sim.Obstarg)
         self.guess.loadconfig(self.parfile_guess)
 
+    def initguessfromtruth(self):
+
+        """Initializes the initial guess from truth parameters if we have
+them"""
+
+        if not hasattr(self.sim, 'pars_transf'):
+            return
+
+        self.guess1d = np.copy(self.sim.pars_transf)
+        self.scalenudgeguess()
+        self.nudgeguess1d()
+
+        self.guess.guess_transf = np.copy(self.guess1d)
+        self.guess.populateparset()
+        self.guess.populateguesstransf()
+        
     def guessfromlstsq(self):
 
         """Does least-squares estimate for initial guess at transformation
@@ -173,6 +198,27 @@ parameters.
 
         self.guess1d = np.copy(self.guess.Parset.pars)
 
+    def scalenudgeguess(self):
+
+        """Sets up the initial nudges for the first guess"""
+
+        # Initialize
+        self.nudge_guess1d = self.nudgescale_guess1d * self.guess1d
+
+        # For any cases where the guess was zero, sub with the scale
+        bzer = np.abs(self.guess1d) < 1.0e-30
+        self.nudge_guess1d[bzer] = self.nudgescale_guess1d
+        
+        # for pointing arguments
+        if not hasattr(self.guess, 'transf'):
+            return
+
+        # If the guess has a tangent point, set the nudge accordingly
+        if self.guess.hastangentpoint:
+            ihalf = int(np.size(self.nudge_guess1d)*0.5)
+            self.nudge_guess1d[0] = self.nudge_pointing_arcsec / 3600.
+            self.nudge_guess1d[ihalf] = self.nudge_pointing_arcsec / 3600.
+        
     def nudgeguess1d(self, seed=None):
 
         """Perturbs the 1d initial guess for input (e.g. if truth values have
@@ -180,10 +226,18 @@ been given as the guess)
 
 """
 
+        # Ensure the nudge guess is appropriately scaled
+        if np.size(self.nudgescale_guess1d) < 1:
+            self.scalenudgeguess()
+        
         rng = np.random.default_rng(self.nudge_seed)
-        pertns = rng.normal(size=np.size(self.guess1d)) \
-            * self.nudge_guess1d * self.guess1d
+        #pertns = rng.normal(size=np.size(self.guess1d)) \
+        #    * self.nudgescale_guess1d * self.guess1d
 
+        pertns = rng.normal(size=np.size(self.guess1d)) \
+            * self.nudgescale_guess1d
+
+        
         self.guess1d += pertns
         
     def runminimizer(self, Verbose=True):
@@ -476,23 +530,22 @@ our initial state for MCMC exploration.
         # Sets up the guess object
         self.setupguess()
 
+        # How we specify the "guess" depends on whether we can do a
+        # least-squares fit to arrive at one.
         if self.guess.transf.__name__.find('Poly') < 0:
 
-            # For the moment, generate perturbations for a pointing
-            # model
-            guess_pointing = \
-                np.array([self.guess.alpha0, self.guess.delta0])
-            pertn = np.random.normal(size=2)*3.0/3600.
-            self.guess.guess_transf = guess_pointing + pertn
-
-            self.guess.populateparset()
-            self.guess.populateguesstransf()
-            
+            # If we don't have leastsq fitting for the model, scale it
+            # from the "truth" parameters. Will need to work out how
+            # to supply a good guess for the case where we are NOT
+            # simulating, later.
+            self.initguessfromtruth()
+                        
         else:
             # Do a linear leastsq fit to the data to serve as the
             # initial guess for the minimizer
             self.guessfromlstsq()
 
+            
         # Setup and run the minimizer using the lstsq fit as input,
         # and shunt the result across to the guess object
         self.setupfitargs()
@@ -529,7 +582,7 @@ Returns:
 """
 
     mc = MCMCrun(pathsim, pathfit, chainlen)
-    mc.dosim()    
+    mc.dosim()
     mc.doguess()
     mc.setupwalkers()
     mc.setargs_emcee()
