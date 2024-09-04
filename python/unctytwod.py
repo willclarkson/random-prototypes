@@ -389,7 +389,92 @@ default."""
 
         self.plotlabels = plotlabels[:]
         self.slabel = slabel[:]
+
+class Parvec(object):
+
+    """Polynomial parameters and tangent point parameters"""
+
+    # Mainly so that I don't have to type the same thing a few times
+    
+    def __init__(self, pars=np.array([]) ):
+
+        # Do the parameters contain separate x0, y0 parameters?
+        self.hasxy0 = True
+        
+        # Ingest the parameters on initialization
+        self.initpars()
+        self.ingestpars(pars)
+        
+    def initpars(self):
+
+        """Initializes the parameters"""
+
+        self.parsx = np.array([])
+        self.parsy = np.array([])
+        self.tangentpoint = np.array([])
+
+    def ingestpars(self, pars=np.array([]) ):
+
+        """Splits the input parameters array into pointing (first two
+parameters) and parsx, parsy for the polynomial (everything else).
+
+Inputs:
+
+        pars = [alpha0, delta0, parsxy] - 1D array of full parameters
+
+Returns: N/A
+        
+        Updates instance attributes.
+
+"""
+
+        if np.size(pars) < 2:
+            return
+
+        self.tangentpoint = pars[0:2]
+
+        # Handle the remaining parameters
+        if np.size(pars) < 3:
+            return
+
+        parsxy = pars[2::]
+        nxy = np.size(parsxy)
+        imid = int(nxy*0.5)
+        
+        # Need to be able to actually split this for the parameters to
+        # be valid
+        if nxy % 2 > 0:
+            return
+        
+        imid = int(nxy*0.5)
+        parsx = parsxy[0:imid]
+        parsy = parsxy[imid::]
+
+        PC = Polycoeffs(Verbose=False)
+        degx = PC.degfromcoeffs(parsx.size)
+        if degx - int(degx) > 0:
+            degx = PC.degfromcoeffs(parsx.size+1)
+
+            # If this *still* isn't an integer, the polynomial class
+            # isn't going to handle the parameters. In that instance,
+            # return without populating them.
+            if degx - int(degx) > 0:
+                if self.Verbose:
+                    print("Parvec.ingestpars WARN - parsx does not correspond to a polynomial degree. Returning.")
+                return
+
+            # If the parameters *do* correspond to polynomial with no
+            # x0, y0 component, set the appropriate indicator and
+            # produce the parameters in the form Poly() will expect.
+            self.hasxy0 = False
+            self.parsx = np.hstack(( 0., parsx ))
+            self.parsy = np.hstack(( 0., parsy ))
+            return
             
+        self.parsx = np.copy(parsx)
+        self.parsy = np.copy(parsy)
+
+        
         
 class Poly(object):
 
@@ -813,6 +898,13 @@ polynomial"""
         """Utility - combines the jacobians for rescaling and polynomial into
 a single jacobian"""
 
+        # 2024-09-04 return gracefully if either array is empty
+        if np.size(self.jacrescale) < 1:
+            return
+        
+        if np.size(self.jacpoly) < 1:
+            return
+        
         # numpy's matmul handles broadcasting for us. 
         self.jac = np.matmul( self.jacrescale, self.jacpoly )
 
@@ -935,12 +1027,25 @@ parameters. Anticipating the eventual use-case, the x and y parameters are assum
         self.populatejacpoly()
         self.combinejac()
 
-    def getlabels(self, labelx='A', labely='B'):
+    def getlabels(self, labelx='A', labely='B', retboth=False):
 
-        """Returns parameter labels"""
+        """Returns parameter labels. 
+
+Inputs:
+
+        labelx = string for the front of x-labels
+
+        labely = string for the front of y-labels
+
+        retboth = return separate arguments rather than appended together
+
+"""
 
         labelsx = self.pars2x.setplotlabels(labelx)
         labelsy = self.pars2x.setplotlabels(labely)
+
+        if retboth:
+            return labelsx, labelsy
         
         return labelsx + labelsy
         
@@ -1689,6 +1794,179 @@ parameters: the ra, dec of the tangent point.
         """
 
         return [r'$\alpha_0$', r'$\delta_0$']
+
+class xy2equ(object):
+
+    """Methods to propagate from XY coordinates through to equatorial.
+
+Inputs:
+
+    x, y - [N] - arrays of x, y position in the XY frame
+
+    covxy - [N,2,2] - covariance array in the XY frame
+
+    pars = [alpha0, delta0, parsxy] array of transformation parameters
+
+    kindpoly = what kind of polynomial to use for XY --> tangent plane
+
+    Verbose = control variable: print output to screen
+
+    xmin, xmax, ymin, ymax = domain limits for the input data on the XY plane
+
+"""
+
+    def __init__(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
+                 pars=np.array([]), kindpoly='Polynomial', \
+                 Verbose=False, \
+                 xmin=None, xmax=None, ymin=None, ymax=None):
+
+        # Control variable
+        self.Verbose = Verbose
+        
+        # Set up the relevant parameters
+        self.initpars()
+        self.updatepars(pars)
+        
+        # Set up the transformation objects
+        self.xy2tp = Poly(x, y, covxy, self.parsx, self.parsy, \
+                          kind=kindpoly, checkparsy=False, \
+                          Verbose=self.Verbose, \
+                          xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
+
+        # Methods to transform from the tangent plane to equatorial
+        self.tp2equ = Tan2equ(pars=self.tangentpoint, \
+                              Verbose=self.Verbose)
+        
+    def initpars(self):
+
+        """Initializes transformation parameters"""
+
+        self.parsx = np.array([])
+        self.parsy = np.array([])
+        self.tangentpoint = np.array([])
+        self.polyhasxy0 = True
+        
+    def updatepars(self, pars=np.array([]) ):
+
+        """Updates instance parameters"""
+
+        PV = Parvec(pars)
+        
+        self.parsx = PV.parsx
+        self.parsy = PV.parsy
+        self.tangentpoint = PV.tangentpoint
+        self.polyhasxy0 = PV.hasxy0
+        
+    def tranpos(self):
+
+        """Applies transformation from XY to equatorial, updating the
+individual transformation objects as it does"""
+
+        self.xy2tp.tranpos()
+        self.tp2equ.x = self.xy2tp.xtran
+        self.tp2equ.y = self.ty2tp.ytran
+
+        self.tp2equ.tranpos()
+        self.xtran = self.tp2equ.xtran
+        self.ytran = self.tp2equ.ytran
+
+    def trancov(self):
+
+        """Transforms covariances from xy to equ"""
+
+        # To ensure the positions going in to tp2equ.trancov are
+        # correct, we propagate the positions into the tangent plane
+        # as well. This *should* be redundant as long as all the calls
+        # are first to tranpos() and then to trancov(). But that's the
+        # kind of detail I can easily forget, so we sacrifice just a
+        # little speed for safety.
+        self.xy2tp.tranpos()
+        self.tp2equ.x = self.xy2tp.xtran
+        self.tp2equ.y = self.ty2tp.ytran
+        
+        self.xy2tp.trancov()
+        self.tp2equ.covxy = self.xy2tp.covtran
+
+        self.tp2equ.trancov()
+        self.covtran = self.tp2equ.covtran
+
+    def propagate(self):
+
+        """Propagates positions and covariances from xy to equatorial"""
+
+        self.tranpos()
+        self.trancov()
+
+        # 2024-09-04 just a little worried this seems to be necessary...
+        self.xytran[:,0] = self.xtran
+        self.xytran[:,1] = self.ytran
+
+    def getlabels(self):
+
+        """Gets plot labels for the full transformation"""
+
+        # Tangent point labels
+        labelstp = self.tp2equ.getlabels()
+
+        # Now the x, y polynomial labels. Need to be just a little
+        # careful since the separate pointing arguments in the XY
+        # plane will not usually be present.
+        labelsx, labelsy = self.xy2tp.getlabels(retboth=True)
+
+        # if the parameters do not include the pointing in the XY
+        # frame, trim them down
+        ilo=0
+        if not self.polyhasxy0:
+            ilo = 1
+
+        # now return the labels
+        return labelstp + labelsx[ilo::] + labelsy[ilo::]
+        
+class TangentPlane(object):
+
+    """Methods to map positions from the sky (the catalog) and the focal
+plane (X,Y data), and their covariances, onto the tangent plane for
+comparison."""
+
+    def __init__(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
+                 pars=np.array([]), kindpoly='Polynomial', \
+                 radec=np.array([]), covradec=np.array([]), \
+                 Verbose=False, \
+                 xmin=None, xmax=None, ymin=None, ymax=None):
+
+        # control variables
+        self.Verbose = Verbose
+        
+        # Distribute the parameters for the two transformations
+        self.PV = Parvec(pars)
+
+        # Set up the transformation objects
+        self.xy2tp = Poly(x, y, covxy, self.PV.parsx, self.PV.parsy, \
+                          kind=kindpoly, xmin=xmin, xmax=xmax, \
+                          ymin=ymin, ymax=ymax, checkparsy=False, \
+                          Verbose=self.Verbose)
+
+        self.eq2tp = Equ2tan(radec[:,0], radec[:,1], covradec, \
+                             pars=self.PV.tangentpoint, degrees=True, \
+                             Verbose=self.Verbose)
+        
+
+    def updatetransf(self, pars=np.array([]) ):
+
+        """One-liner to update the transformations onto the tangent plane"""
+
+        if np.size(pars) < 1:
+            return
+
+        self.PV.ingestpars(pars)
+
+    def tranpos(self):
+
+        """Transforms source and target positions onto the tangent plane"""
+
+        bob = 3
+        # THOUGHT - WE ARE TRANSFORMING BOTH FOR THE FIRST
+        # TIME. ENSURE Lnlike() KNOWS HOW TO HANDLE THIS.
         
 class Sky(object):
 
