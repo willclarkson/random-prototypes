@@ -55,7 +55,7 @@ multiprocessing.
         self.guess1d = np.array([])
 
         # For perturbing the initial guess (1d) for the minimizer
-        self.nudgescale_guess1d = 1.0e-2
+        self.nudgescale_guess1d = 1.0e-3
         self.nudge_guess1d = np.array([])
         self.nudge_seed = None
         self.nudge_pointing_arcsec = 5. # for pointing arguments
@@ -215,9 +215,8 @@ parameters.
 
         # If the guess has a tangent point, set the nudge accordingly
         if self.guess.hastangentpoint:
-            ihalf = int(np.size(self.nudge_guess1d)*0.5)
             self.nudge_guess1d[0] = self.nudge_pointing_arcsec / 3600.
-            self.nudge_guess1d[ihalf] = self.nudge_pointing_arcsec / 3600.
+            self.nudge_guess1d[1] = self.nudge_pointing_arcsec / 3600.
         
     def nudgeguess1d(self, seed=None):
 
@@ -227,7 +226,7 @@ been given as the guess)
 """
 
         # Ensure the nudge guess is appropriately scaled
-        if np.size(self.nudgescale_guess1d) < 1:
+        if np.size(self.nudge_guess1d) < 1:
             self.scalenudgeguess()
         
         rng = np.random.default_rng(self.nudge_seed)
@@ -545,7 +544,6 @@ our initial state for MCMC exploration.
             # initial guess for the minimizer
             self.guessfromlstsq()
 
-            
         # Setup and run the minimizer using the lstsq fit as input,
         # and shunt the result across to the guess object
         self.setupfitargs()
@@ -584,6 +582,12 @@ Returns:
     mc = MCMCrun(pathsim, pathfit, chainlen)
     mc.dosim()
     mc.doguess()
+
+    print("MC debug:")
+    print(mc.sim.Parset.model)
+    print(mc.guess.Parset.model)
+    print(mc.guess_parset.model)
+    
     mc.setupwalkers()
     mc.setargs_emcee()
 

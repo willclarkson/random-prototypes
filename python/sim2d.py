@@ -613,8 +613,12 @@ objects"""
             if transfname.find('xy2equ') > -1:
                 print("makepars INFO - swapping in field center:")
                 ihalf = int(np.size(self.pars_transf)*0.5)
-                self.pars_transf[0] = self.alpha0
-                self.pars_transf[ihalf] = self.delta0
+
+                pars_poly = np.copy(self.pars_transf)
+                pars_point = np.hstack(( self.alpha0, self.delta0 ))
+
+                self.pars_transf = np.hstack(( pars_point, pars_poly[1:ihalf], pars_poly[ihalf+1::] ))
+                
             
             return
 

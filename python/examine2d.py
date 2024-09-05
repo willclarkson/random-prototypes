@@ -597,7 +597,8 @@ and background"""
         
             
 def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
-              pathfig='test_guess_deltas.png', showargs={}):
+              pathfig='test_guess_deltas.png', showargs={}, \
+              usetruths=False, showquiver=True):
 
     """Plots up the guess transformation, noise, etc., before running mcmc.
 
@@ -618,6 +619,10 @@ Inputs:
     showargs = {} = arguments returned from setupmcmc that include
     truth parameters
 
+    usetruths [T/F] - use truth parameters for plots if we have them
+    
+    showquiver [T/F] - plot quiver plot showing residuals
+
     """
 
     # DO NOT REFACTOR the binning into Flatsamples: we want this to
@@ -625,7 +630,7 @@ Inputs:
     
     # Parse the keywords in the input arguments
     try:
-        llike = esargs['args'][4]
+        llike = copy.deepcopy(esargs['args'][4])
         obstarg = llike.obstarg
         transf = llike.transf
     except:
@@ -639,7 +644,18 @@ Inputs:
     if 'truthset' in showargs.keys():
         if 'parset' in showargs['truthset'].keys():
             ptruth = showargs['truthset']['parset']
-    
+
+            # If asked to use the truth parameters, copy them in to
+            # the llike object and update
+            if usetruths:
+                #print(llike.transf.xytran[0], obstarg.xy[0])
+                print("showguess INFO - using truth parameters for plots")
+                llike.updatesky(ptruth)
+                transf = llike.transf
+
+                #print(llike.transf.xytran[0], obstarg.xy[0])
+
+                
     # Views of necessary pieces: target frame...
     xytarg = obstarg.xy
     mags = obstarg.mags
@@ -847,6 +863,39 @@ Inputs:
     # save to disk
     if len(pathfig) > 3:
         fig2.savefig(pathfig)
+
+    if not showquiver:
+        return
+
+    fig3 = plt.figure(fignum+1, figsize=(8.1, 2.6))
+    fig3.clf()
+    ax31 = fig3.add_subplot(121)
+
+    # Ranges for quiver plot
+    # mmin = np.min(mags)
+    # mmax = np.max(mags)
+    
+    quiv_fg = ax31.quiver(xytarg[bfg, 0], xytarg[bfg, 1], \
+                          dxytran[bfg,0], dxytran[bfg,1], \
+                          mags[bfg])
+    cbar1 = fig3.colorbar(quiv_fg, ax=ax31)
+
+    if np.sum(bbg) > 0:
+        ax32 = fig3.add_subplot(122, sharex=ax31, sharey=ax31)
+
+        quiv_bg = ax32.quiver(xytarg[bbg, 0], xytarg[bbg, 1], \
+                              dxytran[bbg,0], dxytran[bbg,1], \
+                              mags[bbg])
+        cbar2 = fig3.colorbar(quiv_bg, ax=ax32)
+
+    for ax in [ax31, ax32]:
+        ax.set_xlabel(r'$\xi$')
+        ax.set_ylabel(r'$\eta$')
+
+    ax31.set_title('foreground')
+    ax32.set_title('outliers')
+        
+    fig3.subplots_adjust(left=0.18, bottom=0.17, hspace=0.3, wspace=0.49)
     
 def showresps(flatsamples=None, fignum=8, logx=False, creg=1.0e5, wantbg=True, \
               clobber=True):
