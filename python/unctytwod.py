@@ -1016,6 +1016,10 @@ parameters. Anticipating the eventual use-case, the x and y parameters are assum
         if np.size(parsx) < 1:
             return
 
+        # the 1d parameters are not used. Set for consistency
+        self.parsx = np.copy(parsx)
+        self.parsy = np.copy(parsy)
+        
         # ... the 2d parameters...
         self.pars2x.updatecoeffs(parsx)
         self.pars2y.updatecoeffs(parsy)

@@ -55,7 +55,7 @@ multiprocessing.
         self.guess1d = np.array([])
 
         # For perturbing the initial guess (1d) for the minimizer
-        self.nudgescale_guess1d = 1.0e-3
+        self.nudgescale_guess1d = 1.0e-2
         self.nudge_guess1d = np.array([])
         self.nudge_seed = None
         self.nudge_pointing_arcsec = 5. # for pointing arguments
@@ -226,7 +226,7 @@ been given as the guess)
 """
 
         # Ensure the nudge guess is appropriately scaled
-        if np.size(self.nudge_guess1d) < 1:
+        if np.size(self.nudge_guess1d) != np.size(self.guess1d):
             self.scalenudgeguess()
         
         rng = np.random.default_rng(self.nudge_seed)
@@ -234,7 +234,7 @@ been given as the guess)
         #    * self.nudgescale_guess1d * self.guess1d
 
         pertns = rng.normal(size=np.size(self.guess1d)) \
-            * self.nudgescale_guess1d
+            * self.nudge_guess1d
 
         
         self.guess1d += pertns
