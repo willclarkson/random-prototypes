@@ -535,7 +535,7 @@ Returns:
         # Do we want stdy/stdx instead of vy
         if self.covsum_samples_has_ryx:
             covs_samples[:,:,1,1] = np.sqrt(covs_samples[:,:,1,1] / covs_samples[:,:,0,0])
-            
+
         # compute the median and percentiles here
         if Verbose:
             print("")
@@ -571,6 +571,11 @@ and background"""
 
         dxytran = xytran - xytarg
 
+        # The responsibilities might not be present in the lnlike
+        # object but in the flatsamples object. Look for them here.
+        if np.size(resps_fg) < 1:
+            resps_fg = np.copy(self.resps_avg)
+        
         # Now identify foreground and background objects. Assume all
         # objects are foreground unless we have already computed the
         # responsibilities.
