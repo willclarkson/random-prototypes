@@ -1539,19 +1539,24 @@ Example call:
     # take just the model parameters
     nmcmc = np.shape(covsmcmc)[0]
     nlsq = np.shape(covslsq)[0]
-    if nmcmc > nlsq:
+    if nmcmc > nlsq and nlsq > 0:
         covsmcmc = covsmcmc[0:nlsq, 0:nlsq]
 
         # not sure this is still needed - comment out for the moment
         # slabels = dcovs[keylabels][0:nlsq]
-    
+
     # Showing a heatmap of one of the quantities
     fig6 = plt.figure(6, figsize=(8,6))
     fig6.clf()
-    ax61 = fig6.add_subplot(221)
-    ax62 = fig6.add_subplot(222)
-    ax63 = fig6.add_subplot(224)
-
+    if nlsq > 0:
+        ax61 = fig6.add_subplot(221)
+        ax62 = fig6.add_subplot(222)
+        ax63 = fig6.add_subplot(224)
+    else:
+        ax61 = fig6.add_subplot(111)
+        ax62 = None
+        ax63 = None
+        
     # if log, we can meaningfully show the text. Otherwise
     # don't. (Kept out as a separate quantity in case we want to add
     # more conditions here.)
@@ -1566,25 +1571,28 @@ Example call:
                 log=log, sqrt=sqrt, \
                 cmap='viridis_r', title='MCMC', \
                 showtext=showtxt, fontsz=fontsz)
-    showheatmap(covslsq, slabels, ax=ax62, fig=fig6, \
-                log=log, sqrt=sqrt, \
-                cmap='viridis_r', title='LSQ', \
-                showtext=showtxt, fontsz=fontsz)
 
-    # find the fractional difference. The mcmc has already been cut
-    # down to match the lsq length above, so if the arrays still
-    # mismatch their lengths then something is wrong with the input.
-    fdiff = (covslsq - covsmcmc)/covsmcmc
-    titlediff = r'(LSQ - MCMC)/MCMC'
-    showheatmap(fdiff, slabels[0:nlsq], ax=ax63, fig=fig6, log=False, \
-                cmap='RdBu_r', title=titlediff, showtext=True, \
-                symmetriclimits=True, symmquantile=0.99, \
-                fontcolor='#D86018', fontsz=fontsz)
+    if nlsq > 0:
+        showheatmap(covslsq, slabels, ax=ax62, fig=fig6, \
+                    log=log, sqrt=sqrt, \
+                    cmap='viridis_r', title='LSQ', \
+                    showtext=showtxt, fontsz=fontsz)
+
+        # find the fractional difference. The mcmc has already been
+        # cut down to match the lsq length above, so if the arrays
+        # still mismatch their lengths then something is wrong with
+        # the input.
+        fdiff = (covslsq - covsmcmc)/covsmcmc
+        titlediff = r'(LSQ - MCMC)/MCMC'
+        showheatmap(fdiff, slabels[0:nlsq], ax=ax63, fig=fig6, log=False, \
+                    cmap='RdBu_r', title=titlediff, showtext=True, \
+                    symmetriclimits=True, symmquantile=0.99, \
+                    fontcolor='#D86018', fontsz=fontsz)
 
     # Warn on the plots if more mcmc parameters were supplied than
     # used. In all the use cases these should be noise parameters that
     # the LSQ covariances don't have, so it's not an "error".
-    if nmcmc > nlsq:
+    if nmcmc > nlsq and nlsq > 0:
         ax61.annotate('MCMC params ignored: %i' % (nmcmc-nlsq), \
                       (0.97,0.97), xycoords='axes fraction', \
                       ha='right', va='top', fontsize=8, \
