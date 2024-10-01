@@ -1851,6 +1851,12 @@ Inputs:
         # Initialize a couple of needed things
         self.inittran()
 
+        # Plot labels
+        self.labelx = r'$X$'
+        self.labely = r'$Y$'
+        self.labelxtran = r'$\alpha$'
+        self.labelytran = r'$\delta$'
+
         
     def initpars(self):
 
@@ -1986,7 +1992,8 @@ comparison."""
         
         # Distribute the parameters for the two transformations
         self.PV = Parvec(pars)
-
+        self.polyhasxy0 = PV.hasxy0
+        
         # Set up the transformation objects
         self.xy2tp = Poly(x, y, covxy, self.PV.parsx, self.PV.parsy, \
                           kind=kindpoly, xmin=xmin, xmax=xmax, \
@@ -1998,6 +2005,40 @@ comparison."""
                              Verbose=self.Verbose)
         
 
+        # attributes expected by the likelihood object
+        self.x = x
+        self.y = y
+        self.covxy = covxy
+
+        self.initxytran()
+        self.covtran = np.array([])
+
+        self.initxytarg()
+        self.covtarg = np.array([])
+
+        # plot labels
+        self.labelx = r'$X$'
+        self.labely = r'$Y$'
+        self.labelxtran = r'$\xi$'
+        self.labelytran = r'$\eta$'
+        
+        # Propagate on initialization (WATCHOUT - might fail if blank
+        # initialization)
+        self.propagate()
+        
+    def initxytran(self):
+
+        """Initializes xytran to same size as input data"""
+
+        self.xytran = np.zeros(( 2, np.size(self.x) ))
+
+    def initxytarg(self):
+
+        """Initializes xytarg array"""
+
+        self.xytarg = np.zeros(( 2, np.size(self.x) ))
+
+        
     def updatetransf(self, pars=np.array([]) ):
 
         """One-liner to update the transformations onto the tangent plane"""
@@ -2005,15 +2046,78 @@ comparison."""
         if np.size(pars) < 1:
             return
 
+        # Update the parameters to the two transformation
+        # objects. Note that this also updates the jacobians for the
+        # uncertainties for each object via the methods in those objects.
         self.PV.ingestpars(pars)
+        self.polyhasxy0 = PV.hasxy0
 
+        self.xy2tp.updatetransf(np.hstack(( self.PV.parsx, self.PV.parsy )) )
+        self.eq2tp.updatetransf(self.PV.tangentpoint)
+        
     def tranpos(self):
 
         """Transforms source and target positions onto the tangent plane"""
 
-        bob = 3
-        # THOUGHT - WE ARE TRANSFORMING BOTH FOR THE FIRST
-        # TIME. ENSURE Lnlike() KNOWS HOW TO HANDLE THIS.
+        self.xy2tp.tranpos()
+        self.eq2tp.tranpos()
+
+        # The way we handle the transformed positions is still a bit
+        # inefficient. Currently we have both the 1d and 2d versions
+        # present, to be used by different routines. This really ought
+        # to be systematized. For the moment we live with it...
+        self.xtran = self.xy2tp.xtran
+        self.ytran = self.xy2tp.ytran
+        self.xtarg = self.eq2tp.xtran
+        self.ytarg = self.eq2tp.ytran
+        
+        # Propagated from xy plane...
+        self.xytran[:,0] = self.xtran
+        self.xytran[:,1] = self.ytran
+
+        # Propagated from the sphere
+        self.xytarg[:,0] = self.xtran
+        self.xytarg[:,1] = self.ytran
+
+    def trancov(self):
+
+        """Propagates the covariances from the xy and sphere to the tangent
+plane"""
+
+        # Probably need to be a bit careful when calling this to
+        # ensure that the positions have been propagated first...
+        self.xy2tp.trancov()
+        self.eq2tp.trancov()
+
+        # Now shunt into place
+        self.covtran = self.xy2tp.covtran
+        self.covtarg = self.eq2tp.covtarg
+
+    def propagate(self):
+
+        """One-liner to propagate both the positions and covariances from the xy and sphere onto the tangent plane, as xytran, xytarg, respectively (and similar for covariances)"""
+
+        self.tranpos()
+        self.trancov()
+
+    def getlabels(self):
+
+        """Returns plot labels for parameters"""
+
+        # Tangent point labels
+        labelstp = self.eq2tp.getlabels()
+
+        # Polynomial labels
+        labelsx, labelsy = self.xy2tp.getlabels(retboth=True)
+
+        # if the parameters do not include the pointing in the XY
+        # frame, trim them down
+        ilo=0
+        if not self.polyhasxy0:
+            ilo = 1
+
+        # now return the labels
+        return labelstp + labelsx[ilo::] + labelsy[ilo::]
         
 class Sky(object):
 

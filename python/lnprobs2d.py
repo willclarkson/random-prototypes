@@ -238,11 +238,14 @@ class Like(object):
         # Transformed positions using the current parameters
         self.xytran = np.array([])
 
+        # Target positions (which could be parameter-dependent)
+        self.xytarg = np.copy(self.obstarg.xy)
+        
         # Magnitude zeropoint to use when applying the noise model
         self.mag0 = 0.
         
         # Noise components
-        self.covtarg = self.obstarg.covxy
+        self.covtarg = np.copy(self.obstarg.covxy)
         self.covtran = 0.
         self.covextra = 0.
         self.covoutly = self.covtarg * 0.
@@ -352,7 +355,8 @@ class Like(object):
 
         """
 
-        self.dxy = self.xytran - self.obstarg.xy
+        # self.dxy = self.xytran - self.obstarg.xy
+        self.dxy = self.xytran - self.xytarg
 
     def updatesky(self, parset=None):
 
@@ -375,6 +379,18 @@ deltas and projected summed covariances."""
         
         self.tranposns()
         self.trancovs()
+
+        # If the transformation object also changes the observed
+        # points, we need to propagate that so that the deltas will be
+        # correct. For the moment we use a conditional since only one
+        # of the transf methods actually does this. Consider adding a
+        # dummy method to all the others so that the calls are
+        # uniform.
+        if hasattr(self.transf,'xytarg'):
+            self.xytarg = self.transf.xytarg
+        if hasattr(self.transf, 'covtarg'):
+            self.covtarg = self.transf.covtarg
+        
         self.calcextracovar()
         self.sumcovars()
         self.calcdeltas()
