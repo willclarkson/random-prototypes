@@ -445,12 +445,18 @@ Returns: nothing
         if not hasattr(self.transftruth, 'xytran'):
             return
 
-        if not hasattr(self.inp_lnlike, 'obstarg'):
-            return
-        
         xyproj_truth = self.transftruth.xytran
-        xytarg = self.inp_lnlike.obstarg.xy
-
+        
+        # 2024-10-02 UPDATE - now use the likelihood object's xytarg,
+        # since we might be comparing in a frame other than the
+        # observation frame.        
+        #if not hasattr(self.inp_lnlike, 'obstarg'):
+        #    return
+        
+        # xytarg = self.inp_lnlike.obstarg.xy
+        
+        xytarg = self.inp_lnlike.xytarg
+        
         self.dxyproj_truthpars = xyproj_truth - xytarg
 
     def computecovars(self):
@@ -563,9 +569,13 @@ and background"""
 
         if not hasattr(self.inp_lnlike,'transf'):
             return
+
+        # We now may be performing the comparison in a frame other
+        # than the observation frame. So:
+        xytarg = self.inp_lnlike.xytarg
         
         mags = self.inp_lnlike.obstarg.mags
-        xytarg = self.inp_lnlike.obstarg.xy
+        # xytarg = self.inp_lnlike.obstarg.xy
         resps_fg = self.inp_lnlike.resps_fg
         xytran = self.inp_lnlike.transf.xytran
 
@@ -659,15 +669,40 @@ Inputs:
 
                 
     # Views of necessary pieces: target frame...
-    xytarg = obstarg.xy
+    #xytarg = obstarg.xy
+    #covtarg = obstarg.covxy
+    xytarg = llike.xytarg
+    covtarg = llike.covtarg
     mags = obstarg.mags
-    covtarg = obstarg.covxy
     isfg = obstarg.isfg
 
     # ... and observation frame
     xyobs = np.column_stack(( transf.x, transf.y ))
     covobs = transf.covxy
 
+    # labels for coordinates
+    labelxsrc = r'$X$'
+    labelysrc = r'$Y$'
+    labelxtran = r'$\xi$'
+    labelytran = r'$\eta$'
+    if hasattr(transf,'labelxtran'):
+        labelxtran = transf.labelxtran[:]
+    if hasattr(transf,'labelytran'):
+        labelytran = transf.labelytran[:]
+    if hasattr(transf,'labelx'):
+        labelxsrc = transf.labelx
+    if hasattr(transf,'labely'):
+        labelysrc = transf.labely
+        
+    labeldxtran = r'$\Delta %s$' % (labelxtran.replace('$',''))
+    labeldytran = r'$\Delta %s$' % (labelytran.replace('$',''))
+
+    labelvxxsrc = r'$V_{%s%s}$' % (labelxsrc.replace('$',''), \
+                                    labelxsrc.replace('$',''))
+
+    labelvxxtran = r'$V_{%s%s}$' % (labelxtran.replace('$',''), \
+                                    labelxtran.replace('$',''))
+    
     # Positions transformed using the guess parameters: their deltas
     dxytran = transf.xytran - xytarg
 
@@ -744,13 +779,13 @@ Inputs:
 
     # Some axis label carpentry
     for ax in [ax37, ax31, ax34]:
-        ax.set_xlabel(r'$\Delta \xi$') # now that there's room
-    ax37.set_ylabel(r'$\Delta \eta$')
+        ax.set_xlabel(labeldxtran) # now that there's room
+    ax37.set_ylabel(labeldytran)
 
-    ax38.set_xlabel(r'$\xi$')
-    ax39.set_xlabel(r'$\eta$')
-    ax34.set_ylabel(r'$\xi$')
-    ax31.set_ylabel(r'$\eta$')
+    ax38.set_xlabel(labelxtran)
+    ax39.set_xlabel(labelytran)
+    ax34.set_ylabel(labelxtran)
+    ax31.set_ylabel(labelytran)
 
     # How do our responsibilities look?
     ax35 = fig2.add_subplot(335)
@@ -758,7 +793,7 @@ Inputs:
                          cmap='inferno', s=4, edgecolor=None, vmax=1., \
                          alpha=0.7)
     cbar35 = fig2.colorbar(dum35, ax=ax35, label=r'$f_fg$')
-    ax35.set_xlabel(r'$\Delta \xi$')
+    ax35.set_xlabel(labeldxtran)
     
     # Colorbars
     for obj, ax in zip([resid, residyx, residyy, residxx, residxy], \
@@ -851,8 +886,8 @@ Inputs:
     if np.sum(bpos) > 2:
         ax32.set_yscale('log')
     ax33.set_yscale('log')
-    ax32.set_ylabel(r'$V_{xx}$')
-    ax33.set_ylabel(r'$V_{\xi\xi}$')
+    ax32.set_ylabel(labelvxxsrc)
+    ax33.set_ylabel(labelvxxtran)
 
     leg = ax33.legend(fontsize=5)
 
@@ -903,13 +938,13 @@ Inputs:
         cbar2 = fig3.colorbar(quiv_bg, ax=ax32)
 
     for ax in [ax31, ax32]:
-        ax.set_xlabel(r'$\xi$')
-        ax.set_ylabel(r'$\eta$')
+        ax.set_xlabel(labelxtran)
+        ax.set_ylabel(labelytran)
 
-    ax33.set_xlabel(r'$\xi$')
-    ax33.set_ylabel(r'$\Delta \xi$')
-    ax34.set_xlabel(r'$\eta$')
-    ax34.set_ylabel(r'$\Delta \eta$')
+    ax33.set_xlabel(labelxtran)
+    ax33.set_ylabel(labeldxtran)
+    ax34.set_xlabel(labelytran)
+    ax34.set_ylabel(labeldytran)
         
 
     
@@ -1022,8 +1057,8 @@ Example call:
                               ['Generated', 'Avg(samples)']):
         cbar = fig9.colorbar(obj, ax=ax, label=label)
 
-        ax.set_xlabel(r'$\Delta \xi$')
-        ax.set_ylabel(r'$\Delta \eta$')
+        ax.set_xlabel(labeldxtran)
+        ax.set_ylabel(labeldytran)
 
     fig9.subplots_adjust(left=0.3, bottom=0.11, hspace=0.4)
 

@@ -503,7 +503,7 @@ choose."""
                  parsx=np.array([]), parsy=np.array([]), degrees=True, \
                  kind='Polynomial', Verbose=False, \
                  xmin=None, xmax=None, ymin=None, ymax=None, \
-                 xisxi=True, checkparsy=False):
+                 xisxi=False, checkparsy=False):
 
         # Inputs
         self.x = x
