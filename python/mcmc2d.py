@@ -122,6 +122,7 @@ dataset"""
         self.guess = Guess(self.sim.Obssrc, self.sim.Obstarg)
         self.guess.loadconfig(self.parfile_guess)
 
+        
     def initguessfromtruth(self):
 
         """Initializes the initial guess from truth parameters if we have
@@ -544,6 +545,7 @@ our initial state for MCMC exploration.
             # initial guess for the minimizer
             self.guessfromlstsq()
 
+            
         # Setup and run the minimizer using the lstsq fit as input,
         # and shunt the result across to the guess object
         self.setupfitargs()

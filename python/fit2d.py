@@ -133,7 +133,7 @@ likely work better.)
 
         # Indicator: does the transformation have the tangent point as
         # its first two entries?
-        self.transfswithtp = ['xy2equ', 'Equ2tan', 'Tan2equ']
+        self.transfswithtp = ['xy2equ', 'Equ2tan', 'Tan2equ', 'TangentPlane']
         self.hastangentpoint = False
         
         # guess for transformation
@@ -535,12 +535,30 @@ supplied as None"""
 
         # Convenience views. Don't forget the domain!
         xy = self.obssrc.xy
-        self.PGuess = self.transf(xy[:,0], xy[:,1], \
-                                  self.obssrc.covxy, \
-                                  self.Parset.model, \
-                                  kind=self.polyfit, \
-                                  checkparsy=True, \
-                                  xmin=self.obssrc.xmin, \
-                                  xmax=self.obssrc.xmax, \
-                                  ymin=self.obssrc.ymin, \
-                                  ymax=self.obssrc.ymax)
+
+        # this is just a little specialized... if our transformation
+        # also works on observation data, we call that too
+        if self.transf.__name__.find('TangentPlane') < 0:
+            self.PGuess = self.transf(xy[:,0], xy[:,1], \
+                                      self.obssrc.covxy, \
+                                      self.Parset.model, \
+                                      kind=self.polyfit, \
+                                      checkparsy=True, \
+                                      xmin=self.obssrc.xmin, \
+                                      xmax=self.obssrc.xmax, \
+                                      ymin=self.obssrc.ymin, \
+                                      ymax=self.obssrc.ymax)
+        else:
+            # only if transf is 'TangentPlane,' we pass the
+            # observation data too
+            radec = self.obstarg.xy
+            covradec = self.obstarg.covxy
+            self.PGuess = self.transf(xy[:,0], xy[:,1], \
+                                      self.obssrc.covxy, \
+                                      self.Parset.model, \
+                                      kindpoly=self.polyfit, \
+                                      radec=radec, covradec=covradec, \
+                                      xmin=self.obssrc.xmin, \
+                                      xmax=self.obssrc.xmax, \
+                                      ymin=self.obssrc.ymin, \
+                                      ymax=self.obssrc.ymax)

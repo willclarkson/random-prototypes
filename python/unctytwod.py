@@ -1992,7 +1992,7 @@ comparison."""
         
         # Distribute the parameters for the two transformations
         self.PV = Parvec(pars)
-        self.polyhasxy0 = PV.hasxy0
+        self.polyhasxy0 = self.PV.hasxy0
         
         # Set up the transformation objects
         self.xy2tp = Poly(x, y, covxy, self.PV.parsx, self.PV.parsy, \
@@ -2030,13 +2030,13 @@ comparison."""
 
         """Initializes xytran to same size as input data"""
 
-        self.xytran = np.zeros(( 2, np.size(self.x) ))
+        self.xytran = np.zeros(( np.size(self.x), 2 ))
 
     def initxytarg(self):
 
         """Initializes xytarg array"""
 
-        self.xytarg = np.zeros(( 2, np.size(self.x) ))
+        self.xytarg = np.zeros(( np.size(self.x), 2 ))
 
         
     def updatetransf(self, pars=np.array([]) ):
@@ -2050,7 +2050,7 @@ comparison."""
         # objects. Note that this also updates the jacobians for the
         # uncertainties for each object via the methods in those objects.
         self.PV.ingestpars(pars)
-        self.polyhasxy0 = PV.hasxy0
+        self.polyhasxy0 = self.PV.hasxy0
 
         self.xy2tp.updatetransf(np.hstack(( self.PV.parsx, self.PV.parsy )) )
         self.eq2tp.updatetransf(self.PV.tangentpoint)
@@ -2076,8 +2076,8 @@ comparison."""
         self.xytran[:,1] = self.ytran
 
         # Propagated from the sphere
-        self.xytarg[:,0] = self.xtran
-        self.xytarg[:,1] = self.ytran
+        self.xytarg[:,0] = self.xtarg
+        self.xytarg[:,1] = self.ytarg
 
     def trancov(self):
 
@@ -2091,7 +2091,7 @@ plane"""
 
         # Now shunt into place
         self.covtran = self.xy2tp.covtran
-        self.covtarg = self.eq2tp.covtarg
+        self.covtarg = self.eq2tp.covtran
 
     def propagate(self):
 
