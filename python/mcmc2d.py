@@ -175,6 +175,13 @@ parameters.
 
         self.lnprior = Prior(self.guess.Parset)
 
+        # Ensure the lnprior object knows which indices correspond to
+        # {a,b,c,d,e,f}
+        print(self.guess.PGuess.inds1d_6term)
+        if hasattr(self.guess.PGuess,'inds1d_6term'):
+            self.lnprior.inds1d_6term = \
+                self.guess.PGuess.inds1d_6term
+        
     def setuplnlike(self):
 
         """Sets up the ln(likelihood) object for minimization and/or emcee"""
@@ -421,6 +428,11 @@ walker positions"""
         if self.labels is not None:
             self.args_show['corner']['labels'] = self.labels
 
+        # Set the number of model parameters for the nuisance
+        # parameter highlighting
+        self.args_show['corner']['nmodel'] \
+            = np.size(self.guess.Parset.model)
+            
     def setargs_truthset(self):
 
         """Passes paramset object for the truth parameters as an output
@@ -530,6 +542,7 @@ our initial state for MCMC exploration.
         # Sets up the guess object
         self.setupguess()
 
+        
         # How we specify the "guess" depends on whether we can do a
         # least-squares fit to arrive at one.
         if self.guess.transf.__name__.find('Poly') < 0:
@@ -648,7 +661,11 @@ Returns:
         if Verbose:
             print("mcmc2d.getflatsamples INFO - max autocorr time: %.2e" \
                   % (tauto))
-        
+
+        if np.isnan(tauto):
+            print("mcmc2dgetflatsamples WARN - autocorr time is nan")
+            tauto = 200.
+            
     except:
         if Verbose:
             print("mcmc2d.getflatsamples WARN - long autocorrelation time compared to chain length")

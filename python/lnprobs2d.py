@@ -52,6 +52,10 @@ class Prior(object):
         self.islog10_mix_vxx = True
         self.islog10_noise_ryx = False
         self.islog10_noise_c = False
+
+        # Which model parameters correspond to {a,b,c,d,e,f} in the
+        # linear transformation?
+        self.inds1d_6term = np.array([])
         
         # Distribute the parameters and options on initialization
         self.distributepars()

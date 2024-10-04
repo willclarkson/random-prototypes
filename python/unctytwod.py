@@ -555,19 +555,14 @@ choose."""
         self.setdomain()
         self.setjacrescale()
         self.rescalepos()
-        
-        # Polynomial convenience class instance - default to
-        # Polynomial. COMMENTED OUT BECAUSE NOT USING CONVENIENCE CLASS
-        # self.P = polynomial.Polynomial
-        # self.polx = None
-        # self.poly = None
-        
-        # data domains for polynomial convenience classes
-        #
-        # COMMENTED OUT FOR NOW AS WE ARE FORCING THE DOMAIN
-        #self.domainx = np.array([-1., 1.])
-        #self.domainy = np.array([-1., 1.])
-        #self.setdomains()
+
+        # No matter which choice of polynomial, the first three
+        # coefficients in each direction are {a,b,c} in {a + bx +
+        # cy}. Note that these are the indices in the abutted {parsx,
+        # parsy, nuisance} parameters vector that will be output from
+        # the MCMC.
+        self.inds1d_6term = np.array([])
+        self.setinds_6term()
         
         # Coefficients objects (to handle the translation from 1D
         # input to the 2D that the polynomial methods will expect:
@@ -633,7 +628,20 @@ array.
         npx = int(np.size(self.parsx)/2)
         self.parsy = self.parsx[npx::]
         self.parsx = self.parsx[0:npx]
-            
+
+    def setinds_6term(self):
+
+        """Utility - sets identifier attribute for the indices in the final 1d
+parameter set {parsx, parsy, any nuisance parameters...} that
+corresponds to {a,b,c,d,e,f} in 
+
+        xi = a + bx + cy
+        eta = d + ex + fy
+
+        """
+
+        l3 = np.arange(3, dtype='int')
+        self.inds1d_6term = np.hstack(( l3, l3 + np.size(self.parsx) ))
         
     def initxytran(self):
 
@@ -1848,6 +1856,10 @@ Inputs:
         self.tp2equ = Tan2equ(pars=self.tangentpoint, \
                               Verbose=self.Verbose)
 
+        # Attribute telling which indices in the parameters vector
+        # correspond to a linear transformation
+        self.inds1d_6term = self.xy2tp.inds1d_6term
+        
         # Initialize a couple of needed things
         self.inittran()
 
@@ -2005,6 +2017,10 @@ comparison."""
                              Verbose=self.Verbose)
         
 
+        # Which indices in the output parameter vector correspond to
+        # the 6-term linear transformation
+        self.inds1d_6term = np.copy(self.xy2tp.inds1d_6term)
+        
         # attributes expected by the likelihood object
         self.x = x
         self.y = y
