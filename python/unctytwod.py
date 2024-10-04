@@ -400,6 +400,10 @@ class Parvec(object):
 
         # Do the parameters contain separate x0, y0 parameters?
         self.hasxy0 = True
+
+        # utility attribute - which parameters correspond to
+        # (a,b,c,d,e,f) in 6-term transformation
+        self.inds1d_6term = np.array([])
         
         # Ingest the parameters on initialization
         self.initpars()
@@ -450,6 +454,9 @@ Returns: N/A
         parsx = parsxy[0:imid]
         parsy = parsxy[imid::]
 
+        # Set the attribute for the abcdef parameters
+        self.inds1d_6term = [0,2,3,1, imid+2, imid+3]
+        
         PC = Polycoeffs(Verbose=False)
         degx = PC.degfromcoeffs(parsx.size)
         if degx - int(degx) > 0:
@@ -1836,7 +1843,7 @@ Inputs:
         # Control variable
         self.Verbose = Verbose
         
-        # Set up the relevant parameters
+        # Set up the relevant parameters (including inds1d_6term)
         self.initpars()
         self.updatepars(pars)
 
@@ -1856,9 +1863,6 @@ Inputs:
         self.tp2equ = Tan2equ(pars=self.tangentpoint, \
                               Verbose=self.Verbose)
 
-        # Attribute telling which indices in the parameters vector
-        # correspond to a linear transformation
-        self.inds1d_6term = self.xy2tp.inds1d_6term
         
         # Initialize a couple of needed things
         self.inittran()
@@ -1879,6 +1883,8 @@ Inputs:
         self.tangentpoint = np.array([])
         self.polyhasxy0 = True
 
+        self.inds1d_6term = []
+        
     def inittran(self):
 
         """Initialize the xytran and covxytran attributes"""
@@ -1896,6 +1902,8 @@ Inputs:
         self.parsy = PV.parsy
         self.tangentpoint = PV.tangentpoint
         self.polyhasxy0 = PV.hasxy0
+
+        self.inds1d_6term = PV.inds1d_6term
         
     def tranpos(self):
 
@@ -2019,7 +2027,7 @@ comparison."""
 
         # Which indices in the output parameter vector correspond to
         # the 6-term linear transformation
-        self.inds1d_6term = np.copy(self.xy2tp.inds1d_6term)
+        self.inds1d_6term = np.copy(self.PV.inds1d_6term)
         
         # attributes expected by the likelihood object
         self.x = x

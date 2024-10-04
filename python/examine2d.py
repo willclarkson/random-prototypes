@@ -16,6 +16,8 @@ import copy
 from binstats2d import Binstats
 import noisemodel2d
 
+# For reordering and processing flat_samples
+import sixterm2d
 
 # for corner plots
 import matplotlib.pylab as plt
@@ -1399,7 +1401,8 @@ def showcorner(flat_samples=np.array([]), \
                labels=None, truths=None, \
                fignum=4, pathfig='test_corner_oo.png', \
                minaxesclose=20, \
-               nmodel=-1, colornuisance='#9A3324'):
+               nmodel=-1, colornuisance='#9A3324', \
+               inds_abc=[], convert_linear=False):
 
     """Corner plot of flattened samples from mcmc run.
 
@@ -1434,6 +1437,11 @@ Example call:
     if np.size(flat_samples) < 1:
         return
 
+    # convert {b,c,e,f} to {sx, sy, theta, beta} and reorder?
+    if convert_linear and np.size(inds_abc) > 5:
+        flat_samples, labels, truths = \
+            sixterm2d.flatpars(flat_samples, inds_abc, labels, truths)
+    
     # number of model parameters that are non-nuisance (default to no
     # selection)
     nsamples, ndim = flat_samples.shape

@@ -432,7 +432,15 @@ walker positions"""
         # parameter highlighting
         self.args_show['corner']['nmodel'] \
             = np.size(self.guess.Parset.model)
-            
+
+        # Indices that correspond to {a,b,c,d,e,f} in linear
+        # transformation. We may want to do this transformation when
+        # doing the corner plot.
+        self.args_show['corner']['inds_abc'] = []
+        if hasattr(self.guess.PGuess,'inds1d_6term'):
+            self.args_show['corner']['inds_abc'] = \
+                self.guess.PGuess.inds1d_6term
+        
     def setargs_truthset(self):
 
         """Passes paramset object for the truth parameters as an output
