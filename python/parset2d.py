@@ -92,7 +92,7 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         # stems for labels
         self.labelstem_transf = 'A'
         self.labels_noise = [r'$log_{10}(a)$', r'$log_{10}(b)$', r'$c$']
-        self.labels_asymm = [r'$s_y/s_x$', r'$\rho_{xy}$']
+        self.labels_asymm = [r'$\sigma_y/\sigma_x$', r'$\rho_{xy}$']
         self.labels_mix = [r'$f_{bg}$', r'$V_{bg}$']
         self.fixlabelstems()
         

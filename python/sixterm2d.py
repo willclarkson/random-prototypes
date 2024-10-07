@@ -26,6 +26,9 @@ class sixterm(object):
         self.parsin = np.atleast_2d(pars)
         self.inds = np.asarray(inds, dtype='int') # force integer array
         self.labelsin = labels[:]
+
+        if np.size(self.inds) < 1:
+            self.inds=np.arange(self.parsin.shape[-1], dtype='int')
         
         # coefficients abcdef
         self.a = np.array([])
@@ -154,7 +157,12 @@ Returns:
         self.parsout[:,self.inds[5]] = self.beta
         
         # now the labels. Unless there's a clever pythonic way to
-        # slice lists by arbitrary indices, we just build this
+        # slice lists by arbitrary indices, we just build this. Do
+        # nothing if we haven't bothered to set the output labels
+        # array
+        if np.size(self.labelsout) < 1:
+            return
+        
         linds = np.array([1,2,4,5], dtype='int')
         for iind in linds:
             self.labelsout[self.inds[iind]] = self.labels[iind]
@@ -178,9 +186,14 @@ theta, beta, others]"""
         lreorder = np.hstack(( l6term, lrest ))
 
         # now actually reorder the output
+        self.parsout = self.parsout[:,lreorder]
+
+        # Return here if we don't care about the labels
+        if np.size(self.labelsout) < 1:
+            return
+        
         alabels = np.asarray(self.labelsout)
         self.labelsout = list(alabels[lreorder])
-        self.parsout = self.parsout[:,lreorder]
 
     def trimoutput(self):
 
@@ -211,3 +224,30 @@ sy, theta, beta, including reordering and labeling"""
 
     return samples_out, labels_out, truths_out
 
+def getpars(abc=np.array([]), \
+            hasprior=np.ones(6, dtype='bool') ):
+
+    """One-liner to convert [a,b,c,d,e,f] parameters into geometric parameters, optionally selecting on priors. Returns the subset of parameters for which hasprior=True, in the order given below.
+
+Inputs:
+
+    abc = [a,b,c,d,e,f] array of linear parameters
+
+    hasprior = optional boolean array indicating which of the OUTPUT
+    parameters [a,d,sx, sy, theta, beta] we want back. This is useful
+    when extracting only the parameters on which we might have
+    informative priors.
+
+Returns:
+
+    [a,d,sx,sy,theta,beta][haspriors] = array of selected geometric
+    parameters
+
+"""
+
+    ST = sixterm(abc)#, inds=np.arange(6))
+    ST.buildoutputpars()
+    ST.reorderoutput()
+    ST.trimoutput()
+
+    return ST.parsout[hasprior]

@@ -1441,7 +1441,10 @@ Example call:
     if convert_linear and np.size(inds_abc) > 5:
         flat_samples, labels, truths = \
             sixterm2d.flatpars(flat_samples, inds_abc, labels, truths)
-    
+
+        print("showcorner DEBUG - truths:", truths)
+        print("showcorner DEBUG - labels:", labels)
+        
     # number of model parameters that are non-nuisance (default to no
     # selection)
     nsamples, ndim = flat_samples.shape
