@@ -249,6 +249,27 @@ correlation coefficients rho, populating the off-diagonal comopnents as
             self.precis = np.linalg.inv(self.covar)
         except:
             print("gaussianprior.invertcov WARN - problem inverting covariance matrix")
+
+    def getlnprior(self, testpars=np.array([]) ):
+
+        """Evaluates the prior on a set of input parameters and returns
+ln(prior) as a single scalar.
+
+        """
+
+        # We might not actually have a prior after all
+        if np.size(self.center) < 1:
+            return 0.
+        
+        # Might be feeding all six parameters, or just the subset.
+        if testpars.size > self.center.size:
+            delta = testpars[self.lpars] - self.center
+        else:
+            delta = testpars - self.center
+
+        return 0.-0.5*np.dot(np.transpose(delta), \
+                             np.dot(self.precis, delta))
+            
         
 #######
 
@@ -265,4 +286,19 @@ def testpriorpars():
     print(np.asarray(GG.labels)[GG.lpars])
     print(GG.precis)
 
+    # Test evaluation, on a single set of generated parameters
+    parsran = np.array([])
+    if np.ndim(GG.covar) is 2:
+        parsran = np.random.multivariate_normal(GG.center, GG.covar)
+        w, v = np.linalg.eig(GG.covar)
+        print("testpriorpars INFO - GG.cov eig:")
+        print("     eigenvalues: ", w)
+        print("     eigenvectors:", v)
+
+    print("testpriorpars INFO: test params:", parsran.squeeze())
+
+    # Evaluate ln(prior) of this paramset
+    lnprob = GG.getlnprior(parsran.squeeze())
+
+    print("testpriorpars INFO: lnprob:", lnprob)
     
