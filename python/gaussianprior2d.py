@@ -291,6 +291,19 @@ ln(prior) as a single scalar.
             
         return 0. -0.5 * utVu + self.constant
             
+
+    def drawsample(self, nsamples=1, seed=None):
+
+        """Draws a sample from the prior distribution"""
+
+        if np.size(self.center) < 1:
+            return np.array([])
+
+        rng = np.random.default_rng(seed)
+        parsran = np.random.multivariate_normal(self.center, self.covar, \
+                                                size=nsamples)
+
+        return parsran
         
 #######
 
@@ -333,8 +346,10 @@ def testblank():
     npar = 6
     cmean = np.zeros(npar)
     ccov = np.eye(npar)
-    parsran = np.random.multivariate_normal(cmean, ccov)
+    #parsran = np.random.multivariate_normal(cmean, ccov)
 
+    parsran = GP.drawsample()
+    
     print(cmean)
     print(ccov)
     print(parsran)

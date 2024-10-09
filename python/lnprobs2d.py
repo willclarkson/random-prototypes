@@ -141,10 +141,11 @@ which we have parameters
 
         """Applies gaussian prior to specified model parameters"""
 
+        # adds the result to self.sumlnprior
+        
         # first off, do we actually have informative priors on any of
         # the parameters?
         if not self.withgauss:
-            self.lnprior_model = 0.
             return
 
         # if we got here, then we extract the parameters [x0, y0, sx,
@@ -154,7 +155,8 @@ which we have parameters
         abc = self.model[self.inds1d_6term]
         self.geom6term = sixterm2d.getpars(abc)
 
-        self.lnprior_model = self.gaussprior.getlnprior(self.geom6term)
+        self.sumlnprior = self.sumlnprior + \
+            self.gaussprior.getlnprior(self.geom6term)
         
     def lnprior_noisemodel_rect(self):
 
@@ -262,12 +264,15 @@ uniform within the limits."""
 
         # ... and recompute the priors
         self.lnprior_transf_rect()
-        self.lnprior_gaussian_model()
         self.lnprior_noisemodel_rect()
         self.lnprior_asymm_rect()
         self.lnprior_mixmod_rect()
         self.sumlnpriors()
 
+        # Incorporate the informative prior
+        self.lnprior_gaussian_model()
+
+        
 class Like(object):
 
     """Object and methods to compute ln(likelihood)"""

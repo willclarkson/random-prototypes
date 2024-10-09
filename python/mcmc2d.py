@@ -19,6 +19,8 @@ from parset2d import Pars1d, Pairset
 from fit2d import Guess, lnprobs2d
 from lnprobs2d import Prior, Like
 
+# utilities for converting linear parameters back and forth
+import sixterm2d
 
 
 class MCMCrun(object):
@@ -163,7 +165,7 @@ parameters.
 
         """Sets up arguments for passing to minimizer and/or emcee"""
 
-        self.setuplnprior()
+        self.setuplnprior()        
         self.setuplnlike()
         self.assembleargs()
 
@@ -204,6 +206,7 @@ parameters.
 
         self.setupguess1d()
         self.nudgeguess1d()
+        self.guessfromprior()
         
     def setupguess1d(self):
 
@@ -251,6 +254,49 @@ been given as the guess)
 
         
         self.guess1d += pertns
+
+    def guessfromprior(self, Verbose=True):
+
+        """For parameters on which we have an informative prior, swap in
+samples from that prior for the initial-guess for the minimizer."""
+
+        # If we do not have (or are ignoring) any gaussian prior in
+        # the lnprior, do nothing
+        if not self.lnprior.withgauss:
+            return
+
+        gp = self.lnprior.gaussprior
+        priorsample = gp.drawsample()
+
+        if Verbose:
+            print("guessfromprior DEBUG:", priorsample)
+            print("guessfromprior DEBUG:", gp.lpars)
+            print("guessfromprior INFO: original guess1d:", self.guess1d)
+
+        # OK now we have to convert the linear parameters from the
+        # guess into goeometric parameters so that the samples from
+        # the prior can be swapped in
+        inds1d = self.guess.PGuess.inds1d_6term
+        geom = sixterm2d.getpars(self.guess1d[inds1d])
+
+        if Verbose:
+            print("guessfromprior INFO - original geom pars:", geom)
+
+        # now slot in the samples from the prior
+        lsample = np.arange(np.size(gp.lpars))
+        geom[gp.lpars[lsample]] = priorsample[lsample]
+
+        if Verbose:
+            print("guessfromprior INFO - updated geom pars:", geom)
+
+        # Now we slot these back into the guess array as linear
+        # parameters
+        abc = sixterm2d.abcfromgeom(geom)
+        labc = np.arange(np.size(inds1d))
+        self.guess1d[inds1d[labc]] = abc[labc]
+
+        if Verbose:
+            print("guessfromprior INFO - updated guess1d:", self.guess1d)
         
     def runminimizer(self, Verbose=True):
 
@@ -539,9 +585,12 @@ interpreter"""
                 pickle.dump(self.args_run, f)           
         
         if len(self.args_ensemble.keys()) > 0:
-            with open('%s_esargs.pickle' % (stemargs), 'wb') as f:
-                pickle.dump(self.args_ensemble, f)
-        
+            try:
+                with open('%s_esargs.pickle' % (stemargs), 'wb') as f:
+                    pickle.dump(self.args_ensemble, f)
+            except:
+                print("writeargs_emcee WARN - problem pickling args_ensemble")
+                    
     def doguess(self):
 
         """Wrapper - sets up and performs initial fit to the data to serve as
