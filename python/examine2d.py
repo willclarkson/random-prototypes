@@ -729,9 +729,12 @@ Inputs:
     magbins, dxymeans, dxycovs, counts = BG.getstats()
 
     # Try objects identified as background
-    bbg = llike.resps_fg < 0.2
-    BB = Binstats(mags[bbg], dxytran[bbg], nbins=int(nmagbins*0.7))
-    magbins_bg, dxymeans_bg, dxycovs_bg, counts_bg = BB.getstats()
+    bbg = llike.resps_fg < 0.2 # was 0.2
+    print("showguess DEBUG - bbg:", np.sum(bbg))
+    magbins_bg = np.array([])
+    if np.sum(bbg) > 20:
+        BB = Binstats(mags[bbg], dxytran[bbg], nbins=int(nmagbins*0.7))
+        magbins_bg, dxymeans_bg, dxycovs_bg, counts_bg = BB.getstats()
     
     # A couple of things useful to standardize
     fontsz=10
@@ -1402,7 +1405,8 @@ def showcorner(flat_samples=np.array([]), \
                fignum=4, pathfig='test_corner_oo.png', \
                minaxesclose=20, \
                nmodel=-1, colornuisance='#9A3324', \
-               inds_abc=[], convert_linear=False):
+               inds_abc=[], convert_linear=False, \
+               tellsummary=False):
 
     """Corner plot of flattened samples from mcmc run.
 
@@ -1423,6 +1427,8 @@ Inputs:
 
     nmodel = number of parameters that constitute the non-nuisance
     parameters. Defaults to no selection
+
+    tellsummary = print (1d) summary statistics for the parameters
 
 Returns:
     
@@ -1451,6 +1457,27 @@ Example call:
     if nmodel < 1 or nmodel > ndim:
         nmodel = ndim
 
+
+    if tellsummary:
+        pctiles = [50., 15.9, 84.1]
+        quants = np.percentile(flat_samples, pctiles, axis=0)
+        print("INFO:", flat_samples.shape, quants.shape, ndim)
+        print("examine2d.showcorner INFO - 1D parameter ranges:")
+        for ipar in range(ndim):
+            srange = r"Fit: %.6e - %.2e + %.2e" \
+                % (quants[0,ipar], \
+                   quants[0,ipar]-quants[1,ipar], \
+                   quants[2,ipar]-quants[0,ipar])
+            struth = ''
+            if np.size(truths) > 0:
+                struth = r" - Truth: %.6e" % (truths[ipar])
+
+            # (Using very high precision because some of these
+            # quantities are coming out with very small distributions)
+                
+            print("%s -- %s %s" % (labels[ipar], srange, struth))
+
+        print("##########")
         
     # Label keyword arguments
     label_kwargs = {'fontsize':8, 'rotation':'horizontal'}
@@ -1514,7 +1541,7 @@ and the mcmc evaluations
 
 Inputs:
 
-    flatsamples = Flassamples object - [TO BE UPDATED]
+    flatsamples = Flatsamples object - [TO BE UPDATED]
 
     pathcovs = path to pickle file holding the covariances. Ignored if
     dcovs is supplied

@@ -33,10 +33,14 @@ class gaussianprior(object):
         self.pathpars=pathpars[:]
         self.conf_section='Prior'
 
+        # the up-front constant in the prior
+        self.constant = 0.
+        
         # load parameters on initialization
         if len(self.pathpars) > 3:
             self.loadpars(self.pathpars)
             self.invertcov()
+            self.calcnorm()
             
     def loadpars(self, pathconfig=''):
 
@@ -250,6 +254,22 @@ correlation coefficients rho, populating the off-diagonal comopnents as
         except:
             print("gaussianprior.invertcov WARN - problem inverting covariance matrix")
 
+    def calcnorm(self):
+
+        """Computes the up-front constant in the prior"""
+
+        if np.size(self.covar) < 1:
+            self.constant = 0.
+            return
+
+        ndim = np.shape(self.covar)[0]
+
+        norm1 = -0.5 * ndim * np.log(2.0*np.pi)
+        norm2 = -0.5 * np.log(np.linalg.det(self.covar))
+
+        self.constant = norm1 + norm2
+        
+        
     def getlnprior(self, testpars=np.array([]) ):
 
         """Evaluates the prior on a set of input parameters and returns
@@ -267,8 +287,9 @@ ln(prior) as a single scalar.
         else:
             delta = testpars - self.center
 
-        return 0.-0.5*np.dot(np.transpose(delta), \
-                             np.dot(self.precis, delta))
+        utVu = np.dot(np.transpose(delta), np.dot(self.precis, delta))
+            
+        return 0. -0.5 * utVu + self.constant
             
         
 #######
@@ -302,3 +323,22 @@ def testpriorpars():
 
     print("testpriorpars INFO: lnprob:", lnprob)
     
+def testblank():
+
+    """Tests behavior if no informative prior is needed"""
+
+    GP = gaussianprior()
+
+    # Generate some test parameters
+    npar = 6
+    cmean = np.zeros(npar)
+    ccov = np.eye(npar)
+    parsran = np.random.multivariate_normal(cmean, ccov)
+
+    print(cmean)
+    print(ccov)
+    print(parsran)
+
+    lnprob = GP.getlnprior(parsran)
+    print("gaussianprior2d.testblank INFO - ln(prior):", lnprob)
+    print(len(GP.lpars))

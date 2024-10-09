@@ -13,6 +13,14 @@ import numpy as np
 import mixfgbg
 import noisemodel2d
 
+# For specifying and using an informative (Gaussian) prior on some (or
+# all) of the model parameters
+from gaussianprior2d import gaussianprior
+
+# For converting [a,b,c,d,e,f] to [a,d,sx,sy,theta,beta] in order to
+# apply informative prior on any of those variables
+import sixterm2d
+
 def uTVu(u, V):
 
     """Returns u^T.V.u where
@@ -36,7 +44,7 @@ class Prior(object):
 
     """Object and methods for computing ln(prior) for some parameter set"""
 
-    def __init__(self, parset=None):
+    def __init__(self, parset=None, path_informative_priors=''):
 
         # The parameter-set object
         self.parset=parset
@@ -56,10 +64,21 @@ class Prior(object):
         # Which model parameters correspond to {a,b,c,d,e,f} in the
         # linear transformation?
         self.inds1d_6term = np.array([])
-        
+
         # Distribute the parameters and options on initialization
         self.distributepars()
 
+        # Informative (Gaussian) prior for zero or more
+        # parameters. Because there are so many combinations of
+        # possible parameters, we specify the input priors via
+        # parameter file. Defaults to zeros (no informative prior).
+        self.gaussprior = gaussianprior(pathpars = path_informative_priors)
+        self.withgauss = len(self.gaussprior.lpars) > 0
+
+        # Attribute to hold [xo, yo, sx, sy, theta, beta] if we are
+        # using an informative prior on any of the model components
+        self.geom6term = np.array([])
+        
         # Some bounds for noise model parameters
         self.noise_min_loga = -50.
         self.noise_max_loga = 2.
@@ -85,6 +104,7 @@ class Prior(object):
 
         # Evaluate the ln priors on initialization
         self.lnprior_transf_rect()
+        # self.lnprior_gaussian_model() # replaces lnprior_model
         self.lnprior_noisemodel_rect()
         self.lnprior_asymm_rect()
         self.lnprior_mixmod_rect()
@@ -116,7 +136,25 @@ which we have parameters
         """Rectangular prior for transformation parameters"""
 
         self.lnprior_model = 0.
-        
+
+    def lnprior_gaussian_model(self):
+
+        """Applies gaussian prior to specified model parameters"""
+
+        # first off, do we actually have informative priors on any of
+        # the parameters?
+        if not self.withgauss:
+            self.lnprior_model = 0.
+            return
+
+        # if we got here, then we extract the parameters [x0, y0, sx,
+        # sy, theta, beta] and send them into our gaussian prior
+        # object. That object already knows which of these parameters
+        # have valid informative priors (via its lpars attribute). So:
+        abc = self.model[self.inds1d_6term]
+        self.geom6term = sixterm2d.getpars(abc)
+
+        self.lnprior_model = self.gaussprior.getlnprior(self.geom6term)
         
     def lnprior_noisemodel_rect(self):
 
@@ -224,6 +262,7 @@ uniform within the limits."""
 
         # ... and recompute the priors
         self.lnprior_transf_rect()
+        self.lnprior_gaussian_model()
         self.lnprior_noisemodel_rect()
         self.lnprior_asymm_rect()
         self.lnprior_mixmod_rect()

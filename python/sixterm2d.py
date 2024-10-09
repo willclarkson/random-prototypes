@@ -224,6 +224,57 @@ sy, theta, beta, including reordering and labeling"""
 
     return samples_out, labels_out, truths_out
 
+def abcfromgeom(pars=np.array([]), degrees=True):
+    
+    """Converts [xo, yo, sx, sy, theta, beta] into [a,b,c,d,e,f]
+parameters, in that order.
+
+Inputs:
+
+   pars = [x0, y0, sx, sy, theta, beta] .  If length 4, interpreted as
+   [sx, sy, theta, beta]
+
+    degrees = angles are in degrees, otherwise assumed to be radians
+
+Returns:
+
+   abc = [a,b,c,d,e,f] - linear parameters
+
+    """
+
+    if np.size(pars) < 4:
+        return np.array([])
+
+    # If 4-element parameters passed, interpret as [sx, sy, theta,
+    # beta]. Otherwise interpret as [x0, y0, sx, sy, theta, beta]
+    imin = 0.
+    a = 0.
+    d = 0.
+    if np.size(pars) > 5:
+        imin = 2
+        a = pars[0]
+        d = pars[1]
+        
+    # Ensure angles are interpreted as radians
+    angleconv = 1.
+    if degrees:
+        angleconv = np.pi / 180.
+
+    sx = pars[imin]
+    sy = pars[imin+1]
+    thetarad = pars[imin+2] * angleconv
+    betarad = pars[imin+3] * angleconv
+    
+    # Compute the linear parameters...
+    b =  sx * np.cos(thetarad - betarad*0.5)
+    c =  sy * np.sin(thetarad + betarad*0.5)
+    e = -sx * np.sin(thetarad - betarad*0.5)
+    f =  sy * np.cos(thetarad + betarad*0.5)
+
+    # ... and slot into return array
+    return np.array([ a, b, c, d, e, f ])
+    
+
 def getpars(abc=np.array([]), \
             hasprior=np.ones(6, dtype='bool') ):
 
@@ -244,7 +295,7 @@ Returns:
     parameters
 
 """
-
+    
     ST = sixterm(abc)#, inds=np.arange(6))
     ST.buildoutputpars()
     ST.reorderoutput()

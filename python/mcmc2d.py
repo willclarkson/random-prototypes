@@ -29,15 +29,20 @@ multiprocessing.
     """
 
     def __init__(self, parfile_sim='', parfile_guess='', \
-                 chainlen=40000, Verbose=True):
+                 chainlen=40000, \
+                 parfile_prior='', \
+                 Verbose=True):
 
-        # Contol variables
+        # Control variables
         self.Verbose = Verbose
         
         # Parameters for simulation and for guess
         self.parfile_sim = parfile_sim[:]
         self.parfile_guess = parfile_guess[:]
-    
+
+        # Path to informative prior, if any
+        self.pathprior = parfile_prior[:]
+        
         # Simulation and guess objects
         self.sim = None
         self.guess = None
@@ -173,11 +178,11 @@ parameters.
 
         """Sets up the ln(prior) object for minimization and/or emcee"""
 
-        self.lnprior = Prior(self.guess.Parset)
+        self.lnprior = Prior(self.guess.Parset, self.pathprior)
 
         # Ensure the lnprior object knows which indices correspond to
         # {a,b,c,d,e,f}
-        print(self.guess.PGuess.inds1d_6term)
+        print("setuplnprior INFO - abc indices:", self.guess.PGuess.inds1d_6term)
         if hasattr(self.guess.PGuess,'inds1d_6term'):
             self.lnprior.inds1d_6term = \
                 self.guess.PGuess.inds1d_6term
@@ -569,7 +574,7 @@ our initial state for MCMC exploration.
             
         # Setup and run the minimizer using the lstsq fit as input,
         # and shunt the result across to the guess object
-        self.setupfitargs()
+        self.setupfitargs() # includes the prior
         self.guessforminimizer()
         self.runminimizer(Verbose=self.Verbose)
         self.populate_guess_parset()
@@ -580,6 +585,7 @@ our initial state for MCMC exploration.
 
 def setupmcmc(pathsim='test_sim_mixmod.ini', \
              pathfit='test_guess_input.ini', \
+              pathprior='', \
              chainlen=40000):
 
     """Sets up for mcmc simulations. 
@@ -589,6 +595,8 @@ Inputs:
     pathsim = path to parameter file for simulating data
 
     pathfit = path to parameter file for assembling the guess
+
+    pathprior = path to informative prior terms (if any)
 
     chainlen = chain length for mcmc
 
@@ -602,7 +610,7 @@ Returns:
 
 """
 
-    mc = MCMCrun(pathsim, pathfit, chainlen)
+    mc = MCMCrun(pathsim, pathfit, chainlen, pathprior)
     mc.dosim()
     mc.doguess()
 
@@ -610,6 +618,12 @@ Returns:
     print(mc.sim.Parset.model)
     print(mc.guess.Parset.model)
     print(mc.guess_parset.model)
+
+    print("MCMC prior debug:")
+    print(mc.lnprior.withgauss)
+    print(mc.lnprior.gaussprior.lpars)
+    print(mc.lnprior.gaussprior.center)
+    print(mc.lnprior.gaussprior.covar)
     
     mc.setupwalkers()
     mc.setargs_emcee()
@@ -685,6 +699,13 @@ Returns:
 
     if burnin > 0:
         nthrow = np.copy(burnin)
+
+    # Report the acceptance fraction to screen
+    print("mcmc2d.getflatsamples INFO - mean acceptance fraction:", \
+          np.mean(sampler.acceptance_fraction), \
+          np.shape(sampler.acceptance_fraction), \
+          np.min(sampler.acceptance_fraction), \
+          np.max(sampler.acceptance_fraction) )
         
     # now get the samples
     flat_samples = sampler.get_chain(discard=nthrow, thin=nthin, flat=True)
