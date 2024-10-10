@@ -71,8 +71,12 @@ class Prior(object):
         # Informative (Gaussian) prior for zero or more
         # parameters. Because there are so many combinations of
         # possible parameters, we specify the input priors via
-        # parameter file. Defaults to zeros (no informative prior).
-        self.gaussprior = gaussianprior(pathpars = path_informative_priors)
+        # parameter file. Defaults to zeros (no informative
+        # prior). For nuisance parameters like noise parameters, the
+        # indices are specified via the "indices" attribute.
+        self.gaussprior = \
+            gaussianprior(pathpars = path_informative_priors, \
+                          indices = self.parset.dindices)
         self.withgauss = len(self.gaussprior.lpars) > 0
 
         # Attribute to hold [xo, yo, sx, sy, theta, beta] if we are
@@ -104,7 +108,7 @@ class Prior(object):
 
         # Evaluate the ln priors on initialization
         self.lnprior_transf_rect()
-        # self.lnprior_gaussian_model() # replaces lnprior_model
+        # self.lnprior_gaussian_6term() # replaces lnprior_model
         self.lnprior_noisemodel_rect()
         self.lnprior_asymm_rect()
         self.lnprior_mixmod_rect()
@@ -137,7 +141,7 @@ which we have parameters
 
         self.lnprior_model = 0.
 
-    def lnprior_gaussian_model(self):
+    def lnprior_gaussian_6term(self):
 
         """Applies gaussian prior to specified model parameters"""
 
@@ -157,6 +161,44 @@ which we have parameters
 
         self.sumlnprior = self.sumlnprior + \
             self.gaussprior.getlnprior(self.geom6term)
+
+    def lnprior_gaussian(self):
+
+        """Applies ln(prior) for the entire set of parameters, trusting the
+gaussian prior object to identify which parameters have priors"""
+
+        if not self.withgauss:
+            return
+
+        # We still need to convert the abcdef linear parameters to the
+        # geometric terms expected by the prior. So:
+        abc = self.parset.pars[self.inds1d_6term]
+        geom6term = sixterm2d.getpars(abc)
+
+        # now we feed ONLY the parameters on which we have
+        # priors. This is still a little awkward, because gaussprior's
+        # lpars_6term refers to the reordered [x0, y0, sx, sy, theta,
+        # beta] while the lpars[not including 6term] refer to the
+        # indices in the original array. For the moment, we just bring
+        # them in separately.
+        l6term = self.gaussprior.lpars_6term
+        lother = self.gaussprior.lpars_nuisance
+
+        # Initialize to blank
+        pars4prior_6term = np.array([])
+        pars4prior_nuisance = np.array([])
+
+        if np.size(l6term) > 0:
+            pars4prior_6term = geom6term[l6term]
+
+        if np.size(lother) > 0:
+            pars4prior_nuisance = self.parset.pars[lother]
+            
+        pars4prior = np.hstack(( pars4prior_6term, pars4prior_nuisance ))
+
+        # Now we evaluate THIS prior:
+        lnpriorgauss = self.gaussprior.getlnprior(pars4prior)
+        self.sumlnprior = self.sumlnprior + lnpriorgauss
         
     def lnprior_noisemodel_rect(self):
 
@@ -270,7 +312,7 @@ uniform within the limits."""
         self.sumlnpriors()
 
         # Incorporate the informative prior
-        self.lnprior_gaussian_model()
+        self.lnprior_gaussian()
 
         
 class Like(object):

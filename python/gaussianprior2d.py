@@ -24,6 +24,10 @@ class gaussianprior(object):
 
         # Optional dictionary mapping parameter entries to indices
         self.dindices = indices
+
+        # indices but only for the 6-term transformation
+        self.lpars_6term = np.array([])
+        self.lpars_nuisance = np.array([])
         
         # control variable
         self.Verbose = Verbose
@@ -99,6 +103,12 @@ class gaussianprior(object):
             except:
                 notfound_centers.append(attrib)
 
+        # Ensure the indices for only the 6-term transformation are
+        # passed up to an instance attribute
+        self.lpars_6term = np.asarray(lcenters, dtype='int')
+
+        self.lpars_nuisance = np.array([])
+                
         # Now we do another pass, this time looking for any parameters
         # specified in the optional self.dindices array (which matches
         # parameter names to indices).
@@ -131,6 +141,12 @@ class gaussianprior(object):
         self.lpars = np.asarray(lcenters, dtype='int')
         self.center = np.asarray(vcenters)
 
+        # send up the array with the indices corresponding to the
+        # nuisance parameters with priors ONLY.
+        nlinear = np.size(self.lpars_6term)
+        if len(lcenters) > nlinear:
+            self.lpars_nuisance = np.asarray(lcenters[nlinear::], dtype='int')
+        
         if len(found_centers) < 1:
             return
 
@@ -166,8 +182,6 @@ class gaussianprior(object):
                     covcomp = 'r_%s%s' % (scen, scov)
                 else:
                     covcomp = 's_%s' % (scen)
-
-                print("Cov comps:", covcomp, conf.getfloat(covcomp))
                     
                 # If this component is actually in the parameter file,
                 # read it in. Otherwise, move on
@@ -309,6 +323,11 @@ ln(prior) as a single scalar.
         # We might not actually have a prior after all
         if np.size(self.center) < 1:
             return 0.
+
+        #print("INFO:", testpars.size)
+        #print("INFO:", testpars)
+        #print("INFO:", self.center.size)
+        #print("INFO:", self.lpars)
         
         # Might be feeding all six parameters, or just the subset.
         if testpars.size > self.center.size:
@@ -332,13 +351,23 @@ ln(prior) as a single scalar.
         parsran = np.random.multivariate_normal(self.center, self.covar, \
                                                 size=nsamples)
 
-        return parsran
+        return parsran.squeeze()
         
 #######
 
 def testpriorpars(dindices={}):
 
-    """Try loading prior parameters"""
+    """Try loading prior parameters. Example call:
+
+    gaussianprior2d.testpriorpars()
+
+    To add parameters on nuisance parameters (whose location in the
+    input 1d paramset is known - suppose at position 7):
+
+    gaussianprior2d.testpriorpars(dindices={'noise_log10a':7})
+    
+
+    """
 
     GG = gaussianprior('test_priorparams.ini', indices=dindices)
 
@@ -349,6 +378,10 @@ def testpriorpars(dindices={}):
     print(np.asarray(GG.labels))
     print(GG.precis)
 
+    print("TEST INFO - 6-term indices:", GG.lpars_6term)
+    print("TEST INFO - nuisance parameter indices in original array:" \
+          , GG.lpars_nuisance)
+    
     # Test evaluation, on a single set of generated parameters
     parsran = GG.drawsample()
     if np.ndim(GG.covar) is 2:
@@ -360,10 +393,33 @@ def testpriorpars(dindices={}):
 
     print("testpriorpars INFO: test params:", parsran.squeeze())
 
-    # Evaluate ln(prior) of this paramset
+    # Evaluate ln(prior) of this paramset, using the indices in the
+    # instance
     lnprob = GG.getlnprior(parsran.squeeze())
-
     print("testpriorpars INFO: lnprob:", lnprob)
+
+    # Now construct the array for feeding in. We pretend we have an
+    # original array at least as long as the maximum nuisance
+    # parameter, then construct the 6-term and nuisance arrays to send
+    # into the prior-evaluation method.
+    blah = np.random.uniform(size=np.max(GG.lpars)+1)
+    print(blah.size)
+    blah[GG.lpars] = parsran
+
+    p6 = np.array([])
+    pr = np.array([])
+
+    if np.size(GG.lpars_6term) > 0:    
+        p6 = blah[GG.lpars_6term]
+
+    if np.size(GG.lpars_nuisance) > 0:
+        pr = blah[GG.lpars_nuisance]
+        
+    pp = np.hstack(( p6, pr ))
+    
+    lnprob2 = GG.getlnprior(pp)
+    print("testpriorpars INFO: lnprob2:", lnprob2)
+    
     
 def testblank():
 

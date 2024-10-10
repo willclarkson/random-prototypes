@@ -282,18 +282,25 @@ samples from that prior for the initial-guess for the minimizer."""
         if Verbose:
             print("guessfromprior INFO - original geom pars:", geom)
 
-        # now slot in the samples from the prior
-        lsample = np.arange(np.size(gp.lpars))
-        geom[gp.lpars[lsample]] = priorsample[lsample]
+        print("DEBUG:", gp.lpars_6term)
+        print("DEBUG:", priorsample)
+        print("DEBUG:", priorsample.shape)
+            
+        # now slot in the samples from the prior - but only the
+        # transformation and not the nuisance parameters. Only do this
+        # if we actually have priors on any of the 6terms:
+        if np.size(gp.lpars_6term) > 0:
+            lsample = np.arange(np.size(gp.lpars_6term))
+            geom[gp.lpars_6term[lsample]] = priorsample[lsample]
 
-        if Verbose:
-            print("guessfromprior INFO - updated geom pars:", geom)
+            if Verbose:
+                print("guessfromprior INFO - updated geom pars:", geom)
 
-        # Now we slot these back into the guess array as linear
-        # parameters
-        abc = sixterm2d.abcfromgeom(geom)
-        labc = np.arange(np.size(inds1d))
-        self.guess1d[inds1d[labc]] = abc[labc]
+            # Now we slot these back into the guess array as linear
+            # parameters
+            abc = sixterm2d.abcfromgeom(geom)
+            labc = np.arange(np.size(inds1d))
+            self.guess1d[inds1d[labc]] = abc[labc]
 
         if Verbose:
             print("guessfromprior INFO - updated guess1d:", self.guess1d)
