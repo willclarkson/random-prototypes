@@ -78,6 +78,9 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         self.lnoise = np.array([])
         self.lsymm = np.array([])
         self.lmix = np.array([])
+
+        # dictionary matching parameter labels to indices
+        self.dindices = {}
         
         # Descriptors for some of the non-transformation model
         # parameters
@@ -89,11 +92,19 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         # parameters
         self.mag0 = mag0 # magnitude zeropoint
         
-        # stems for labels
+        # stems for latex labels
         self.labelstem_transf = 'A'
         self.labels_noise = [r'$log_{10}(a)$', r'$log_{10}(b)$', r'$c$']
         self.labels_asymm = [r'$\sigma_y/\sigma_x$', r'$\rho_{xy}$']
         self.labels_mix = [r'$f_{bg}$', r'$V_{bg}$']
+
+        # parameter names for parameter files
+        self.parnames_noise = ['noise_log10a', 'noise_log10b', 'noise_c']
+        self.parnames_asymm = ['symm_yx', 'symm_rhoxy']
+        self.parnames_mix = ['mix_fbg', 'mix_vbg']
+
+        # Update the label stems and parnames depending on whether the
+        # noise and mix parameters are log10.
         self.fixlabelstems()
         
         # partition the input model parameters if 1D supplied...
@@ -105,7 +116,11 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         else:
             if np.size(model) > 0:
                 self.fusemodel()
-            
+
+        # Prepare the dictionary giving 1d indices in the eventual
+        # vector output
+        self.makeindexmap()
+                
     def insertpars(self, p=np.array([]) ):
 
         """Replaces the parameters with input.
@@ -370,12 +385,15 @@ whether the quantities are being used as log_10"""
 
         if self.islog10_mix_frac:
             self.labels_mix[0] = r'$log_{10}(f_{bg})$'
-
+            self.parnames_mix[0] = 'mix_log10fbg'
+            
         if self.islog10_mix_vxx:
             self.labels_mix[1] = r'$log_{10}(V_{bg})$'
-
+            self.parnames_mix[1] = 'mix_log10vbg'
+            
         if self.islog10_noise_c:
             self.labels_noise[2] = r'$log_{10}(c)$'
+            self.parnames_noise[2] = 'noise_log10c'
             
     def getlabels(self):
 
@@ -390,6 +408,39 @@ whether the quantities are being used as log_10"""
         labels_model += self.labels_mix[0:self.nmix]
 
         return labels_model
+
+    def makeindexmap(self):
+
+        """Utility - makes a dictionary giving the parameter index of each
+model component, keyed by the model component label as would be read
+in by a parameter file"""
+
+        self.dindices={}
+
+        # Fill in this indices. Rather than using the full latex
+        # labels, which are inconvenient for parameter files, we use a
+        # more easily-typed shorthand, from the 'parnames_noise'
+        # attributes. For the "nuisance parameters," we already know
+        # what the names are. But the transformation parameter labels
+        # are generated programmatically. We generate them again here
+        # and pass them in. So:
+
+        # Transformation parameters
+        labls = self.getlabels()
+        for imodl in range(np.size(self.model)):
+            skey = labls[imodl].replace('$','').replace('{','').replace('}','')
+            self.dindices[skey] = imodl
+        
+        # Now for the nuisance parameters
+        for inoise in range(np.size(self.lnoise)):
+            self.dindices[self.parnames_noise[inoise]] = self.lnoise[inoise]
+
+        for isymm in range(np.size(self.lsymm)):
+            self.dindices[self.parnames_asymm[isymm]] = self.lsymm[isymm]
+
+        for imix in range(np.size(self.lmix)):
+            self.dindices[self.parnames_mix[imix]] = self.lmix[imix]
+            
         
 class Pairset(object):
 

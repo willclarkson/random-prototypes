@@ -591,13 +591,18 @@ interpreter"""
             except:
                 print("writeargs_emcee WARN - problem pickling args_ensemble")
                     
-    def doguess(self):
+    def doguess(self, norun=False):
 
         """Wrapper - sets up and performs initial fit to the data to serve as
 our initial state for MCMC exploration.
 
         When this is done, self.guess_parset contains the minimizer
         fit parameters.
+
+Inputs:
+
+        norun = set up the minimizer but don't actually run it. Useful
+        for debugging.
 
         """
 
@@ -620,11 +625,25 @@ our initial state for MCMC exploration.
             # initial guess for the minimizer
             self.guessfromlstsq()
 
+        # By this point we should have the parameter set. Check that
+        # we do.
+        print("doguess DEBUG - parameter indices:")
+        ps = self.guess.Parset
+        print("transf:", ps.lmodel)
+        print("lnoise:", ps.lnoise)
+        print("lsymm:", ps.lsymm)
+        print("lmix:", ps.lmix)
+        print("labels:", ps.getlabels() )
+        print("indices:", ps.dindices)
             
         # Setup and run the minimizer using the lstsq fit as input,
         # and shunt the result across to the guess object
         self.setupfitargs() # includes the prior
         self.guessforminimizer()
+
+        if norun:
+            return
+        
         self.runminimizer(Verbose=self.Verbose)
         self.populate_guess_parset()
         
@@ -635,7 +654,7 @@ our initial state for MCMC exploration.
 def setupmcmc(pathsim='test_sim_mixmod.ini', \
              pathfit='test_guess_input.ini', \
               pathprior='', \
-             chainlen=40000):
+              chainlen=40000, debug=False):
 
     """Sets up for mcmc simulations. 
 
@@ -649,6 +668,8 @@ Inputs:
 
     chainlen = chain length for mcmc
 
+    debug = return after setting up the minimizer (useful for development)
+
 Returns:
 
     esargs = dictionary of arguments for the ensemble sampler
@@ -661,18 +682,22 @@ Returns:
 
     mc = MCMCrun(pathsim, pathfit, chainlen, pathprior)
     mc.dosim()
-    mc.doguess()
-
+    mc.doguess(norun=debug)
+    
     print("MC debug:")
     print(mc.sim.Parset.model)
     print(mc.guess.Parset.model)
-    print(mc.guess_parset.model)
+    if mc.guess_parset is not None:
+        print(mc.guess_parset.model)
 
     print("MCMC prior debug:")
     print(mc.lnprior.withgauss)
     print(mc.lnprior.gaussprior.lpars)
     print(mc.lnprior.gaussprior.center)
     print(mc.lnprior.gaussprior.covar)
+
+    if debug:
+        return 
     
     mc.setupwalkers()
     mc.setargs_emcee()

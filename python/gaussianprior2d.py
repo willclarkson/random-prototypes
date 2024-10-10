@@ -13,7 +13,7 @@ import configparser
 
 class gaussianprior(object):
 
-    def __init__(self, pathpars='', Verbose=True):
+    def __init__(self, pathpars='', indices={}, Verbose=True):
 
         # The main attributes we need
         self.center = np.array([])
@@ -21,13 +21,17 @@ class gaussianprior(object):
         self.lpars = np.array([])
         
         self.covar = np.array([])
+
+        # Optional dictionary mapping parameter entries to indices
+        self.dindices = indices
         
         # control variable
         self.Verbose = Verbose
         
         # parameter labels (useful to show the ordering convention)
-        self.labels = [r'$x_0$', r'$y_0$', r'$s_x$', r'$s_y$', \
-                       r'$\theta$', r'$\beta$']
+        self.labels = []
+        #self.labels = [r'$x_0$', r'$y_0$', r'$s_x$', r'$s_y$', \
+        #               r'$\theta$', r'$\beta$']
         
         # Prior parameters specified in input file
         self.pathpars=pathpars[:]
@@ -80,7 +84,7 @@ class gaussianprior(object):
         # because it's easy to find any cases for which a mean but no
         # covariance was supplied).
         dvars = {}
-        
+
         for icenter in range(len(names_center)):
             attrib = names_center[icenter]
             try:
@@ -91,9 +95,30 @@ class gaussianprior(object):
                     lcenters.append(icenter)
                     found_centers.append(attrib)
                     dvars[attrib] = {}
+                    
             except:
                 notfound_centers.append(attrib)
 
+        # Now we do another pass, this time looking for any parameters
+        # specified in the optional self.dindices array (which matches
+        # parameter names to indices).
+        lnuisance = self.dindices.keys()
+        for skey in lnuisance:
+            try:
+                if conf[skey].find('None') < 0:
+
+                    # Some checking against duplications
+                    if skey in found_centers:
+                        continue
+                    
+                    thisfloat = conf.getfloat(skey)
+                    vcenters.append(thisfloat)
+                    lcenters.append(self.dindices[skey])
+                    found_centers.append(skey)
+                    dvars[skey] = {}                    
+            except:
+                nuisance_notpresent=True
+                
         # boolean - are the off-diagonals actually correlation
         # coefficients?
         offdiag_are_rho = True
@@ -142,6 +167,8 @@ class gaussianprior(object):
                 else:
                     covcomp = 's_%s' % (scen)
 
+                print("Cov comps:", covcomp, conf.getfloat(covcomp))
+                    
                 # If this component is actually in the parameter file,
                 # read it in. Otherwise, move on
                 try:
@@ -150,7 +177,7 @@ class gaussianprior(object):
                 except:
                     notfound_covs.append(covcomp)
                     continue
-
+                
                 # Populate the covariance matrix with the given entries
                 if icen != jcen:
                     thisentry = thisfloat
@@ -182,6 +209,7 @@ class gaussianprior(object):
         bbad = np.sum(bok, axis=1) < 1
         if np.sum(bbad) < 1:
             self.covar = cov
+            self.labels = found_centers[:]
             return
 
         # There must be a clever pythonic way to extract only the
@@ -202,6 +230,7 @@ class gaussianprior(object):
         self.covar = covtrim
         self.center = self.center[lgood]
         self.lpars = self.lpars[lgood]
+        self.labels = list(np.array(found_centers)[lgood])
                 
         # How does our covariance matrix look?
         #print(cov)
@@ -307,23 +336,23 @@ ln(prior) as a single scalar.
         
 #######
 
-def testpriorpars():
+def testpriorpars(dindices={}):
 
     """Try loading prior parameters"""
 
-    GG = gaussianprior('test_priorparams.ini')
+    GG = gaussianprior('test_priorparams.ini', indices=dindices)
 
     print("=====")
     print(GG.center)
     print(GG.lpars)
     print(GG.covar)
-    print(np.asarray(GG.labels)[GG.lpars])
+    print(np.asarray(GG.labels))
     print(GG.precis)
 
     # Test evaluation, on a single set of generated parameters
-    parsran = np.array([])
+    parsran = GG.drawsample()
     if np.ndim(GG.covar) is 2:
-        parsran = np.random.multivariate_normal(GG.center, GG.covar)
+        #parsran = np.random.multivariate_normal(GG.center, GG.covar)
         w, v = np.linalg.eig(GG.covar)
         print("testpriorpars INFO - GG.cov eig:")
         print("     eigenvalues: ", w)
