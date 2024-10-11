@@ -11,6 +11,10 @@ import numpy as np
 import numpy.ma as ma
 import configparser
 
+# For debug/test plots
+import matplotlib.pylab as plt
+plt.ion()
+
 class gaussianprior(object):
 
     def __init__(self, pathpars='', indices={}, Verbose=True):
@@ -390,6 +394,34 @@ def testpriorpars(dindices={}, nsamples=1):
     if parsran.shape[0] > 1:
         print("parsran gen info:", parsran.shape)
         print("parsran std:", np.std(parsran, axis=0))
+
+        # At this point, we can compare a normed histogram of samples
+        # with evaluations of the prior, just to ensure I'm not doing
+        # something idiotic like taking an extra square
+        # somewhere. Because the prior probablities are computed one
+        # parameter-set at a time, we do the same here.
+        print("testpriorpars INFO - evaluating lnprior for the samples")
+        lnprobs = np.zeros(parsran.shape[0])
+        for iset in range(parsran.shape[0]):
+            lnprobs[iset] = GG.getlnprior(parsran[iset])
+
+        probs = np.exp(lnprobs)
+
+        # Just show marginal / 1d for now
+        jshow = 0
+        pars1 = parsran[:,jshow].squeeze()
+        xlo = pars1.min()
+        xhi = pars1.max()
+
+        fig1=plt.figure(10)
+        fig1.clf()
+        ax1 = fig1.add_subplot(111)
+        dum1 = ax1.hist(pars1, 50, range=(xlo, xhi), density=True)
+        lsor = np.argsort(pars1)
+        dum1 = ax1.plot(pars1[lsor], probs[lsor], 'r--', zorder=3)
+
+        ax1.set_xlabel(GG.labels[jshow])
+        ax1.set_title('Debug: samples and computed pdf')
         
         return
         
