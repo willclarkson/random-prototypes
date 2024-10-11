@@ -266,7 +266,7 @@ samples from that prior for the initial-guess for the minimizer."""
             return
 
         gp = self.lnprior.gaussprior
-        priorsample = gp.drawsample()
+        priorsample = gp.drawsample().squeeze()
 
         if Verbose:
             print("guessfromprior DEBUG:", priorsample)

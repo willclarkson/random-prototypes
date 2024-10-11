@@ -351,11 +351,11 @@ ln(prior) as a single scalar.
         parsran = np.random.multivariate_normal(self.center, self.covar, \
                                                 size=nsamples)
 
-        return parsran.squeeze()
+        return parsran
         
 #######
 
-def testpriorpars(dindices={}):
+def testpriorpars(dindices={}, nsamples=1):
 
     """Try loading prior parameters. Example call:
 
@@ -383,7 +383,16 @@ def testpriorpars(dindices={}):
           , GG.lpars_nuisance)
     
     # Test evaluation, on a single set of generated parameters
-    parsran = GG.drawsample()
+    print("info - nsamples:", nsamples, np.shape(GG.center))
+    parsran = GG.drawsample(nsamples)
+
+    print("parsran:", np.shape(parsran))
+    if parsran.shape[0] > 1:
+        print("parsran gen info:", parsran.shape)
+        print("parsran std:", np.std(parsran, axis=0))
+        
+        return
+        
     if np.ndim(GG.covar) is 2:
         #parsran = np.random.multivariate_normal(GG.center, GG.covar)
         w, v = np.linalg.eig(GG.covar)
