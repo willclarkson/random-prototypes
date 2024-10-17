@@ -133,6 +133,7 @@ likely work better.)
 
         # Indicator: does the transformation have the tangent point as
         # its first two entries?
+        self.transfstponly = ['Equ2tan', 'Tan2equ']
         self.transfswithtp = ['xy2equ', 'Equ2tan', 'Tan2equ', 'TangentPlane']
         self.hastangentpoint = False
         
@@ -350,7 +351,25 @@ uncertainty estimates in the source and/or target frame.
         if self.ignore_uncty_targ:
             self.bak_covxytarg = np.copy(self.obstarg.covxy)
             self.obstarg.covxy *= 0.
+
+    def initguesstransf(self):
+
+        """Initializes the transformation to zeros using the transformation degree to set its length."""
+
+        # Default is to get the number of parameters from the degree
+        # (thought: this really ought to be an instance
+        # attribute). The quadratic below is PER COORDINATE so we
+        # avoid the division by two:
+        # npars = int((self.deg**2 + 3*self.deg + 2)/2.)
+        npars = int(self.deg**2 + 3*self.deg + 2)
         
+        # If the transformation params are only tangent plane related,
+        # then there are only two parameters.
+        if self.transf.__name__ in self.transfstponly:
+            npars = 2
+
+        self.guess_transf = np.zeros(npars)
+            
     def initguessesnontransf(self):
 
         """Initializes guesses for the parts of the model not referring to the tansformation

@@ -138,6 +138,16 @@ them"""
         if not hasattr(self.sim, 'pars_transf'):
             return
 
+        ## Check to see if the truth and fit have the same number of
+        ## parameters. If not, the steps below won't work.
+        #nguess = np.size(self.guess.Parset.pars)
+        #nsim = np.size(self.sim.Parset.pars)
+        #print("mcmc2d.initguessfromtruth INFO - nguess, nsim: %i, %i" \
+        #      % (nguess, nsim))
+        #if nguess != nsim:
+        #    print("mcmc2d.initguessfromtruth INFO - guess and sim different lengths. Not scaling.")
+        #    return
+        
         self.guess1d = np.copy(self.sim.pars_transf)
         self.scalenudgeguess()
         self.nudgeguess1d()
@@ -616,6 +626,25 @@ Inputs:
         # Sets up the guess object
         self.setupguess()
 
+        print("mcmc2d.doguess DEBUG: guess transf:", self.guess.guess_transf)
+        
+        # We populate this with default values before doing any of the
+        # clever stuff below. The guess currently handles the noise
+        # parameters, it's the guess transformation parameters that
+        # need initializing. That's actually quite hard in the general
+        # case, come back to this later.
+        self.guess.initguesstransf()
+        self.guess.populateparset()
+        self.guess.populateguesstransf()
+
+        print("mcmc2d.doguess DEBUG - initialized guess parset:")
+        print(self.guess.Parset.model)
+        print(self.guess.Parset.noise)
+        print(self.guess.Parset.symm)
+        print(self.guess.Parset.mix)
+        print("Guess degree:", self.guess.deg)
+        print("mcmc2d.doguess DEBUG =======")
+              
         
         # How we specify the "guess" depends on whether we can do a
         # least-squares fit to arrive at one.

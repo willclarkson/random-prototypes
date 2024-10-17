@@ -103,6 +103,10 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         self.parnames_asymm = ['symm_yx', 'symm_rhoxy']
         self.parnames_mix = ['mix_fbg', 'mix_vbg']
 
+        # Covariance matrix between all the parameters. Expected to be
+        # populated after an MCMC run.
+        self.covar = np.array([])
+        
         # Update the label stems and parnames depending on whether the
         # noise and mix parameters are log10.
         self.fixlabelstems()

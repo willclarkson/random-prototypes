@@ -28,6 +28,9 @@ import corner
 from scipy.special import expit
 from sklearn.linear_model import LogisticRegression
 
+# For serializing the parameters and their covariances
+import pickle
+
 class Flatsamples(object):
 
     """Convenience object to hold flattened samples from MCMC, and various
@@ -110,6 +113,9 @@ Inputs:
         self.resp_post = np.array([]) 
         self.dxyproj_truthpars = np.array([])
 
+        # Median of flat samples parameters
+        self.param_medians = np.array([])
+        
         # covariance among flat samples parameters
         self.param_covars = np.array([])
         self.lstsq_covars = np.array([])
@@ -133,7 +139,9 @@ Inputs:
         self.getsimisfg()
         self.unpacktruths()
         
-        # Compute the parameter covariances among the flat samples
+        # Compute the parameter medians and covariances among the flat
+        # samples
+        self.computemedians()
         self.computecovars()
 
         # Compute binned statistics
@@ -469,6 +477,15 @@ Returns: nothing
             return
 
         self.param_covars = np.cov(self.flat_samples, rowvar=False)
+
+    def computemedians(self):
+
+        """Computes median parameter samples"""
+
+        if np.size(self.flat_samples) < 1:
+            return
+
+        self.param_medians = np.median(self.flat_samples, axis=0)
         
     def computesamplescovars(self, ireport=1000, Verbose=True, samplesize=-1):
 
@@ -611,8 +628,38 @@ and background"""
             self.binstats_bg = Binstats(mags[bbg], dxytran[bbg], \
                                         minperbin)
             
+
+    def writeparset(self, outpath='test_parset_found.pickle'):
+
+        """Writes the parameters summary to disk as a Parset1d object"""
+
+        # Nothing to do if no file given, or if we do not have
+        # parameters (neat trick)
+        if len(outpath) < 4:
+            return
         
-            
+        if np.size(self.param_medians) < 1:
+            return
+        
+        # We populate the parset as a copy of the input paramset,
+        # updating the various pieces we need with the median and the
+        # covariances, both calculated here. This helps ensure that
+        # all the baggage (like labels) is carried in.
+        if self.inp_parset is None:
+            return
+
+        # Copy the input parset and replace its values with the median
+        # values determined in this object
+        parset = copy.deepcopy(self.inp_parset)
+        parset.updatepars(self.param_medians)
+
+        # Populate the covariance attribute
+        parset.covar = np.copy(self.param_covars)
+
+        # now serialize this to disk
+        with open(outpath, 'wb') as wobj:
+            pickle.dump(parset, wobj)
+        
 def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
               pathfig='test_guess_deltas.png', showargs={}, \
               usetruths=False, showquiver=True):
