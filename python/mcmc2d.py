@@ -138,23 +138,18 @@ them"""
         if not hasattr(self.sim, 'pars_transf'):
             return
 
-        ## Check to see if the truth and fit have the same number of
-        ## parameters. If not, the steps below won't work.
-        #nguess = np.size(self.guess.Parset.pars)
-        #nsim = np.size(self.sim.Parset.pars)
-        #print("mcmc2d.initguessfromtruth INFO - nguess, nsim: %i, %i" \
-        #      % (nguess, nsim))
-        #if nguess != nsim:
-        #    print("mcmc2d.initguessfromtruth INFO - guess and sim different lengths. Not scaling.")
-        #    return
-
-        print("mcmc2d.initguessfromtruth INFO:")
-        for sattr in ['model', 'noise', 'symm', 'mix']:
-            print("simul:", getattr(self.sim.Parset, sattr) )
-            print("guess:", getattr(self.guess.Parset, sattr))
-        print("#############")
+        # Now use a pairset to merge the truth and guess parameters
+        Pair = Pairset(self.sim.Parset, self.guess.Parset)
+        Psub = Pair.sub1into2()
         
-        self.guess1d = np.copy(self.sim.pars_transf)
+        #print("mcmc2d.initguessfromtruth INFO:")
+        #for sattr in ['model', 'noise', 'symm', 'mix']:
+        #    print("simul:", getattr(self.sim.Parset, sattr) )
+        #    print("guess:", getattr(self.guess.Parset, sattr))
+        #print("#############")
+        
+        # self.guess1d = np.copy(self.sim.pars_transf)
+        self.guess1d = np.copy(Psub.model)
         self.scalenudgeguess()
         self.nudgeguess1d()
 
@@ -677,6 +672,12 @@ Inputs:
         print("lmix:", ps.lmix)
         print("labels:", ps.getlabels() )
         print("indices:", ps.dindices)
+
+        print("doguess DEBUG - parameter values:")
+        print("transf:", ps.model)
+        print("lnoise:", ps.noise)
+        print("lsymm:", ps.symm)
+        print("lmix:", ps.mix)
             
         # Setup and run the minimizer using the lstsq fit as input,
         # and shunt the result across to the guess object

@@ -632,7 +632,7 @@ Returns:
 
         return Psub
         
-    def fracdiff(self):
+    def fracdiff(self, preventnan=True):
 
         """Utility - finds the fractional difference between self.set1 and self.set2, in the sense abs(set1-set2)/set2
 
@@ -650,7 +650,21 @@ Returns:
         bok = Pdiff.pars != None
         Pdiff.pars[bok] = np.abs(Pdiff.pars[bok])
 
-        return self.arithmetic(Pdiff, self.set2, np.divide)
+        Pdiv = self.arithmetic(Pdiff, self.set2, np.divide)
+
+        if preventnan:
+            print("parset2d.fracdiff INFO - preventing NaNs and zeros:")
+            bbad = Pdiv.pars == None
+
+            # We do this in two steps:
+            Pdiv.pars[bbad] = 0.
+            bnz = np.abs(Pdiv.pars) > 0.
+            minval = np.min(np.abs(Pdiv.pars[bnz]))
+            
+            Pdiv.pars[~bnz] = minval
+            Pdiv.partitionmodel() # ensure that propagated in
+
+        return Pdiv
     
 ## SHORT test routines come here
 
@@ -739,7 +753,7 @@ configurations.
         print("set2 model:", Pair.set2.model)
         print("substitute:", Psub.model)
         
-        return
+        # return
     
     #print(PP.pars)
     #print(QQ.pars)

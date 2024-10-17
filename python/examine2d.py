@@ -772,6 +772,9 @@ Inputs:
 
     # Compute binned statistics on "foreground" objects
     bfg = llike.resps_fg > respfg
+    if np.sum(bfg) < 10:
+        print("examine2d.showguess WARN - few objects identified as foreground. Defaulting to all for plots (probably not what you want)")
+        bfg = np.isfinite(mags)
     BG = Binstats(mags[bfg], dxytran[bfg], npermagbin, nbins=nmagbins)
     magbins, dxymeans, dxycovs, counts = BG.getstats()
 
