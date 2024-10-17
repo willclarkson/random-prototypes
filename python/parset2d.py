@@ -8,6 +8,7 @@
 #
 
 import numpy as np
+import copy
 
 class Pars1d(object):
 
@@ -541,7 +542,7 @@ or padded to the same length as set 2.
                       self.set1on2.nmix)
 
         return Psum
-
+    
     def arithmetic(self, set1=None, set2=None, op=np.add, divzeroval=None):
 
         """Does arithmetic on two input sets, whose parameters must already be
@@ -594,6 +595,43 @@ Returns:
 
         return Pres
 
+    def sub1into2(self, subvalue=0.):
+
+        """For any entries in set2 that are subvalue (default to zero),
+substitute any non-None values from set1on2. 
+
+Inputs:
+
+        subvalue = value in set2 that indicates which items need
+        substituting
+
+Returns:
+
+        Psub = parset object with the substitutions carried out
+
+        """
+
+        # The sets must have the same length
+        if self.set1on2 is None:
+            self.padset1toset2()
+
+        # Which entries in set 2 can be substituted?
+        bmissing2 = np.abs(self.set2.pars-subvalue) == 0.
+        bcansub1 = self.set1on2.pars != None
+        bsub = bmissing2 * bcansub1
+
+        # Now we set up the parameter object to substitute where
+        # needed
+        subs = np.copy(self.set2.pars)
+        subs[bsub] = self.set1on2.pars[bsub]
+
+        # We create a parset object from set2 and update its
+        # parameters in place.
+        Psub = copy.deepcopy(self.set2)
+        Psub.updatepars(subs)
+
+        return Psub
+        
     def fracdiff(self):
 
         """Utility - finds the fractional difference between self.set1 and self.set2, in the sense abs(set1-set2)/set2
@@ -656,7 +694,8 @@ def testsplit(nnoise=3, nshape=2, nmix=2):
     print(PP.mix)
 
 def testcompare(ntransf1=6, nnoise1=3, nshape1=2, nmix1=2, \
-                ntransf2=6, nnoise2=3, nshape2=2, nmix2=2):
+                ntransf2=6, nnoise2=3, nshape2=2, nmix2=2, \
+                testsub=True):
 
     """Compare two parameter sets. Useful when e.g. comparing truth to fit
 parameters, where the two parameter sets can have differnet
@@ -667,12 +706,20 @@ configurations.
 
     """
 
-    PP = Pars1d(model=np.arange(ntransf1), \
+    modelpp = np.arange(ntransf1)
+    modelqq = np.arange(ntransf2)
+    if testsub:
+        ldum = np.arange(ntransf2, dtype='int')
+        modelqq[ldum % 3 == 1] = 0.
+        modelpp = np.arange(ntransf1, dtype=object) # to add None
+        modelpp[1] = None
+        
+    PP = Pars1d(model=modelpp, \
                 noise=np.arange(nnoise1)+10., \
                 symm=np.arange(nshape1)+100., \
                 mix=np.arange(nmix1)+1000.)
 
-    QQ = Pars1d(model=np.arange(ntransf2), \
+    QQ = Pars1d(modelqq, \
                 noise=np.arange(nnoise2)+10., \
                 symm=np.arange(nshape2)+100., \
                 mix=np.arange(nmix2)+1000.)
@@ -684,6 +731,16 @@ configurations.
     Pair = Pairset(PP, QQ)
     # Pair.padset1toset2()
 
+    if testsub:
+        print("testcompare INFO - testing substitution:")
+        Psub = Pair.sub1into2()
+
+        print("set1 on 2: ", Pair.set1on2.model)
+        print("set2 model:", Pair.set2.model)
+        print("substitute:", Psub.model)
+        
+        return
+    
     #print(PP.pars)
     #print(QQ.pars)
 
@@ -698,10 +755,10 @@ configurations.
 
     # now try subtracting and dividing
     print("Subtraction:")
-    print(Pair.set1on2.pars)
-    print(Pair.set2.pars)
+    print("set1on2:", Pair.set1on2.pars)
+    print("set2:   ", Pair.set2.pars)
     Psub = Pair.arithmetic(Pair.set2, Pair.set1on2, np.subtract)
-    print(Psub.pars)
+    print("2minus1:", Psub.pars)
 
     # try a ratio
     Prat = Pair.arithmetic(Psub, Pair.set2, np.divide)

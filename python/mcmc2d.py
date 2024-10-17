@@ -147,6 +147,12 @@ them"""
         #if nguess != nsim:
         #    print("mcmc2d.initguessfromtruth INFO - guess and sim different lengths. Not scaling.")
         #    return
+
+        print("mcmc2d.initguessfromtruth INFO:")
+        for sattr in ['model', 'noise', 'symm', 'mix']:
+            print("simul:", getattr(self.sim.Parset, sattr) )
+            print("guess:", getattr(self.guess.Parset, sattr))
+        print("#############")
         
         self.guess1d = np.copy(self.sim.pars_transf)
         self.scalenudgeguess()
