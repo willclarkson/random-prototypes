@@ -55,7 +55,9 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
                  mix=np.array([]), \
                  islog10_mix_frac=True, islog10_mix_vxx=True, \
                  islog10_noise_c=False, \
-                 mag0=0.):
+                 mag0=0., \
+                 xmin=None, xmax=None, ymin=None, ymax=None, \
+                 transfname=''):
 
         # 1D array of parameters as expected by e.g. minimize. Can be
         # a numpy array or a list
@@ -92,6 +94,13 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         # Some other quantities we need but which are not model
         # parameters
         self.mag0 = mag0 # magnitude zeropoint
+
+        # Some other quantities some of the transforamtions need
+        self.xmin = xmin
+        self.xmax = xmax
+        self.ymin = ymin
+        self.ymax = ymax
+        self.transfname = transfname
         
         # stems for latex labels
         self.labelstem_transf = 'A'
@@ -632,7 +641,7 @@ Returns:
 
         return Psub
         
-    def fracdiff(self, preventnan=True):
+    def fracdiff(self, preventnans=True, preventzeros=False):
 
         """Utility - finds the fractional difference between self.set1 and self.set2, in the sense abs(set1-set2)/set2
 
@@ -652,16 +661,19 @@ Returns:
 
         Pdiv = self.arithmetic(Pdiff, self.set2, np.divide)
 
-        if preventnan:
-            print("parset2d.fracdiff INFO - preventing NaNs and zeros:")
+        if preventnans:
+            print("parset2d.fracdiff INFO - preventing NaNs:")
             bbad = Pdiv.pars == None
 
             # We do this in two steps:
             Pdiv.pars[bbad] = 0.
+
+        # If we want to prevent zeros as well, do the following
+        if preventzeros:
             bnz = np.abs(Pdiv.pars) > 0.
             minval = np.min(np.abs(Pdiv.pars[bnz]))
-            
             Pdiv.pars[~bnz] = minval
+                
             Pdiv.partitionmodel() # ensure that propagated in
 
         return Pdiv
