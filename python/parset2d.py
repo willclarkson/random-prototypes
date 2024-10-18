@@ -188,7 +188,13 @@ Inputs:
 
     def updatetransfname(self, transfname=''):
 
-        """Updates the transformation name"""
+        """Updates the transformation name.
+
+Inputs:
+
+        transfname = string, the new name for the transformation
+
+"""
 
         self.transfname = transfname[:]
         
