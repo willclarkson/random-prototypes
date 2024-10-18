@@ -96,11 +96,8 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         self.mag0 = mag0 # magnitude zeropoint
 
         # Some other quantities some of the transforamtions need
-        self.xmin = xmin
-        self.xmax = xmax
-        self.ymin = ymin
-        self.ymax = ymax
-        self.transfname = transfname
+        self.updatedatarange(xmin, xmax, ymin, ymax)
+        self.updatetransfname(transfname)
         
         # stems for latex labels
         self.labelstem_transf = 'A'
@@ -176,6 +173,25 @@ Returns: None. Updates the following attributes:
         self.insertpars(np.copy(p))
         self.partitionmodel()
 
+    def updatedatarange(self, xmin=None, xmax=None, ymin=None, ymax=None):
+
+        """Updates data range attributes.
+
+Inputs:
+
+        xmin, xmax, ymin, ymax = input data ranges, scalars"""
+
+        self.xmin = xmin
+        self.xmax = xmax
+        self.ymin = ymin
+        self.ymax = ymax
+
+    def updatetransfname(self, transfname=''):
+
+        """Updates the transformation name"""
+
+        self.transfname = transfname[:]
+        
     def setupindices(self):
 
         """Sets up the indices corresponding to each model parameter.
