@@ -22,6 +22,9 @@ from lnprobs2d import Prior, Like
 # utilities for converting linear parameters back and forth
 import sixterm2d
 
+# For serializing sim info to disk
+import configparser
+
 
 class MCMCrun(object):
 
@@ -235,6 +238,10 @@ parameters.
         # For any cases where the guess was zero, sub with the scale
         bzer = np.abs(self.guess1d) < 1.0e-30
         self.nudge_guess1d[bzer] = self.nudgescale_guess1d
+
+        # Take absolute values (shouldn't matter later on when this is
+        # used, but let's get this right)
+        self.nudge_guess1d = np.abs(self.nudge_guess1d)
         
         # for pointing arguments
         if not hasattr(self.guess, 'transf'):
@@ -375,11 +382,22 @@ for convenient comparison with the truth parameters"""
         PP = Pairset(self.sim.Parset, self.guess_parset)
 
         # Find fractional difference (of guess) in matching
-        # parameters. Force this to become an np float array while I
-        # work out why it isn't that by default...
+        # parameters. Force this to become an np float array
+        # (depending on what was set up, there may be None or nan in
+        # the answer).
         self.fracdiff = PP.fracdiff()
         self.fracdiff.pars = np.asarray(self.fracdiff.pars, 'float64')
 
+        # debug lines
+        print("calcfracdiff_truth_guess DEBUG")
+        print("==============================")
+        print("Absolute difference:")
+        pdiff = PP.arithmetic(PP.set1on2, PP.set2, np.subtract)
+        print(pdiff.pars)
+        print("Fractional difference:")
+        print(self.fracdiff.pars)
+        print("==============================")
+        
     def settruthsarray(self):
 
         """Utility - populates the 'truths' array for future plots, matched to
@@ -509,7 +527,18 @@ walker positions"""
         if hasattr(self.guess.PGuess,'inds1d_6term'):
             self.args_show['corner']['inds_abc'] = \
                 self.guess.PGuess.inds1d_6term
-        
+
+        # Scaling for mcmc jitter. There are several attributes we
+        # might use, so at the moment we serialize them all
+        self.args_show['scalings'] = {}
+        for sattr in ['nudge_guess1d', 'scaleguess', 'fjitter']:
+            self.args_show['scalings'][sattr] = getattr(self, sattr)
+
+        # The magnitudes actually used when setting up the jitter
+        self.args_show['scalings']['jitter_mag'] = \
+            self.scaleguess * self.guess1d_refined
+
+            
     def setargs_truthset(self):
 
         """Passes paramset object for the truth parameters as an output
@@ -608,7 +637,36 @@ interpreter"""
                     pickle.dump(self.args_ensemble, f)
             except:
                 print("writeargs_emcee WARN - problem pickling args_ensemble")
-                    
+
+    def writejitterball(self, pathjitter='test_jitter.txt'):
+
+        """Writes the centroids and jitters used to set up the walkers. Make
+this something we can input into an mcmc run on actual data"""
+
+        # Centers and jitters as views, so we can decide later to
+        # switch to something else if needed
+
+        centers = self.guess1d_refined
+        jitters = self.scaleguess * self.guess1d_refined
+
+        # Variable names. Still need a good way to do this...
+        varnames = self.labels[:]
+
+        # use the standard library config parser again:
+        config = configparser.ConfigParser()
+        config['Pars'] = {}
+        config['Jitter'] = {}
+
+        for ipar in range(len(varnames)):
+            skey = varnames[ipar][:]
+            sjit = 'j_%s' % (skey)
+
+            config['Pars'][skey] = str(centers[ipar])
+            config['Jitter'][sjit] = str(jitters[ipar])
+
+        with open(pathjitter, 'w') as jitfile:
+            config.write(jitfile)
+            
     def doguess(self, norun=False):
 
         """Wrapper - sets up and performs initial fit to the data to serve as
@@ -684,6 +742,11 @@ Inputs:
         self.setupfitargs() # includes the prior
         self.guessforminimizer()
 
+        print("doguess DEBUG - parameter nudges:")
+        print("######################")
+        print(self.nudge_guess1d)
+        print("######################")
+        
         if norun:
             return
         
@@ -741,7 +804,7 @@ Returns:
 
     if debug:
         return 
-    
+
     mc.setupwalkers()
     mc.setargs_emcee()
 
@@ -751,6 +814,8 @@ Returns:
     # Try serializing the arguments to disk so we can retrieve them
     # later
     mc.writeargs_emcee()
+
+    mc.writejitterball()
     
     # Get the arguments and print a helpful message...
     return mc.returnargs_emcee(Verbose=True)
