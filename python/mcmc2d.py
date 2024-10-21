@@ -666,6 +666,10 @@ this something we can input into an mcmc run on actual data"""
 
         with open(pathjitter, 'w') as jitfile:
             config.write(jitfile)
+
+        # We now need a way to read this in. It probably makes sense
+        # to have self.jitterscale as a separate variable rather than
+        # the two pieces we currently have...
             
     def doguess(self, norun=False):
 
@@ -909,4 +913,55 @@ Returns:
     # ... and return them to the interpreter
     return flat_samples, log_probs
 
+def readjitterball(pathjitter='test_jitter.txt'):
 
+    """Test-bed for jitter-bal reader, to be inserted into mcmc object
+when ready"""
+
+    # let's try piggybacking on the config parser
+    if len(pathjitter) < 4:
+        return
+
+    if not os.access(pathjitter, os.R_OK):
+        print("readjitterball WARN - cannot read path %s" \
+              % (pathjitter))
+        return
+    
+    config = configparser.ConfigParser()
+    try:
+        config.read(pathjitter)
+    except:
+        print("readjitterball WARN - problem reading jitter file %s" \
+              % (pathjitter))
+        return
+
+    # OK now we have the config object populated. Explore it
+    labels = []
+    centers = []
+    jitters = []
+    
+    for key in config['Pars'].keys():
+        labels.append(key)
+        centers.append(config['Pars'].getfloat(key))
+
+        keyjit = 'j_%s' % (key)
+        jitters.append(config['Jitter'].getfloat(keyjit))
+
+        # for debugging
+        #
+        # print(key, centers[-1], jitters[-1])
+
+    # Ensure the components read in are numpy arrays
+    centers = np.asarray(centers)
+    jitters = np.asarray(jitters)
+
+    # For debugging
+    for idum in range(len(labels)):
+        print(labels[idum], centers[idum], jitters[idum] , \
+              jitters[idum]/np.abs(centers[idum]) )
+        
+    #print(labels)
+    #print(centers)
+    #print(jitters)
+
+                       
