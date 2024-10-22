@@ -36,10 +36,16 @@ multiprocessing.
     def __init__(self, parfile_sim='', parfile_guess='', \
                  chainlen=40000, \
                  parfile_prior='', \
+                 pathjitter='', \
+                 ignoretruth=False, \
                  Verbose=True):
 
         # Control variables
         self.Verbose = Verbose
+
+        # If simulating, ignore the truth values when setting up the
+        # guess?
+        self.ignoretruth = ignoretruth
         
         # Parameters for simulation and for guess
         self.parfile_sim = parfile_sim[:]
@@ -94,6 +100,14 @@ multiprocessing.
         self.jitterscale_default = 0.05
         self.chainlen = chainlen
 
+        # walker centers and jitter scales actually used
+        self.walkers_centers = np.array([])
+        self.walkers_jitters = np.array([])
+
+        # text file we could use to read in the jitter scale and/or
+        # walker centers. Default to blank
+        self.pathjitter=pathjitter[:]
+        
         # Arguments to send to mcmc runs
         self.args_ensemble = {}
         self.args_run = {}
@@ -138,7 +152,9 @@ dataset"""
         """Initializes the initial guess from truth parameters if we have
 them"""
 
-        if not hasattr(self.sim, 'pars_transf'):
+        # Do we actually have a truth transformation?
+        # if not hasattr(self.sim, 'pars_transf'):
+        if not hasattr(self.sim, 'Parset'):
             return
 
         # Now use a pairset to merge the truth and guess parameters
@@ -247,7 +263,12 @@ parameters.
         if not hasattr(self.guess, 'transf'):
             return
 
-        # If the guess has a tangent point, set the nudge accordingly
+        self.setnudgetp()
+        
+    def setnudgetp(self):
+
+        """If the guess has a tangent point, set the nudge accordingly"""
+        
         if self.guess.hastangentpoint:
             self.nudge_guess1d[0] = self.nudge_pointing_arcsec / 3600.
             self.nudge_guess1d[1] = self.nudge_pointing_arcsec / 3600.
@@ -378,6 +399,10 @@ for convenient comparison with the truth parameters"""
         # paramset
         if not hasattr(self.sim, 'Parset'):
             return
+
+        # Also nothing to do if we have sworn off truth for this run
+        if self.ignoretruth:
+            return
         
         PP = Pairset(self.sim.Parset, self.guess_parset)
 
@@ -429,19 +454,33 @@ walker positions"""
         
         # If we have truth parameters, use the fractional offset from
         # the truth parameters to set the scale.
-        if not hasattr(self.fracdiff, 'pars'):
-            return
-        
-        self.scaleguess = np.asarray(self.fracdiff.pars) * self.fjitter
+        if hasattr(self.fracdiff, 'pars') and not self.ignoretruth:
+            self.scaleguess = np.asarray(self.fracdiff.pars) * self.fjitter
 
+        # Finally, if we are ignoring truths, fall back on our arcsec
+        # pointing (otherwise we can end up with huge scatters).
+        if self.ignoretruth:
+            self.scaleguess[0] = self.nudge_pointing_arcsec / 3600.
+            self.scaleguess[1] = self.nudge_pointing_arcsec / 3600.
+            
+    def jitterfromguess(self):
+
+        """Sets walker arguments from guess"""
+
+        self.walkers_centers = np.copy(self.guess1d_refined)
+        self.walkers_jitters = np.copy(self.scaleguess)
+        
     def initwalkers(self):
 
         """Sets up walker initial conditions"""
 
         pertn = np.random.randn(self.nchains, self.ndim)
-        magn = self.scaleguess * self.guess1d_refined
-        self.pos = self.guess1d_refined + pertn * magn[None, :]
+        #magn = self.scaleguess * self.guess1d_refined
+        #self.pos = self.guess1d_refined + pertn * magn[None, :]
 
+        self.pos = self.walkers_centers + \
+            pertn * self.walkers_jitters[None, :]
+        
         #print("initwalkers INFO:", self.guess1d_refined.dtype, \
         #      pertn.dtype, magn.dtype, self.scaleguess.dtype)
         
@@ -452,10 +491,18 @@ walker positions"""
         # If we have truth parameters, use them to set the scale for
         # the jitter ball for the mcmc initial state
         self.calcfracdiff_truth_guess()
+        self.setjitterscale()
+        self.jitterfromguess()
+
+        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        print("setupwalkers INFO - scaleguess:")
+        print(self.scaleguess)
+        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+
         
         self.ndimfromguess()
         self.setnchains()
-        self.setjitterscale()
+        # self.setjitterscale()  # moved up 
         self.initwalkers()
 
     def setargs_ensemblesampler(self):
@@ -536,8 +583,10 @@ walker positions"""
 
         # The magnitudes actually used when setting up the jitter
         self.args_show['scalings']['jitter_mag'] = \
-            self.scaleguess * self.guess1d_refined
-
+            self.walkers_jitters
+        
+            # self.scaleguess * self.guess1d_refined
+        
             
     def setargs_truthset(self):
 
@@ -567,7 +616,8 @@ argument in args_show['truths']"""
 interpreter"""
 
         self.args_show['guess'] = {}
-        self.args_show['guess']['fracdiff'] = self.fracdiff.pars
+        if hasattr(self.fracdiff, 'pars'):
+            self.args_show['guess']['fracdiff'] = self.fracdiff.pars
         self.args_show['guess']['scaleguess'] = self.scaleguess
         self.args_show['guess']['fjitter'] = self.fjitter
         self.args_show['guess']['guess1d_refined'] \
@@ -646,8 +696,12 @@ this something we can input into an mcmc run on actual data"""
         # Centers and jitters as views, so we can decide later to
         # switch to something else if needed
 
-        centers = self.guess1d_refined
-        jitters = self.scaleguess * self.guess1d_refined
+        # Nothing to do if the jitters aren't populated yet
+        if np.size(self.walkers_jitters) < 1:
+            return
+        
+        # centers = self.guess1d_refined
+        # jitters = self.scaleguess * self.guess1d_refined
 
         # Variable names. Still need a good way to do this...
         varnames = self.labels[:]
@@ -661,8 +715,8 @@ this something we can input into an mcmc run on actual data"""
             skey = varnames[ipar][:]
             sjit = 'j_%s' % (skey)
 
-            config['Pars'][skey] = str(centers[ipar])
-            config['Jitter'][sjit] = str(jitters[ipar])
+            config['Pars'][skey] = str(self.walkers_centers[ipar])
+            config['Jitter'][sjit] = str(self.walkers_jitters[ipar])
 
         with open(pathjitter, 'w') as jitfile:
             config.write(jitfile)
@@ -670,6 +724,94 @@ this something we can input into an mcmc run on actual data"""
         # We now need a way to read this in. It probably makes sense
         # to have self.jitterscale as a separate variable rather than
         # the two pieces we currently have...
+
+    def readjitterball(self, pathjitter='test_jitter.txt', \
+                       getjitter=True, getpars=False, getlabels=False, \
+                       sectionpars='Pars', sectionjitter='Jitter', \
+                       debug=False):
+
+        """Loads jitter ball information. Inputs:
+
+        pathjitter = path to jitter ball file
+
+        getjitter [T] = update instance jitter attribute from file
+
+        getpars [F] = update parameter centers from file
+
+        getlabels [F] = update labels from file
+
+        sectionpars = section name for parameters
+
+        sectionjitter = section name for jitter ball
+
+        debug = print information to screen
+
+        """
+
+        
+        # let's try piggybacking on the config parser
+        if len(pathjitter) < 4:
+            return
+
+        if not os.access(pathjitter, os.R_OK):
+            print("readjitterball WARN - cannot read path %s" \
+                  % (pathjitter))
+            return
+
+        # Let's try piggybacking on the config parser
+        config = configparser.ConfigParser()
+        try:
+            config.read(pathjitter)
+        except:
+            print("readjitterball WARN - problem reading jitter file %s" \
+                  % (pathjitter))
+            return
+
+        # Populate the needed items. We go ahead and populate these
+        # local objects, sending them up to the instance depending on
+        # control variables here
+        labels = []
+        centers = []
+        jitters = []
+
+        # We do the parameters and jitters separately in case the
+        # input parfile doesn't have any parameters. Currently there
+        # is no parsing for the jitters, we trust the input to follow
+        # the same order as the parameters.
+        
+        # labels and jitter ball centers
+        for key in config[sectionpars].keys():
+            labels.append(key)
+            centers.append(config[sectionpars].getfloat(key))
+        
+        # jitter distribution
+        labelsjit = []
+        for keyjit in config[sectionjitter].keys():
+            labelsjit.append(keyjit)
+            jitters.append(config[sectionjitter].getfloat(keyjit))
+
+        # Enforce numpy arrays...
+        centers = np.asarray(centers)
+        jitters = np.asarray(jitters)
+
+        # ... and pass up to the instance
+        if getjitter:
+            self.walker_jitters = np.copy(jitters)
+
+        if getpars:
+            self.walker_centers = np.copy(centers)
+        
+        # printing to screen?
+        if not debug:
+            return
+
+        print("-------------------------------------------------")
+        print("readjitterball DEBUG - loaded jitter information:")
+        for idum in range(len(jitters)):
+            print(labels[idum], centers[idum], labelsjit[idum], \
+                  jitters[idum], \
+                  jitters[idum]/np.abs(centers[idum]) )
+        print("-------------------------------------------------")
             
     def doguess(self, norun=False):
 
@@ -685,7 +827,7 @@ Inputs:
         for debugging.
 
         """
-
+        
         # Sets up the guess object
         self.setupguess()
 
@@ -707,7 +849,12 @@ Inputs:
         print(self.guess.Parset.mix)
         print("Guess degree:", self.guess.deg)
         print("mcmc2d.doguess DEBUG =======")
-              
+
+        # read in any pre-cooked jitter ball, if pathjitter has been
+        # defined.
+        self.readjitterball(pathjitter=self.pathjitter, \
+                            getjitter=True, \
+                            getpars=False, getlabels=False)
         
         # How we specify the "guess" depends on whether we can do a
         # least-squares fit to arrive at one.
@@ -722,7 +869,8 @@ Inputs:
         else:
             # Do a linear leastsq fit to the data to serve as the
             # initial guess for the minimizer
-            self.guessfromlstsq()
+            if not self.ignoretruth:
+                self.guessfromlstsq()
 
         # By this point we should have the parameter set. Check that
         # we do.
@@ -764,6 +912,8 @@ Inputs:
 def setupmcmc(pathsim='test_sim_mixmod.ini', \
              pathfit='test_guess_input.ini', \
               pathprior='', \
+              pathjitter='', \
+              ignoretruth=False, \
               chainlen=40000, debug=False):
 
     """Sets up for mcmc simulations. 
@@ -775,6 +925,10 @@ Inputs:
     pathfit = path to parameter file for assembling the guess
 
     pathprior = path to informative prior terms (if any)
+
+    pathjitter = path to any jitter guess (including scales)
+
+    ignoretruth = ignore truth values
 
     chainlen = chain length for mcmc
 
@@ -790,7 +944,8 @@ Returns:
 
 """
 
-    mc = MCMCrun(pathsim, pathfit, chainlen, pathprior)
+    mc = MCMCrun(pathsim, pathfit, chainlen, pathprior, \
+                 pathjitter=pathjitter, ignoretruth=ignoretruth)
     mc.dosim()
     mc.doguess(norun=debug)
     
@@ -820,6 +975,9 @@ Returns:
     mc.writeargs_emcee()
 
     mc.writejitterball()
+
+    # Let's see if reading this back in works...
+    # mc.readjitterball(debug=True)
     
     # Get the arguments and print a helpful message...
     return mc.returnargs_emcee(Verbose=True)
@@ -913,9 +1071,9 @@ Returns:
     # ... and return them to the interpreter
     return flat_samples, log_probs
 
-def readjitterball(pathjitter='test_jitter.txt'):
+def loadjitterball(pathjitter='test_jitter.txt'):
 
-    """Test-bed for jitter-bal reader, to be inserted into mcmc object
+    """Test-bed for jitter-ball reader, to be inserted into mcmc object
 when ready"""
 
     # let's try piggybacking on the config parser
