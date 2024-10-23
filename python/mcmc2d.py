@@ -494,9 +494,17 @@ walker positions"""
         self.setjitterscale()
         self.jitterfromguess()
 
+        # Override jitter with estimate from file
+        if len(self.pathjitter) > 3:
+            print("setupwalkers INFO - attempting to read jitters from %s" \
+                  % (self.pathjitter))
+            self.readjitterball(self.pathjitter, getjitter=True, \
+                                getpars=False, getlabels=False)
+        
+        
         print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-        print("setupwalkers INFO - scaleguess:")
-        print(self.scaleguess)
+        print("setupwalkers INFO - walkers_jitters:")
+        print(self.walkers_jitters)
         print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 
         
@@ -796,10 +804,10 @@ this something we can input into an mcmc run on actual data"""
 
         # ... and pass up to the instance
         if getjitter:
-            self.walker_jitters = np.copy(jitters)
+            self.walkers_jitters = np.copy(jitters)
 
         if getpars:
-            self.walker_centers = np.copy(centers)
+            self.walkers_centers = np.copy(centers)
         
         # printing to screen?
         if not debug:
