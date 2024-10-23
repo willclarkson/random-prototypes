@@ -1231,8 +1231,144 @@ def showunctysamples(flatsamples=None, fignum=7):
 
     # Cosmetics
     fig7.subplots_adjust(wspace=0.3, hspace=0.3)
-                        
-                         
+
+def showparsamples(flatsamples=None, fignum=8, cmap='inferno', \
+                   alpha=0.5, pathfig='test_parsamples.png', \
+                   showpointing=True):
+
+    """Shows the parameter flat-samples, color-coded by lnprob
+
+Inputs:
+
+    flatsamples = Flatsamples object including samples and lnprobs
+
+    fignum = matplotlib figure number to use
+
+    cmap = color map to use for plots
+
+    alpha = transparency for scatterplot
+
+    pathfig = path for saved image
+
+    showpointing = show par[0,1] covariance
+
+"""
+
+    # Ensure inputs are present
+    if flatsamples is None:
+        return
+
+    if flatsamples.nsamples < 1:
+        return
+
+    # We need to know which indices correspond to which pieces
+    if not hasattr(flatsamples, 'inp_parset'):
+        print("examine2d.showparsamples WARN - flatsamples.inp_parset absent")
+        return
+
+    # Go ahead and get all the pieces so that we can plot whatever we want
+    lpars = np.arange(np.size(flatsamples.inp_parset.model))
+    lnoise = flatsamples.inp_parset.lnoise
+    lsymm = flatsamples.inp_parset.lsymm
+    lmix = flatsamples.inp_parset.lmix
+
+    # Labels
+    labels_pars = flatsamples.labels_transf
+
+    # Quantities to actually plot
+    nsam = np.shape(flatsamples.flat_samples)[0]
+    lsam = np.arange(nsam, dtype='int')
+    pars = flatsamples.flat_samples[:,lpars]
+    
+    # lnprobs recognizably absent if not present
+    logprobs = None
+    if hasattr(flatsamples, 'log_probs'):
+        logprobs = flatsamples.log_probs
+
+    # Now set up the figure panels
+    npars = np.size(lpars)
+    ncols = 2
+    nrows = int(npars/2)
+
+    # matplotlib counts left-right, but we may want parameters to
+    # count vertically after the centroid. That's annoying, but we can
+    # deal with it here:
+    lplot = np.hstack(( np.arange(2)+1, \
+                        np.arange(3, npars, 2), \
+                        np.arange(nrows+1, npars+1, 2) ))
+
+    fig8 = plt.figure(fignum)
+    fig8.clf()
+    axes = []
+    for iax in range(npars):
+
+        # Which way are we adding here...
+        iplot = lplot[iax]
+
+        if iax < 1:
+            thisax = fig8.add_subplot(nrows, ncols, iplot)
+        else:
+            thisax = fig8.add_subplot(nrows, ncols, iplot, sharex=axes[0])
+        thisax.set_ylabel(labels_pars[iax])
+        if iplot > npars-2:
+            thisax.set_xlabel('Flat sample number')
+        axes.append(thisax)
+
+    # Now populate the axes
+    sz=1
+    for iax in range(len(axes)):
+        xsho = lsam
+        ysho = pars[:,iax]
+        ax = axes[iax]
+        
+        if np.size(logprobs) > 0:
+            dum = ax.scatter(xsho, ysho, c=logprobs, cmap=cmap, \
+                             alpha=alpha, s=sz)
+            cbar = fig8.colorbar(dum, ax=ax, label='ln(prob)')
+            cbar.solids.set(alpha=1)
+        else:
+            dum = ax.scatter(xsho, ysho, alpha=alpha, s=sz)
+
+    # Ensure the panel labels are readable
+    fig8.subplots_adjust(hspace=0.4, wspace=0.6)
+            
+    # Save the figure to disk
+    if len(pathfig) > 3:
+        fig8.savefig(pathfig)
+
+    if not showpointing:
+        return
+
+    fig11 = plt.figure(11, figsize=(8,3))
+    fig11.clf()
+    ax1 = fig11.add_subplot(121)
+
+    c = None
+    
+    if np.size(logprobs) > 0:
+        c = logprobs
+
+    dum = ax1.scatter(pars[:,0], pars[:,1], c=c, s=sz, cmap=cmap, \
+                      alpha=alpha)
+    ax1.set_xlabel(labels_pars[0])
+    ax1.set_ylabel(labels_pars[1])
+
+    if np.size(logprobs) > 0:
+        cbar = fig11.colorbar(dum, ax=ax1, label='lnprob')
+        cbar.solids.set(alpha=1)
+        
+        ax2 = fig11.add_subplot(122)
+        dum, _, _ = ax2.hist(logprobs, bins=100)
+        ax2.set_xlabel('logprob')
+
+    fig11.subplots_adjust(hspace=0.4, wspace=0.6, left=0.2, bottom=0.2)
+
+    # save this figure to disk
+    if len(pathfig) > 4:
+        pathsup = '%s_pointing.png' % (os.path.splitext(pathfig)[0])
+
+        fig11.savefig(pathsup)
+    
 def shownoisesamples(flatsamples=None, nshow=100, fignum=9, \
                      logy=True, showvar=True, \
                      cmap='inferno_r', jaux=2, \
