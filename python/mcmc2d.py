@@ -912,6 +912,12 @@ Inputs:
         
         self.runminimizer(Verbose=self.Verbose)
         self.populate_guess_parset()
+
+        # output the fitted params to screen
+        print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+        print("doguess DEBUG - refined post-fit guess:")
+        print(self.guess1d_refined)
+        print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
         
 ### Some methods follow that we want to be able to use from the
 ### interpreter. Once an mcmc run is done, the interpreter will have
