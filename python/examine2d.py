@@ -1234,7 +1234,7 @@ def showunctysamples(flatsamples=None, fignum=7):
 
 def showparsamples(flatsamples=None, fignum=8, cmap='inferno', \
                    alpha=0.5, pathfig='test_parsamples.png', \
-                   showpointing=True):
+                   showpointing=True, onlyfinite=True):
 
     """Shows the parameter flat-samples, color-coded by lnprob
 
@@ -1251,6 +1251,8 @@ Inputs:
     pathfig = path for saved image
 
     showpointing = show par[0,1] covariance
+
+    onlyfinite = show only the samples for which lnprob is finite 
 
 """
 
@@ -1281,10 +1283,14 @@ Inputs:
     pars = flatsamples.flat_samples[:,lpars]
     
     # lnprobs recognizably absent if not present
+    bok = np.isfinite(pars[:,0])
     logprobs = None
     if hasattr(flatsamples, 'log_probs'):
         logprobs = flatsamples.log_probs
 
+        if onlyfinite:
+            bok = (bok) & (np.isfinite(flatsamples.log_probs))
+        
     # Now set up the figure panels
     npars = np.size(lpars)
     ncols = 2
@@ -1295,8 +1301,10 @@ Inputs:
     # deal with it here:
     lplot = np.hstack(( np.arange(2)+1, \
                         np.arange(3, npars, 2), \
-                        np.arange(nrows+1, npars+1, 2) ))
+                        np.arange(3, npars, 2)+1 ))
 
+    print("showparsamples DEBUG:", lplot, np.size(lplot), npars)
+    
     fig8 = plt.figure(fignum)
     fig8.clf()
     axes = []
@@ -1317,12 +1325,12 @@ Inputs:
     # Now populate the axes
     sz=1
     for iax in range(len(axes)):
-        xsho = lsam
-        ysho = pars[:,iax]
+        xsho = lsam[bok]
+        ysho = pars[bok,iax]
         ax = axes[iax]
         
         if np.size(logprobs) > 0:
-            dum = ax.scatter(xsho, ysho, c=logprobs, cmap=cmap, \
+            dum = ax.scatter(xsho, ysho, c=logprobs[bok], cmap=cmap, \
                              alpha=alpha, s=sz)
             cbar = fig8.colorbar(dum, ax=ax, label='ln(prob)')
             cbar.solids.set(alpha=1)
