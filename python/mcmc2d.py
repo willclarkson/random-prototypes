@@ -16,7 +16,8 @@ from scipy.optimize import minimize
 
 import sim2d
 from parset2d import Pars1d, Pairset
-from fit2d import Guess, lnprobs2d
+from fit2d import Guess
+import lnprobs2d
 from lnprobs2d import Prior, Like
 
 # utilities for converting linear parameters back and forth
@@ -999,7 +1000,8 @@ Returns:
 def getflatsamples(sampler=None, \
                    pathflat='test_flat_samples.npy', \
                    pathprobs='test_log_probs.npy', \
-                   ntau=20, burnin=-1, Verbose=True):
+                   ntau=20, burnin=-1, Verbose=True, \
+                   onlyfinite=True):
     
     """Gets flat samples and saves them to disk.
 
@@ -1017,6 +1019,8 @@ Inputs:
     choice if >0)
 
     Verbose = print messages to screen
+
+    onlyfinite = only accept samples with finite ln prob
 
 Returns:
 
@@ -1070,6 +1074,13 @@ Returns:
 
     # get the log probabilities for this flattened sample.
     log_probs = sampler.get_log_prob(discard=nthrow, thin=nthin, flat=True)
+
+    if onlyfinite:
+        bok = np.isfinite(log_probs)
+        print("mcmc2d.getflatsamples INFO - retaining samples with finite lnprob", np.sum(bok), np.size(bok))
+        bok = np.isfinite(log_probs)
+        log_probs = log_probs[bok]
+        flat_samples = flat_samples[bok, :]
     
     if Verbose:
         print("mcmc2d.getflatsamples INFO - flat samples shape:", \

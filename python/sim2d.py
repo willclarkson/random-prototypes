@@ -815,6 +815,9 @@ def testsim():
 
     print(SD.Parset.pars)
 
+    # Now try writing to disk
+    SD.Obssrc.writeobs('test_obset_written.dat')
+    
 def testreadconfig():
 
     """Tests loading the configuration file"""
