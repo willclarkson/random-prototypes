@@ -1001,7 +1001,8 @@ def getflatsamples(sampler=None, \
                    pathflat='test_flat_samples.npy', \
                    pathprobs='test_log_probs.npy', \
                    ntau=20, burnin=-1, Verbose=True, \
-                   onlyfinite=True):
+                   onlyfinite=True, \
+                   lnprobmin=-np.inf):
     
     """Gets flat samples and saves them to disk.
 
@@ -1021,6 +1022,8 @@ Inputs:
     Verbose = print messages to screen
 
     onlyfinite = only accept samples with finite ln prob
+
+    lnprobmin = only accept points with lnprob > lnprobmin
 
 Returns:
 
@@ -1081,7 +1084,12 @@ Returns:
         bok = np.isfinite(log_probs)
         log_probs = log_probs[bok]
         flat_samples = flat_samples[bok, :]
-    
+
+    # select on lnprobmin. This is best left at default (-np.inf) but 
+    bprob = log_probs > lnprobmin
+    log_probs = log_probs[bprob]
+    flat_samples = flat_samples[bprob,:]
+        
     if Verbose:
         print("mcmc2d.getflatsamples INFO - flat samples shape:", \
               flat_samples.shape)

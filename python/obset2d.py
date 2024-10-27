@@ -94,6 +94,12 @@ Example call:
             adata = np.hstack(( adata, self.isfg[:,None] ))
             cnames = cnames + labels_isfg
 
+        # we DO want to output the adopted xmin, xmax, ymin, ymax
+        # since at laest fit2d.py gets them from the observation
+        # object (and not the parset). May want to fix that later.
+
+        # limits would come here
+            
         # Now we've built our array and colnames, write them out
         np.savetxt(pathwrite, adata, header=" ".join(cnames))
 
@@ -107,6 +113,9 @@ Currently REQUIRES the following order of columns:
 
 """
 
+        # Could do some parsing based on the column names, but for the
+        # moment we assume we are only reading output from writobs.
+        
         try:
             ain = np.genfromtxt(pathobs, unpack=False)
         except:

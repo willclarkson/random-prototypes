@@ -1234,7 +1234,8 @@ def showunctysamples(flatsamples=None, fignum=7):
 
 def showparsamples(flatsamples=None, fignum=8, cmap='inferno', \
                    alpha=0.5, pathfig='test_parsamples.png', \
-                   showpointing=True, onlyfinite=True):
+                   showpointing=True, onlyfinite=True, \
+                   histlog=False, shownuisance=False):
 
     """Shows the parameter flat-samples, color-coded by lnprob
 
@@ -1254,7 +1255,12 @@ Inputs:
 
     onlyfinite = show only the samples for which lnprob is finite 
 
-"""
+    histlog = use log-y for histogram
+
+    shownuisance = plot nuisance parameters instead of model
+    parameters
+
+    """
 
     # Ensure inputs are present
     if flatsamples is None:
@@ -1269,19 +1275,59 @@ Inputs:
         return
 
     # Go ahead and get all the pieces so that we can plot whatever we want
-    lpars = np.arange(np.size(flatsamples.inp_parset.model))
-    lnoise = flatsamples.inp_parset.lnoise
-    lsymm = flatsamples.inp_parset.lsymm
-    lmix = flatsamples.inp_parset.lmix
+    pset = flatsamples.inp_parset
+    lpars = np.arange(np.size(pset.model))
+    lnoise = pset.lnoise
+    lsymm = pset.lsymm
+    lmix = pset.lmix
 
+    # Hack to ensure consistent dimension later
+    if shownuisance:
+        lpars = np.hstack((lnoise, lsymm, lmix))
+    
     # Labels
     labels_pars = flatsamples.labels_transf
 
     # Quantities to actually plot
     nsam = np.shape(flatsamples.flat_samples)[0]
     lsam = np.arange(nsam, dtype='int')
-    pars = flatsamples.flat_samples[:,lpars]
-    
+
+    if not shownuisance:
+        pars = flatsamples.flat_samples[:,lpars]
+    else:
+        # build the parameters and labels depending on what we
+        # have. This is a little inelegant because we distingiush the
+        # different noise parameter sets by attribute. So:
+        labels_all = np.asarray(pset.getlabels())
+        pars = np.array([])
+        labels_pars = []
+        
+        if np.size(lnoise) > 0:
+            pars = np.copy(flatsamples.flat_samples[:,lnoise])
+            labels_pars = list(labels_all[lnoise])[:]
+            
+        if np.size(lsymm) > 0:
+            pars_symm = np.copy(flatsamples.flat_samples[:,lsymm])
+            labels_symm = list(labels_all[lsymm])
+
+            if np.size(pars) < 1:
+                pars = np.copy(pars_symm)
+                labels_pars = labels_symm[:]
+            else:
+                pars = np.hstack((pars, pars_symm))
+                labels_pars = labels_pars + labels_symm[:]
+            
+        if np.size(lmix) > 0:
+            pars_mix = np.copy(flatsamples.flat_samples[:,lmix])
+            labels_mix = list(labels_all[lmix])
+
+            if np.size(pars) < 1:
+                pars = np.copy(pars_mix)
+                labels_pars = labels_mix[:]
+            else:
+                pars = np.hstack(( pars, pars_mix ))
+                labels_pars = labels_pars + labels_mix[:]
+                
     # lnprobs recognizably absent if not present
     bok = np.isfinite(pars[:,0])
     logprobs = None
@@ -1296,13 +1342,21 @@ Inputs:
     ncols = 2
     nrows = int(npars/2)
 
+    # Allow for odd number of parameters (useful if nuisance
+    # parameters)
+    if npars % 2 > 0:
+        nrows += 1
+    
     # matplotlib counts left-right, but we may want parameters to
     # count vertically after the centroid. That's annoying, but we can
     # deal with it here:
-    lplot = np.hstack(( np.arange(2)+1, \
-                        np.arange(3, npars, 2), \
-                        np.arange(3, npars, 2)+1 ))
-
+    if not shownuisance:
+        lplot = np.hstack(( np.arange(2)+1, \
+                            np.arange(3, npars, 2), \
+                            np.arange(3, npars, 2)+1 ))
+    else:
+        lplot = np.arange(npars)+1
+        
     print("showparsamples DEBUG:", lplot, np.size(lplot), npars)
     
     fig8 = plt.figure(fignum)
@@ -1366,7 +1420,7 @@ Inputs:
         cbar.solids.set(alpha=1)
         
         ax2 = fig11.add_subplot(122)
-        dum, _, _ = ax2.hist(logprobs, bins=100)
+        dum, _, _ = ax2.hist(logprobs, bins=100, log=histlog)
         ax2.set_xlabel('logprob')
 
     fig11.subplots_adjust(hspace=0.4, wspace=0.6, left=0.2, bottom=0.2)
