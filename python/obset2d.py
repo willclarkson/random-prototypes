@@ -98,10 +98,23 @@ Example call:
         # since at laest fit2d.py gets them from the observation
         # object (and not the parset). May want to fix that later.
 
-        # limits would come here
-            
+        # String for limits
+        slims = 'limits (x then y): '
+        for attr in ['xmin', 'xmax', 'ymin', 'ymax']:
+            valu = getattr(self, attr)
+            if valu is not None:
+                slims = '%s %e' % (slims, valu)
+            else:
+                slims = '%s None' % (slims)
+
+        # Column names
+        snames = " ".join(cnames)
+
+        # make the header two lines:
+        sheader = '%s \n %s' % (slims, snames)
+        
         # Now we've built our array and colnames, write them out
-        np.savetxt(pathwrite, adata, header=" ".join(cnames))
+        np.savetxt(pathwrite, adata, header=sheader)
 
     def readobs(self, pathobs='test_writeobs.dat'):
 
@@ -124,12 +137,44 @@ Currently REQUIRES the following order of columns:
 
             return
 
+        # I find numpy's use of data formats to smuggle in the column
+        # names to be non-transparent, and I don't think it handles
+        # header information at all... For the moment, then, use the
+        # standard python library to read in the "header", like so:
+        header = []
+        ilims = -1
+        with open(pathobs, 'r') as robj:
+            for line in robj:
+                line = line.strip()
+                if line.find('#') < 0:
+                    break
+
+                header.append(line)
+                if line.find('limit') > -1:
+                    ilims = len(header)-1
+                
+        # now get the limits. The slightly weird syntax here is so
+        # that we can split on "limits" and not "limits:"
+        attrs = ['xmin', 'xmax', 'ymin', 'ymax']
+        if ilims > -1:
+            slims = header[ilims].split("limits")[-1]
+            vlims = slims.split(' ')[-4::]
+
+            # Now we interpret the results
+            for iattr in range(len(attrs)):
+                try:
+                    valu = float(vlims[iattr])
+                except:
+                    valu = None
+
+                setattr(self, attrs[iattr], valu)
+        
+        
         # "Initialise" the attributes
         xy = np.array([])
         covxy = np.array([])
         mags = np.array([])
         isfg = np.array([])
-        
         
         # Read in the quantities
         nrows, ncols = np.shape(ain)
@@ -158,3 +203,14 @@ Currently REQUIRES the following order of columns:
         self.mags = np.copy(mags)
         self.isfg = np.copy(isfg)
         
+#######
+
+def testread(pathobs='test_obset_written.dat'):
+
+    """Tests loading obset from text"""
+
+    dum = Obset()
+    dum.readobs(pathobs)
+
+    print("INFO:", np.shape(dum.covxy))
+    print(dum.xmin, dum.xmax, dum.ymin, dum.ymax)
