@@ -116,13 +116,19 @@ Example call:
         # Now we've built our array and colnames, write them out
         np.savetxt(pathwrite, adata, header=sheader)
 
-    def readobs(self, pathobs='test_writeobs.dat'):
+    def readobs(self, pathobs='test_writeobs.dat', strictlimits=True):
 
         """Loads observations from disk.
 
 Currently REQUIRES the following order of columns:
 
         x y c00 c01 c11 mags isfg
+
+Inputs:
+
+        pathobs = path to observations
+
+        strictlimits = require all four limits to be OK to use any of them.
 
 """
 
@@ -155,8 +161,10 @@ Currently REQUIRES the following order of columns:
                 
         # now get the limits. The slightly weird syntax here is so
         # that we can split on "limits" and not "limits:"
+        badlimits = True
         attrs = ['xmin', 'xmax', 'ymin', 'ymax']
         if ilims > -1:
+            badlimits = False
             slims = header[ilims].split("limits")[-1]
             vlims = slims.split(' ')[-4::]
 
@@ -167,9 +175,15 @@ Currently REQUIRES the following order of columns:
                 except:
                     valu = None
 
+                    badlimits=True # any of the limits are bad
+                    
                 setattr(self, attrs[iattr], valu)
-        
-        
+
+        # Replace all four limits with None if ANY of them are bad?
+        if strictlimits and badlimits:
+            for attr in attrs:
+                setattr(self, attr, None)
+            
         # "Initialise" the attributes
         xy = np.array([])
         covxy = np.array([])
@@ -205,12 +219,12 @@ Currently REQUIRES the following order of columns:
         
 #######
 
-def testread(pathobs='test_obset_written.dat'):
+def testread(pathobs='test_obset_written.dat', strictlims=True):
 
     """Tests loading obset from text"""
 
     dum = Obset()
-    dum.readobs(pathobs)
+    dum.readobs(pathobs, strictlims)
 
     print("INFO:", np.shape(dum.covxy))
     print(dum.xmin, dum.xmax, dum.ymin, dum.ymax)
