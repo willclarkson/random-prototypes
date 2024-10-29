@@ -9,6 +9,7 @@
 
 import numpy as np
 import copy
+import configparser
 
 class Pars1d(object):
 
@@ -64,6 +65,7 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         self.pars = pars
 
         # parameter-splitting quantities
+        self.nmodel = np.size(model)
         self.nnoise = nnoise
         self.nshape = nshape
         self.nmix = nmix
@@ -246,6 +248,9 @@ Returns: None. Updates the following:
         # OK what's left is the transformation parameter index set
         self.lmodel = lpars
 
+        # Update the count for the model params
+        self.nmodel = np.size(lpars)
+        
     def partitionmodel(self):
 
         """Partitions model parameters using indices already built by
@@ -273,7 +278,8 @@ Returns: None.
             return
 
         self.pars = np.copy(self.model)
-
+        self.nmodel = np.size(self.model)
+        
         self.nnoise = np.size(self.noise)
         self.nshape = np.size(self.symm)
         self.nmix = np.size(self.mix)
@@ -476,8 +482,45 @@ in by a parameter file"""
 
         for imix in range(np.size(self.lmix)):
             self.dindices[self.parnames_mix[imix]] = self.lmix[imix]
+
+    def writeparset(self, pathpars='test_parset.txt'):
+
+        """Writes parameter set to disk"""
+
+        if len(pathpars) < 4:
+            return
+
+        # set up the configuration object
+        config = configparser.ConfigParser()
+
+        # Configuration section...
+        config['config'] = {}
+        conf = config['config'] # save on typos
+
+        for key in ['transfname', 'xmin', 'xmax', 'ymin', 'ymax', \
+                    'mag0', 'islog10_mix_frac', 'islog10_mix_vxx', \
+                    'islog10_noise_c', \
+                    'nmodel', 'nnoise', 'nshape', 'nmix']:
+            conf[key] = str(getattr(self, key))
+
+        # Now for the model and nuisance sections
+        config['model'] = {}
+        config['indices'] = {}
+        modl = config['model']
+        inds = config['indices']
+
+        # Populate both model and index values
+        for key in self.dindices.keys():
+            indx = self.dindices[key]
+            valu = self.pars[indx]
+
+            modl[key] = str(valu)
+            inds[key] = str(indx)
+
+        # Write the resulting file to disk
+        with open(pathpars, 'w') as wobj:
+            config.write(wobj)
             
-        
 class Pairset(object):
 
     """Pair of two Pars1d objects, with comparison method(s)"""
@@ -819,3 +862,24 @@ configurations.
     print(Pfd.pars)
 
     print(Pfd.model)
+
+def testio(npars=6, nnoise=3, nshape=2, nmix=2):
+
+    """Test routine for input/output to text"""
+
+    # create a dummy parset
+    transf = np.arange(6)
+    pnoise = np.arange(nnoise)+10
+    pshape = np.arange(nshape)+100
+    pmix = np.arange(nmix) + 1000
+
+    ppars = np.hstack(( transf, pnoise, pshape, pmix ))
+
+    PP = Pars1d(ppars, nnoise, nshape, nmix)
+
+    print(PP.dindices)
+    print(PP.parnames_noise)
+    print(PP.lmodel)
+
+    # write to disk
+    PP.writeparset()
