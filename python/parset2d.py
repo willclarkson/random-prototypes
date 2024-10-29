@@ -520,7 +520,113 @@ in by a parameter file"""
         # Write the resulting file to disk
         with open(pathpars, 'w') as wobj:
             config.write(wobj)
+
+    def readparset(self, pathpars='test_parset.txt'):
+
+        """Sets attributes from text file"""
+
+        if len(pathpars) < 1:
+            return
+
+        config = configparser.ConfigParser()
+        try:
+            config.read(pathpars)
+        except:
+            print("parset2d.readparset WARN - problem loading path %s" \
+                  % (pathpars))
+            return
+
+        # Load the configuration information
+        if 'config' in config.sections():
+            conf = config['config']
+
+            # Configparser distinguishes between datatypes. So:
+            keys_str = ['transfname']
+            keys_flt = ['xmin', 'xmax', 'ymin', 'ymax', 'mag0']
+            keys_int = ['nmodel', 'nnoise', 'nshape', 'nmix']
+            keys_boo = ['islog10_mix_frac', 'islog10_mix_vxx', \
+                        'islog10_noise_c']
+
+            # Now we read them in, type by type
+            self.getconfvalues(conf, keys_str, conf.get, '')
+            self.getconfvalues(conf, keys_flt, conf.getfloat)
+            self.getconfvalues(conf, keys_int, conf.getint)
+            self.getconfvalues(conf, keys_boo, conf.getboolean)
+
+        # now indices if they are present. Currently this REQUIRES the
+        # [indices] section to be present. Would be good to allow this
+        # to work without that section. Come back to that later.
+        self.dindices = {}
+        if 'indices' in config.sections():
+            inds = config['indices']
+            for item in inds.items():
+                key = item[0]
+                ind = inds.getint(key)
+                self.dindices[key] = ind
+                
+        # We now know how long our pars array is. Populate it:
+        npars = len(self.dindices.keys() )
+        self.pars = np.zeros(npars)
+
+        # Now we read in the parameters section
+        if 'model' in config.sections():
+            modl = config['model']
+            for parname in self.dindices.keys():
+                valu = 0.
+                try:
+                    valu = modl.getfloat(parname)
+                except:
+                    absent = True
+
+                # Now we slot the quantity into the proper position in
+                # the parameter array:
+                indx = self.dindices[parname]
+                self.pars[indx] = valu
+
+        # Now that we have the parameters filled in (or at least
+        # "harmless" default values), ensure the partition attributes
+        # are consistent:
+        self.setupindices()
+        self.partitionmodel()
+
+        # (re-) fix latex label stems if needed
+        self.fixlabelstems()
+        
+    def getconfvalues(self, conf=None, keys=[], methget=None, default=None):
+
+        """One-liner to get config values depending on type.
+
+Inputs:
+
+        conf = configuration object section
+
+        keys = lists of keywords to get from the object
+
+        methget = method to use to get the value (depends on target
+        type). 
+
+        default = default value for attribute if absent from config
+
+        """
+
+        if conf is None:
+            return
+
+        if len(keys) < 1:
+            return
+
+        if methget is None:
+            return
+        
+        for key in keys:
+            valu = default
+            try:
+                valu = methget(key)
+            except:
+                absent = True
+            setattr(self, key, valu)
             
+        
 class Pairset(object):
 
     """Pair of two Pars1d objects, with comparison method(s)"""
@@ -877,9 +983,20 @@ def testio(npars=6, nnoise=3, nshape=2, nmix=2):
 
     PP = Pars1d(ppars, nnoise, nshape, nmix)
 
-    print(PP.dindices)
-    print(PP.parnames_noise)
-    print(PP.lmodel)
-
     # write to disk
     PP.writeparset()
+
+    # Now try generating a blank parset and reading in
+    QQ = Pars1d()
+    QQ.readparset()
+
+    # Print some values
+    print("model:", QQ.model)
+    print("noise:", QQ.noise)
+    print("symm:", QQ.symm)
+    print("mix:", QQ.mix)
+    print("===")
+    print("lmodel:", QQ.lmodel)
+    print("lnoise:", QQ.lnoise)
+    print("lsymm:", QQ.lsymm)
+    print("lmix:", QQ.lmix)
