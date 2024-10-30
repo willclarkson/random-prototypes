@@ -991,6 +991,10 @@ Returns:
 
     mc.writejitterball()
 
+    # Write the guess and truth parsets to disk
+    mc.guess.Parset.writeparset("test_parset_guess.txt")
+    mc.sim.Parset.writeparset("test_parset_truth.txt")
+    
     # Let's see if reading this back in works...
     # mc.readjitterball(debug=True)
     

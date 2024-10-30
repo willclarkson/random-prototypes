@@ -543,7 +543,14 @@ supplied as None"""
                              symm=self.guess_asymm, \
                              mix=self.guess_mixmod, \
                              mag0=self.mag0, \
-                             islog10_noise_c=self.guess_islog10_noise_c)
+                             islog10_noise_c=self.guess_islog10_noise_c, \
+                             islog10_mix_frac=self.guess_islog10_mix_frac, \
+                             islog10_mix_vxx=self.guess_islog10_mix_vxx, \
+                             xmin=self.obssrc.xmin, \
+                             xmax=self.obssrc.xmax, \
+                             ymin=self.obssrc.ymin, \
+                             ymax=self.obssrc.ymax, \
+                             transfname=self.transf.__name__)
 
     def populateguesstransf(self):
 

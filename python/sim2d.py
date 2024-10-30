@@ -74,7 +74,7 @@ class Simdata(object):
         self.islog10_noise_c = False
         self.asymm_ryx = 0.8  # noise shape
         self.asymm_corr = 0.1
-
+        
         # Parameters for noise generation in the target frame. By
         # default, noise is propagated from the obs frame to the
         # target frame. If the parameters below are not none, then the
@@ -737,7 +737,12 @@ object"""
                              symm=self.pars_extra_asymm, \
                              mix=self.pars_mix, \
                              mag0=self.mag0, \
-                             islog10_noise_c=self.islog10_noise_c)
+                             islog10_noise_c=self.islog10_noise_c, \
+                             islog10_mix_frac=self.mix_islog10_frac, \
+                             islog10_mix_vxx=self.mix_islog10_vxx, \
+                             xmin=self.xmin, xmax=self.xmax, \
+                             ymin=self.ymin, ymax=self.ymax, \
+                             transfname=self.transf.__name__)
 
         
     def packagesourcedata(self):
