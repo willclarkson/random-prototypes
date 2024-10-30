@@ -70,6 +70,8 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         self.nshape = nshape
         self.nmix = nmix
 
+        
+        
         # Partitioned parameters
         self.model = np.copy(model) # the transformation
         self.noise = np.copy(noise) # the noise vs mag model
@@ -523,7 +525,13 @@ in by a parameter file"""
 
     def readparset(self, pathpars='test_parset.txt'):
 
-        """Sets attributes from text file"""
+        """Sets parameter attributes from text file.
+
+Inputs:
+
+        pathpars = path to input text file
+
+"""
 
         if len(pathpars) < 1:
             return
@@ -564,10 +572,14 @@ in by a parameter file"""
                 ind = inds.getint(key)
                 self.dindices[key] = ind
                 
-        # We now know how long our pars array is. Populate it:
-        npars = len(self.dindices.keys() )
-        self.pars = np.zeros(npars)
+        # We get the number of parameters from the header (rather than
+        # the dictionary, so that we need only specify a subset)
+        npars = self.nmodel + self.nnoise + self.nshape + self.nmix
+        # npars = len(self.dindices.keys() )
 
+        # Here we re-initialize the parameters.
+        self.pars = np.zeros(npars)
+        
         # Now we read in the parameters section
         if 'model' in config.sections():
             modl = config['model']
@@ -625,7 +637,68 @@ Inputs:
             except:
                 absent = True
             setattr(self, key, valu)
-            
+
+    def blankmodel(self, transfname='Poly', deg=1, \
+                   nnoise=3, nshape=2, nmix=2):
+
+        """Utility - populates blank parset (mostly for serializing to disk so
+that we can create a guess)
+
+Inputs:
+
+        transfname = name of the transformation (as per unctytwod
+        class names)
+
+        deg = degree of any polynomial included
+
+        nnoise = number of noise parameters
+
+        nshape = number of shape parameters
+
+        nmix = number of mixture parameters
+
+        """
+
+        # Implementation comment: prefer not to need to import
+        # uncertaintytwod.py here, instead going for heuristics to
+        # determine the length of the model array.
+
+        # Number of polynomial coefficients, whether or not we will
+        # use them.
+        npoly = int(deg**2 + 3*deg + 2)
+
+        # Populate the number of model parameters depending on which
+        # option we have. This approach should allow us some
+        # flexibility if we later decide to allow both the tangent
+        # point and the location of the detector on the focal plane to
+        # vary.
+        dmodl = {'Poly':npoly, 'Tan2equ':2, 'Equ2tan':2, \
+                 'xy2equ':npoly, 'TangentPlane':npoly}
+
+        # Now we know how large to make the model parameter vector,
+        # build it and ensure the object is self-consistent:
+        self.nmodel = npoly
+        if transfname in dmodl.keys():
+            self.nmodel = dmodl[transfname]
+        self.nnoise = nnoise
+        self.nshape = nshape
+        self.nmix = nmix
+
+        # By this point we know how large an array we are making. So:
+        self.model = np.zeros(self.nmodel)
+        self.noise = np.zeros(self.nnoise)
+        self.symm = np.zeros(self.nshape)
+        self.mix = np.zeros(self.nmix)
+
+        self.pars = np.hstack(( self.model, self.noise, \
+                                self.symm, self.mix ))
+        
+        # now (re-) set up the various indices to ensure consistency
+        self.updatetransfname(transfname)
+        self.fixlabelstems()
+        self.setupindices()
+        self.partitionmodel()
+        self.makeindexmap()
         
 class Pairset(object):
 
@@ -1000,3 +1073,20 @@ def testio(npars=6, nnoise=3, nshape=2, nmix=2):
     print("lnoise:", QQ.lnoise)
     print("lsymm:", QQ.lsymm)
     print("lmix:", QQ.lmix)
+
+def testblank(transfname='Poly', deg=1, pathwrite='test_blankpars.txt', \
+              nnoise=3, nshape=2, nmix=2):
+
+    """Test generating and writing blank parameter set"""
+
+    PP = Pars1d()
+    PP.blankmodel(transfname, deg, nnoise, nshape, nmix)
+
+    print("testblank INFO:")
+    print(PP.pars)
+    print(PP.model)
+    print(PP.noise)
+    print(PP.dindices)
+    
+    PP.writeparset(pathwrite)
+    
