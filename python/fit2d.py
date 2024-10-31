@@ -604,7 +604,7 @@ complement to self.populateparset()."""
         self.guess_transf = self.Parset.model
         self.guess_noise_model = self.Parset.noise
         self.guess_asymm = self.Parset.asymm
-        self.guess_mixmox = self.Parset.mix
+        self.guess_mixmod = self.Parset.mix
 
         self.mag0 = self.Parset.mag0
 

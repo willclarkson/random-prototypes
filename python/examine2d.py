@@ -1652,7 +1652,9 @@ def showcorner(flat_samples=np.array([]), \
                labels=None, truths=None, \
                fignum=4, pathfig='test_corner_oo.png', \
                minaxesclose=20, \
-               nmodel=-1, colornuisance='#9A3324', \
+               nmodel=-1, \
+               colornuisance='#9A3324', \
+               facecolornuisance='mistyrose', \
                inds_abc=[], convert_linear=False, \
                tellsummary=False):
 
@@ -1760,7 +1762,13 @@ Example call:
                 ax.yaxis.label.set_color(colornuisance)
                 if xi >= nmodel:
                     ax.xaxis.label.set_color(colornuisance)
-                
+
+                # change the face color (if specified)
+                try:
+                    ax.set_facecolor(facecolornuisance)
+                except:
+                    badcolor = True
+                    
     # Adjust the label size
     for ax in fig4.get_axes():
         ax.tick_params(axis='both', labelsize=5)
