@@ -488,7 +488,42 @@ class Poly(object):
     """Methods to transform positions and uncertainties using numpy's
 polynomial objects and methods. Should allow polynomials, legendre,
 chebyshev and hermite depending on which of numpy's methods we
-choose."""
+choose.
+
+Inputs:
+
+    x = [N] array of x positions
+
+    y = [N] array of y positions
+
+    covxy = [N,2,2] array of x,y covariances
+
+    parsx = [M] array of x polynomial parameters (interpreted as 2M
+    polynomial parameters for x and y if checkparsy is True)
+
+    parsy = [M] array of y polynomial parameters (ignored if
+    checkparsy is True)
+
+    degrees = all angles measured in degrees
+
+    kind = which kind of polynomial? (Chebyshev, Polynomial, Legendre,
+    etc.)
+
+    Verbose = print to screen
+    
+    xmin, xmax, ymin, ymax = data limits. Used to rescale (x,y) to
+    (-1, 1), and NOT necessarily the minmax of the data itself. 
+
+    xisxi = adjust plot labels so that we're going from (xi, eta) to
+    (x,y). If False, the input x, y are assumed to be detector X, Y.
+
+    checkparsy = split parsx across parsx and parsy
+
+    radec = unused, included for compatibility
+
+    covradec = unused, included for compatibility
+
+    """
 
     # WATCHOUT - numpy's convenience methods DO account for the domain,
     # but the convenience *functions* like chebval2d DO NOT. However,
@@ -510,7 +545,8 @@ choose."""
                  parsx=np.array([]), parsy=np.array([]), degrees=True, \
                  kind='Polynomial', Verbose=False, \
                  xmin=None, xmax=None, ymin=None, ymax=None, \
-                 xisxi=False, checkparsy=False):
+                 xisxi=False, checkparsy=False, \
+                 radec=None, covradec=None):
 
         # Inputs
         self.x = x
@@ -1320,10 +1356,11 @@ class Tan2equ(object):
     """Object handling the transformation of coordinates and covariances
 from the tangent plane to the sky.
 
-    (Arguments kind, checkparsy, xmin, xmax, ymin, ymax are for
-    compatibility with other calls, and are currently ignored.)
+    (Arguments kind, checkparsy, xmin, xmax, ymin, ymax, radec,
+    covradec are for compatibility with other calls, and are currently
+    ignored.)
 
-"""
+    """
 
     # Convention: x, y => xi, eta
     
@@ -1332,7 +1369,8 @@ from the tangent plane to the sky.
                  pars=np.array([]), degrees=True, \
                  Verbose=True,
                  kind=None, checkparsy=False, \
-                 xmin=None, xmax=None, ymin=None, ymax=None):
+                 xmin=None, xmax=None, ymin=None, ymax=None, \
+                 radec=None, covradec=None):
 
         self.x = xi
         self.y = eta
@@ -1572,24 +1610,40 @@ class Equ2tan(object):
     """Object handling the transformation of coordinates and covariances
 from the sky to the tangent plane.
 
-    (Arguments kind, checkparsy, xmin, xmax, ymin, ymax are for
-    compatibility with other calls, and are currently ignored)
+Inputs:
+
+    x = [N] array of ra values
+
+    y = [N] array of dec values
+
+    covxy = [N,2,2] covariance (ra, dec) for each datapoint
+
+    pars = [2] tangent point: (alpha_0, delta_0)
+
+    degrees = all angles given in degrees (otherwise radians)
+
+    Verbose = print screen output
+
+    (Arguments kind, checkparsy, xmin, xmax, ymin, ymax, radcec,
+    covradec are for compatibility with other calls, and are
+    currently ignored)
 
     """
 
     # convention: x, y --> ra, dec
 
-    def __init__(self, ra=np.array([]), dec=np.array([]), \
-                 covradec=np.array([]), \
+    def __init__(self, x=np.array([]), y=np.array([]), \
+                 covxy=np.array([]), \
                  pars=np.array([]), degrees=True, \
                  Verbose=True, \
                  kind=None, \
                  checkparsy=False, \
-                 xmin=None, xmax=None, ymin=None, ymax=None):
+                 xmin=None, xmax=None, ymin=None, ymax=None, \
+                 radec=None, covradec=None):
 
-        self.x = ra
-        self.y = dec
-        self.covxy = covradec
+        self.x = x # ra
+        self.y = y # dec
+        self.covxy = covxy # cov ra, dec
 
         self.pars=pars # the tangent point
 
@@ -1832,13 +1886,21 @@ Inputs:
 
     xmin, xmax, ymin, ymax = domain limits for the input data on the XY plane
 
+    ---
+
+    checkparsy = unused, included for compatibility
+
+    radec = unused, included for compatibility
+
+    covradec = unused, included for compatibility
+
 """
 
     def __init__(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
                  pars=np.array([]), kind='Polynomial', \
                  Verbose=False, \
                  xmin=None, xmax=None, ymin=None, ymax=None, \
-                 checkparsy=None):
+                 checkparsy=None, radec=None, covradec=None):
 
         # Control variable
         self.Verbose = Verbose
@@ -1999,13 +2061,36 @@ class TangentPlane(object):
 
     """Methods to map positions from the sky (the catalog) and the focal
 plane (X,Y data), and their covariances, onto the tangent plane for
-comparison."""
+comparison.
+
+Inputs:
+
+    x, y - [N] - arrays of x, y position in the XY frame
+
+    covxy - [N,2,2] - covariance array in the XY frame
+
+    pars = [alpha0, delta0, parsxy] array of transformation parameters
+
+    kind = what kind of polynomial to use for XY --> tangent plane
+
+    radec = [N,2] array of RA, DEC target positions on the sphere
+
+    covradec = [N,2,2] array of ra, dec covariances
+
+    Verbose = control variable: print output to screen
+
+    xmin, xmax, ymin, ymax = domain limits for the input data on the XY plane
+
+    checkparsy = unused, included for compatibility
+
+"""
 
     def __init__(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
                  pars=np.array([]), kindpoly='Polynomial', \
                  radec=np.array([]), covradec=np.array([]), \
                  Verbose=False, \
-                 xmin=None, xmax=None, ymin=None, ymax=None):
+                 xmin=None, xmax=None, ymin=None, ymax=None, \
+                 checkparsy=False):
 
         # control variables
         self.Verbose = Verbose

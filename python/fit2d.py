@@ -127,6 +127,12 @@ likely work better.)
         # Instance quantities that may depend on the above choices and
         # settings follow.
 
+        # data ranges
+        self.xmin = -1.
+        self.xmax = 1.
+        self.ymin = -1.
+        self.ymax = 1.
+        
         # guess for pointing
         self.alpha0 = 0.
         self.delta0 = 0.
@@ -155,6 +161,9 @@ likely work better.)
         # Transformation object with guess to pass to minimizer etc.
         self.PGuess = None
 
+        # Set xminmax from obssrc by default
+        self.xminmaxfromobs()
+        
         # Now we prepare for the fit
         self.populatenontransf()
         # self.applyunctyignorance()
@@ -331,6 +340,24 @@ in-place without affecting things upstream."""
 
         self.nsrc = np.shape(self.obssrc.xy)[0]
 
+    def xminmaxfromobs(self):
+
+        """Utility - sets the xmin, xmax, ymin, ymax from observation object."""
+
+        # This is probably NOT what we will eventually want. For the
+        # moment, this implements how this used to work.
+
+        # default then override if present
+        self.xmin = np.min(self.obssrc.xy[:,0])
+        self.xmax = np.max(self.obssrc.xy[:,0])
+        self.ymin = np.min(self.obssrc.xy[:,1])
+        self.ymax = np.max(self.obssrc.xy[:,1])
+
+        for key in ['xmin', 'xmax', 'ymin', 'ymax']:
+            if hasattr(self.obssrc, key):
+                setattr(self, key, getattr(self.obssrc, key))
+            
+            
     def applyunctyignorance(self):
 
         """If asked, zero out the uncertainties in the (local copies of) the
@@ -546,12 +573,49 @@ supplied as None"""
                              islog10_noise_c=self.guess_islog10_noise_c, \
                              islog10_mix_frac=self.guess_islog10_mix_frac, \
                              islog10_mix_vxx=self.guess_islog10_mix_vxx, \
-                             xmin=self.obssrc.xmin, \
-                             xmax=self.obssrc.xmax, \
-                             ymin=self.obssrc.ymin, \
-                             ymax=self.obssrc.ymax, \
+                             xmin=self.xmin, \
+                             xmax=self.xmax, \
+                             ymin=self.ymin, \
+                             ymax=self.ymax, \
                              transfname=self.transf.__name__)
 
+    def ingestparset(self, parset=None):
+
+        """Sets parset attribute from input parameter set"""
+
+        self.Parset = parset
+        
+    def parsfromparset(self):
+
+        """Populates parameters and needed attributes from parset. The
+complement to self.populateparset()."""
+
+        # The transformation and polynomial name
+        try:
+            self.transf = getattr(unctytwod, self.Parset.transfname)
+        except:
+            print("parsfromparset WARN - problem with transfname %s" \
+                  % (self.Parset.transfname))
+
+        # Choice of polynomial component
+        if hasattr(self.Parset, 'polyname'):
+            setattr(self, 'polyfit', self.Parset.polyname)
+            
+        self.guess_transf = self.Parset.model
+        self.guess_noise_model = self.Parset.noise
+        self.guess_asymm = self.Parset.asymm
+        self.guess_mixmox = self.Parset.mix
+
+        self.mag0 = self.Parset.mag0
+
+        self.guess_islog10_noise_c = self.Parset.islog10_noise_c
+        self.guess_islog10_mix_frac = self.Parset.islog10_mix_frac
+        self.guess_islog10_mix_vxx = self.Parset.islog10_mix_vxx
+
+        # ensure the nuisance parameter choices are consistent with
+        # the options set
+        self.reconcilenontransf()
+        
     def populateguesstransf(self):
 
         """Sets up the transformation object for the initial guess"""
@@ -561,30 +625,56 @@ supplied as None"""
 
         # Convenience views. Don't forget the domain!
         xy = self.obssrc.xy
+        covxy = self.obssrc.covxy
 
-        # this is just a little specialized... if our transformation
-        # also works on observation data, we call that too
-        if self.transf.__name__.find('TangentPlane') < 0:
-            self.PGuess = self.transf(xy[:,0], xy[:,1], \
-                                      self.obssrc.covxy, \
-                                      self.Parset.model, \
-                                      kind=self.polyfit, \
-                                      checkparsy=True, \
-                                      xmin=self.obssrc.xmin, \
-                                      xmax=self.obssrc.xmax, \
-                                      ymin=self.obssrc.ymin, \
-                                      ymax=self.obssrc.ymax)
-        else:
-            # only if transf is 'TangentPlane,' we pass the
-            # observation data too
-            radec = self.obstarg.xy
-            covradec = self.obstarg.covxy
-            self.PGuess = self.transf(xy[:,0], xy[:,1], \
-                                      self.obssrc.covxy, \
-                                      self.Parset.model, \
-                                      kindpoly=self.polyfit, \
-                                      radec=radec, covradec=covradec, \
-                                      xmin=self.obssrc.xmin, \
-                                      xmax=self.obssrc.xmax, \
-                                      ymin=self.obssrc.ymin, \
-                                      ymax=self.obssrc.ymax)
+        # position and covariance in the target frame. Only used by a
+        # subset of the transformations (which we trust to handle this
+        # input).
+        radec = self.obstarg.xy
+        covradec = self.obstarg.covxy
+
+        # Now we populate the transformation object. This
+        # specification should work regardless of whether the
+        # transformation actually uses the target positions and
+        # covariances.
+        self.PGuess = self.transf(xy[:,0], xy[:,1], \
+                                  covxy, \
+                                  self.Parset.model, \
+                                  kindpoly=self.polyfit, \
+                                  radec=radec, covradec=covradec, \
+                                  xmin=self.xmin, \
+                                  xmax=self.xmax, \
+                                  ymin=self.ymin, \
+                                  ymax=self.ymax, \
+                                  checkparsy=True)
+
+        # This is the old way, with the specifications done separately
+        # depending on the transformation. Comment out before deletion
+        # after testing.
+        
+        ## this is just a little specialized... if our transformation
+        ## also works on observation data, we call that too
+        #if self.transf.__name__.find('TangentPlane') < 0:
+        #    self.PGuess = self.transf(xy[:,0], xy[:,1], \
+        #                              self.obssrc.covxy, \
+        #                              self.Parset.model, \
+        #                              kind=self.polyfit, \
+        #                              checkparsy=True, \
+        #                              xmin=self.xmin, \
+        #                              xmax=self.xmax, \
+        #                              ymin=self.ymin, \
+        #                              ymax=self.ymax)
+        #else:
+        #    # only if transf is 'TangentPlane,' we pass the
+        #    # observation data too
+        #    radec = self.obstarg.xy
+        #    covradec = self.obstarg.covxy
+        #    self.PGuess = self.transf(xy[:,0], xy[:,1], \
+        #                              self.obssrc.covxy, \
+        #                              self.Parset.model, \
+        #                              kindpoly=self.polyfit, \
+        #                              radec=radec, covradec=covradec, \
+        #                              xmin=self.xmin, \
+        #                              xmax=self.xmax, \
+        #                              ymin=self.ymin, \
+        #                              ymax=self.ymax)

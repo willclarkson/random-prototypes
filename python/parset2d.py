@@ -49,6 +49,13 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
 
     mag0 = magnitude zeropoint for the noise model
 
+    xmin, xmax, ymin, ymax = data limits (used to rescale to [-1,1]
+    for any polynomial model)
+
+    transfname = name of transformation
+
+    polyname = name of any polynomial transformation
+
     """
 
     def __init__(self, pars=np.array([]), nnoise=0, nshape=0, nmix=0, \
@@ -58,7 +65,7 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
                  islog10_noise_c=False, \
                  mag0=0., \
                  xmin=None, xmax=None, ymin=None, ymax=None, \
-                 transfname=''):
+                 transfname='', polyname='Chebyshev'):
 
         # 1D array of parameters as expected by e.g. minimize. Can be
         # a numpy array or a list
@@ -102,6 +109,7 @@ This object is also used to smuggle options for the eventual use by lnprob(). Cu
         # Some other quantities some of the transforamtions need
         self.updatedatarange(xmin, xmax, ymin, ymax)
         self.updatetransfname(transfname)
+        self.updatepolyname(polyname)
         
         # stems for latex labels
         self.labelstem_transf = 'A'
@@ -201,6 +209,18 @@ Inputs:
 """
 
         self.transfname = transfname[:]
+
+    def updatepolyname(self, polyname='Chebyshev'):
+
+        """Updates the polynomial transformation name.
+
+Inputs:
+
+        polyname = name of the polynomial piece of the transformation
+
+        """
+
+        self.polyname = polyname[:]
         
     def setupindices(self):
 
@@ -499,7 +519,8 @@ in by a parameter file"""
         config['config'] = {}
         conf = config['config'] # save on typos
 
-        for key in ['transfname', 'xmin', 'xmax', 'ymin', 'ymax', \
+        for key in ['transfname', 'polyname', \
+                    'xmin', 'xmax', 'ymin', 'ymax', \
                     'mag0', 'islog10_mix_frac', 'islog10_mix_vxx', \
                     'islog10_noise_c', \
                     'nmodel', 'nnoise', 'nshape', 'nmix']:
@@ -549,7 +570,7 @@ Inputs:
             conf = config['config']
 
             # Configparser distinguishes between datatypes. So:
-            keys_str = ['transfname']
+            keys_str = ['transfname', 'polyname']
             keys_flt = ['xmin', 'xmax', 'ymin', 'ymax', 'mag0']
             keys_int = ['nmodel', 'nnoise', 'nshape', 'nmix']
             keys_boo = ['islog10_mix_frac', 'islog10_mix_vxx', \
@@ -639,7 +660,8 @@ Inputs:
             setattr(self, key, valu)
 
     def blankmodel(self, transfname='Poly', deg=1, \
-                   nnoise=3, nshape=2, nmix=2):
+                   nnoise=3, nshape=2, nmix=2, \
+                   polyname='Chebyshev'):
 
         """Utility - populates blank parset (mostly for serializing to disk so
 that we can create a guess)
@@ -656,6 +678,8 @@ Inputs:
         nshape = number of shape parameters
 
         nmix = number of mixture parameters
+
+        polyname = polynomial type (if any) to be used in the model
 
         """
 
@@ -695,6 +719,7 @@ Inputs:
         
         # now (re-) set up the various indices to ensure consistency
         self.updatetransfname(transfname)
+        self.updatepolyname(polyname)
         self.fixlabelstems()
         self.setupindices()
         self.partitionmodel()
