@@ -506,7 +506,7 @@ Inputs:
 
     degrees = all angles measured in degrees
 
-    kind = which kind of polynomial? (Chebyshev, Polynomial, Legendre,
+    kindpoly = which kind of polynomial? (Chebyshev, Polynomial, Legendre,
     etc.)
 
     Verbose = print to screen
@@ -543,15 +543,18 @@ Inputs:
     
     def __init__(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
                  parsx=np.array([]), parsy=np.array([]), degrees=True, \
-                 kind='Polynomial', Verbose=False, \
+                 kindpoly='Polynomial', Verbose=False, \
                  xmin=None, xmax=None, ymin=None, ymax=None, \
                  xisxi=False, checkparsy=False, \
                  radec=None, covradec=None):
 
         # Inputs
-        self.x = x
-        self.y = y
-        self.covxy = covxy
+        #self.x = x
+        #self.y = y
+        #self.covxy = covxy
+
+        # Use the same method we'll use later on if we update
+        self.updatedata(x, y, covxy)
         self.parsx = np.array(parsx)
         self.parsy = np.array(parsy)
 
@@ -597,7 +600,7 @@ Inputs:
         self.jacrescale = np.eye(2)
         self.setdomain()
         self.setjacrescale()
-        self.rescalepos()
+        #self.rescalepos()  # in updatejacobian()
 
         # No matter which choice of polynomial, the first three
         # coefficients in each direction are {a,b,c} in {a + bx +
@@ -626,7 +629,7 @@ Inputs:
         
         # Polynomial object and methods to use
         self.polysallowed = list(self.methder.keys()) # 2024-07-27 made a list
-        self.kind = kind[:]
+        self.kind = kindpoly[:]
         self.checkpolysupported()
         self.setmethods()
         
@@ -642,7 +645,7 @@ Inputs:
         self.jac = np.array([]) # jacobian including rescaling
 
         # We set up the jacobian given input parameters now
-        self.getjacobian()
+        # self.getjacobian() # in updatejacobian()
         
         self.xtran = np.array([])
         self.ytran = np.array([])
@@ -650,7 +653,12 @@ Inputs:
 
         # convenience variable - xytran as [N,2]
         self.xytran = np.array([])
-        self.initxytran()
+        ## self.initxytran() # moved to updatejacobian
+
+        # Initialize attributes that depend on the input data,
+        # particularly the jacobians.
+        self.updatejacobian()
+        
 
     def checkparsxy(self):
 
@@ -819,6 +827,8 @@ this rescaling"""
 
         """Sets the data domains for the input data"""
 
+        # 2024-11-07 these attributes are now never used. Call removed.
+        
         self.domainx = np.array([np.min(self.x), np.max(self.x) ])
         self.domainy = np.array([np.min(self.y), np.max(self.y) ])
         
@@ -969,6 +979,86 @@ a single jacobian"""
             
         self.populatejacpoly()
         self.combinejac()
+
+    def updatedata(self, x=np.array([]), y=np.array([]), \
+                   covxy=np.array([]), \
+                   xy=np.array([]) ):
+
+        """Ingests supplied data to populate x, y, covars. 
+
+Inputs:
+
+
+        x = [N] array of X-values. 
+
+        y = [N] array of Y-values
+
+        covxy = [N,2,2] array of XY covariances
+
+        xy = [N,2] xy array. If set, supersedes x, y.
+
+Outputs:
+        None - internal attributes self.x, self.y, self.covxy
+
+"""
+
+        # Positions
+        if np.ndim(xy) == 2:
+            self.x = xy[:,0]
+            self.y = xy[:,1]
+        else:
+            self.x = np.copy(x)
+            self.y = np.copy(y)
+            
+        # covariances. We parse here for matching size with the
+        # positions before updating
+        if np.ndim(covxy) != 3:
+            return
+
+        ndata = np.size(self.x)
+        ncov = np.shape(covxy)[0]
+
+        if ndata != ncov:
+            return
+
+        self.covxy = np.copy(covxy)
+
+    def updatejacobian(self):
+
+        """One-liner to prepare for transformation using updated data"""
+
+        # DO NOT update the domain here. If we want to apply the same
+        # transformation on new data, we need the domain of the old
+        # transformation to get it right. For that reason, we do NOT
+        # call setjacrescale() here.
+        
+        self.rescalepos()
+        self.getjacobian()
+        self.initxytran()
+        
+    def ingestdata(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
+               xy=np.array([]) ):
+
+        """Ingests supplied data to populate x, y, covars, and updates the rescaling and the jacobians accordingly.
+
+Inputs:
+
+
+        x = [N] array of X-values. 
+
+        y = [N] array of Y-values
+
+        covxy = [N,2,2] array of XY covariances
+
+        xy = [N,2] xy array. If set, supersedes x, y.
+
+        """
+
+        # First, update the data
+        self.updatedata(x, y, covxy, xy)
+
+        # then the jacobians and other attributes that need to change
+        self.updatejacobian()
         
     def trancov(self):
 
@@ -1880,7 +1970,7 @@ Inputs:
 
     pars = [alpha0, delta0, parsxy] array of transformation parameters
 
-    kind = what kind of polynomial to use for XY --> tangent plane
+    kindpoly = what kind of polynomial to use for XY --> tangent plane
 
     Verbose = control variable: print output to screen
 
@@ -1897,7 +1987,7 @@ Inputs:
 """
 
     def __init__(self, x=np.array([]), y=np.array([]), covxy=np.array([]), \
-                 pars=np.array([]), kind='Polynomial', \
+                 pars=np.array([]), kindpoly='Polynomial', \
                  Verbose=False, \
                  xmin=None, xmax=None, ymin=None, ymax=None, \
                  checkparsy=None, radec=None, covradec=None):
@@ -1917,7 +2007,7 @@ Inputs:
         
         # Set up the transformation objects
         self.xy2tp = Poly(x, y, covxy, self.parsx, self.parsy, \
-                          kind=kind, checkparsy=False, \
+                          kind=kindpoly, checkparsy=False, \
                           Verbose=self.Verbose, \
                           xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax)
 
@@ -2071,7 +2161,7 @@ Inputs:
 
     pars = [alpha0, delta0, parsxy] array of transformation parameters
 
-    kind = what kind of polynomial to use for XY --> tangent plane
+    kindpoly = what kind of polynomial to use for XY --> tangent plane
 
     radec = [N,2] array of RA, DEC target positions on the sphere
 

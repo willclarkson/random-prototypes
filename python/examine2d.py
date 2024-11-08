@@ -974,18 +974,25 @@ Inputs:
 
     # Show a marginal plot for the foreground objects
     ax33 = fig3.add_subplot(221)
-    blah33 = ax33.scatter(xytarg[bfg, 0], dxytran[bfg,0], \
+    #blah33 = ax33.scatter(xytarg[bfg, 0], dxytran[bfg,0], \
+    #                      c=mags[bfg], s=9, cmap='viridis_r')
+
+    blah33 = ax33.scatter(xytarg[bfg, 0], xytarg[bfg,1], \
+                          c=mags[bfg], s=9, cmap='viridis_r')
+    
+    ax34 = fig3.add_subplot(222)
+    blah34 = ax34.scatter(transf.xytran[bfg, 0], transf.xytran[bfg,1], \
                           c=mags[bfg], s=9, cmap='viridis_r')
 
-    ax34 = fig3.add_subplot(224)
-    blah34 = ax34.scatter(xytarg[bfg, 1], dxytran[bfg,1], \
-                          c=mags[bfg], s=9, cmap='viridis_r')
+    #blah34 = ax34.scatter(xytarg[bfg, 1], dxytran[bfg,1], \
+    #                      c=mags[bfg], s=9, cmap='viridis_r')
 
+    
     cbar3 = fig3.colorbar(blah33, ax=ax33)
     cbar4 = fig3.colorbar(blah34, ax=ax34)
     
     if np.sum(bbg) > 0:
-        ax32 = fig3.add_subplot(222, sharex=ax31, sharey=ax31)
+        ax32 = fig3.add_subplot(224, sharex=ax31, sharey=ax31)
 
         quiv_bg = ax32.quiver(xytarg[bbg, 0], xytarg[bbg, 1], \
                               dxytran[bbg,0], dxytran[bbg,1], \
@@ -997,14 +1004,21 @@ Inputs:
         ax.set_ylabel(labelytran)
 
     ax33.set_xlabel(labelxtran)
-    ax33.set_ylabel(labeldxtran)
-    ax34.set_xlabel(labelytran)
-    ax34.set_ylabel(labeldytran)
-        
-
+    #ax33.set_ylabel(labeldxtran)
+    ax33.set_ylabel(labelytran)
     
-    for ax in [ax31, ax33, ax34]:
-        ax.set_title('foreground')
+    ax34.set_xlabel(labelytran)
+    #ax34.set_ylabel(labeldytran)
+    ax34.set_ylabel(labelytran)
+
+
+    # plot labels
+    ax31.set_title('foreground')
+    ax33.set_title('fg, target')
+    ax34.set_title('fg, transformed')
+    
+    #for ax in [ax31, ax33, ax34]:
+    #    ax.set_title('foreground')
     ax32.set_title('outliers')
         
     fig3.subplots_adjust(left=0.18, bottom=0.17, hspace=0.4, wspace=0.49)

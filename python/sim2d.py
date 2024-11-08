@@ -649,7 +649,7 @@ objects"""
 
         self.PTruth = self.transf(self.xy[:,0], self.xy[:,1], \
                                   self.Cxy.covars, self.pars_transf, \
-                                  kind=self.polytransf, \
+                                  kindpoly=self.polytransf, \
                                   checkparsy=True, \
                                   xmin=self.xmin, xmax=self.xmax, \
                                   ymin=self.ymin, ymax=self.ymax)
