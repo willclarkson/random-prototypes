@@ -946,7 +946,30 @@ Returns:
             Pdiv.partitionmodel() # ensure that propagated in
 
         return Pdiv
+
+def loadparset(pathpars=''):
+
+    """One-liner to return parset object from disk.
+
+
+Inputs:
+
+    pathpars = path to paramset
+
+Returns:
+
+    parset = parset object. If pathpars not found, returns blank
+    parset object
+
+    """
     
+    pset = Pars1d()
+    try:
+        pset.readparset(pathpars)
+    except:
+        badread = True
+    return pset
+
 ## SHORT test routines come here
 
 def testsplit(nnoise=3, nshape=2, nmix=2):

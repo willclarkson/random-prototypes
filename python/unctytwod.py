@@ -614,13 +614,15 @@ Inputs:
         # input to the 2D that the polynomial methods will expect:
         self.setuppars()
 
-        self.methval2d = {'Polynomial':polynomial.polynomial.polyval2d, \
+        # 2024-11-12 note: updated these names to _list just now to
+        # avoid overloading.
+        self.methval2dlist = {'Polynomial':polynomial.polynomial.polyval2d, \
                           'Chebyshev':polynomial.chebyshev.chebval2d, \
                           'Legendre':polynomial.legendre.legval2d, \
                           'Hermite':polynomial.hermite.hermval2d, \
                           'HermiteE':polynomial.hermite_e.hermeval2d}
 
-        self.methder = {'Polynomial':polynomial.polynomial.polyder, \
+        self.methderlist = {'Polynomial':polynomial.polynomial.polyder, \
                         'Chebyshev':polynomial.chebyshev.chebder, \
                         'Legendre':polynomial.legendre.legder, \
                         'Hermite':polynomial.hermite.hermder, \
@@ -628,7 +630,7 @@ Inputs:
 
         
         # Polynomial object and methods to use
-        self.polysallowed = list(self.methder.keys()) # 2024-07-27 made a list
+        self.polysallowed = list(self.methderlist.keys()) # 2024-07-27 made a list
         self.kind = kindpoly[:]
         self.checkpolysupported()
         self.setmethods()
@@ -814,8 +816,8 @@ this rescaling"""
         # but the Hermite, the n=1 entry is just "x", which will make
         # testing the linear case easier.
         
-        self.methval2d = self.methval2d[self.kind]
-        self.methder = self.methder[self.kind]
+        self.methval2d = self.methval2dlist[self.kind]
+        self.methder = self.methderlist[self.kind]
         
     def setpoly(self):
 
