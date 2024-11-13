@@ -82,7 +82,7 @@ Example call:
             cov3 = np.array([self.covxy[:,0,0], \
                              self.covxy[:,0,1], \
                              self.covxy[:,1,1]]).T
-            print(np.shape(adata), np.shape(cov3) )
+            print("write covxy info:", np.shape(adata), np.shape(cov3) )
             adata = np.hstack(( adata, cov3 ))
             cnames = cnames + labels_cov
 
@@ -102,11 +102,23 @@ Example call:
         slims = 'limits (x then y): '
         for attr in ['xmin', 'xmax', 'ymin', 'ymax']:
             valu = getattr(self, attr)
-            if valu is not None:
-                slims = '%s %e' % (slims, valu)
-            else:
-                slims = '%s None' % (slims)
 
+            # 2024-11-12 not sure why this is triggering a "float()
+            # argument must be a string or number, not 'NoneType'
+            # error for the "if value..." line below...
+            #print("write info:", attr, valu, type(valu))
+            ## if valu is not None:
+            #if valu is not None and type(valu) is not NoneType:
+            #    slims = '%s %e' % (slims, valu)
+            #else:
+            #    slims = '%s None' % (slims)
+
+            # let's try the more pythonic way.
+            try:
+                slims = '%s %e' % (slims, valu)
+            except:
+                slims = '%s None' % (slims)
+                
         # Column names
         snames = " ".join(cnames)
 

@@ -929,7 +929,8 @@ def setupmcmc(pathsim='test_sim_mixmod.ini', \
               pathprior='', \
               pathjitter='', \
               ignoretruth=False, \
-              chainlen=40000, debug=False):
+              chainlen=40000, debug=False, \
+              writedata=True):
 
     """Sets up for mcmc simulations. 
 
@@ -948,6 +949,8 @@ Inputs:
     chainlen = chain length for mcmc
 
     debug = return after setting up the minimizer (useful for development)
+
+    writedata = write generated data to disk
 
 Returns:
 
@@ -994,6 +997,11 @@ Returns:
     # Write the guess and truth parsets to disk
     mc.guess.Parset.writeparset("test_parset_guess.txt")
     mc.sim.Parset.writeparset("test_parset_truth.txt")
+
+    # Now write the data to disk
+    if writedata:
+        mc.guess.obssrc.writeobs('test_obs_src.dat')
+        mc.guess.obstarg.writeobs('test_obs_targ.dat')
     
     # Let's see if reading this back in works...
     # mc.readjitterball(debug=True)
