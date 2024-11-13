@@ -115,7 +115,6 @@ linear model
         self.yr = (2.0*self.y - (self.ymax + self.ymin))\
             /(self.ymax - self.ymin)
         
-        
     def setmethvander(self):
 
         """Selects the method for the vandermonde matrix"""
@@ -554,6 +553,9 @@ Inputs:
         #self.covxy = covxy
 
         # Use the same method we'll use later on if we update
+        self.x = np.array([])
+        self.y = np.array([])
+        self.covxy = np.array([])
         self.updatedata(x, y, covxy)
         self.parsx = np.array(parsx)
         self.parsy = np.array(parsy)
@@ -564,10 +566,11 @@ Inputs:
             self.checkparsxy()
         
         # Domains for the polynomials
-        self.xmin = xmin
-        self.xmax = xmax
-        self.ymin = ymin
-        self.ymax = ymax
+        self.updatelimits(xmin, xmax, ymin, ymax)
+        #self.xmin = xmin
+        #self.xmax = xmax
+        #self.ymin = ymin
+        #self.ymax = ymax
 
         # control variable (for scaling deltas)
         self.degrees = degrees
@@ -717,7 +720,10 @@ the dataset"""
         nx = np.size(self.x)
         ny = np.size(self.y)
 
-        if self.xmin is None:
+        # self.xmin is an np.ndarray even if None is passed in...
+        # so self.xmin is None --> self.xmin == None throughout this method
+        
+        if self.xmin == None:
             if nx > 0:
                 self.xmin = np.min(self.x)
             else:
@@ -726,7 +732,7 @@ the dataset"""
             if nx > 0 and clobber:
                 self.xmin = np.min([self.xmin, np.min(self.x)])
             
-        if self.xmax is None:
+        if self.xmax == None:
             if nx > 0:
                 self.xmax = np.max(self.x)
             else:
@@ -735,7 +741,7 @@ the dataset"""
             if nx > 0 and clobber:
                 self.xmax = np.max([self.xmin, np.max(self.x)])
 
-        if self.ymin is None:
+        if self.ymin == None:
             if ny > 0:
                 self.ymin = np.min(self.y)
             else:
@@ -744,7 +750,7 @@ the dataset"""
             if ny > 0 and clobber:
                 self.ymin = np.min([self.ymin, np.min(self.y)])
             
-        if self.ymax is None:
+        if self.ymax == None:
             if ny > 0:
                 self.ymax = np.max(self.y)
             else:
@@ -1148,6 +1154,20 @@ frame"""
 
         imid = int(npars/2)
         return pars[0:imid], pars[imid::]
+
+    def updatelimits(self, xmin=None, xmax=None, ymin=None, ymax=None):
+
+        """Updates the limits.
+
+        WATCHOUT - calling this with no arguments will cause the
+        instance limits to revert to [None, None, None, None].
+
+        """
+
+        self.xmin = np.copy(xmin)
+        self.xmax = np.copy(xmax)
+        self.ymin = np.copy(ymin)
+        self.ymax = np.copy(ymax)
         
     def updatetransf(self, pars=np.array([]) ):
 
@@ -1162,6 +1182,11 @@ parameters. Anticipating the eventual use-case, the x and y parameters are assum
         # the 1d parameters are not used. Set for consistency
         self.parsx = np.copy(parsx)
         self.parsy = np.copy(parsy)
+
+        # If this instance was originally blank, self.pars2x and
+        # self.pars2y might not be set up yet. If so:
+        if self.pars2x.deg < 0:
+            self.setuppars()
         
         # ... the 2d parameters...
         self.pars2x.updatecoeffs(parsx)
@@ -1448,7 +1473,7 @@ class Tan2equ(object):
     """Object handling the transformation of coordinates and covariances
 from the tangent plane to the sky.
 
-    (Arguments kind, checkparsy, xmin, xmax, ymin, ymax, radec,
+    (Arguments kindpoly, checkparsy, xmin, xmax, ymin, ymax, radec,
     covradec are for compatibility with other calls, and are currently
     ignored.)
 
@@ -1460,7 +1485,7 @@ from the tangent plane to the sky.
                  covxieta=np.array([]), \
                  pars=np.array([]), degrees=True, \
                  Verbose=True,
-                 kind=None, checkparsy=False, \
+                 kindpoly=None, checkparsy=False, \
                  xmin=None, xmax=None, ymin=None, ymax=None, \
                  radec=None, covradec=None):
 
@@ -1728,7 +1753,7 @@ Inputs:
                  covxy=np.array([]), \
                  pars=np.array([]), degrees=True, \
                  Verbose=True, \
-                 kind=None, \
+                 kindpoly=None, \
                  checkparsy=False, \
                  xmin=None, xmax=None, ymin=None, ymax=None, \
                  radec=None, covradec=None):
@@ -2242,7 +2267,7 @@ Inputs:
         
     def updatetransf(self, pars=np.array([]) ):
 
-        """One-liner to update the transformations onto the tangent plane"""
+        """One-liner to update the transformations onto the tangent space"""
 
         if np.size(pars) < 1:
             return
