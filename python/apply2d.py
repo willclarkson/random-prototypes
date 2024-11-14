@@ -49,10 +49,10 @@ class Evalset(object):
         self.covxy = None
 
         # If generating a grid, use these parameters
-        self.grid_nxcoarse = 5
-        self.grid_nycoarse = 5
-        self.grid_nxfine = 20
-        self.grid_nyfine = 20
+        self.grid_nxcoarse = 15 # 5
+        self.grid_nycoarse = 15 # 5
+        self.grid_nxfine = 10 # 20
+        self.grid_nyfine = 10 # 20
         self.grid_whichline = np.array([]) # useful for lineplots
         
     def getsamples(self):
@@ -522,7 +522,7 @@ def traceplot(neval=10):
             if isho < 1:
                 color = 'k'
                 zorder=10
-                alpha=0.3
+                alpha=0.5
             else:
                 color='b'
                 zorder=1
