@@ -126,7 +126,7 @@ transformation"""
         self.xy = np.vstack(( x, y )).T
 
         # set the grid line ID marker
-        self.grid_whichline = np.copy(whichg)
+        self.grid_whichline = np.asarray(whichg, 'int')
         
     def initxysamples(self):
 
@@ -472,7 +472,8 @@ def traceplot(neval=10):
 
     """Evaluates the flat samples on a grid of coords"""
 
-    ES = Evalset(neval=neval)
+    ES = Evalset(neval=neval, \
+                 pathflat='test_flat_fitPoly_50_order1fit1_noprior_run1.npy')
     ES.getsamples()
 
     print(ES.pset.lmodel)
@@ -501,6 +502,39 @@ def traceplot(neval=10):
     ax1 = fig1.add_subplot(111)
     #dum = ax1.scatter(ES.xy[:,0], ES.xy[:,1], s=1)
 
-    for isho in range(neval):
-        dum2 = ax1.scatter(ES.xsamples[isho], ES.ysamples[isho], s=.5, \
-                           alpha=0.5)
+    ax1.set_aspect('equal')
+    ax1.set_xlabel(r'$\xi$')
+    ax1.set_ylabel(r'$\eta$')
+    fig1.suptitle('traceplot (%i samples)' % (neval))
+    
+    # now we use line plots. matplotlib has a linecollection
+    # capability that might make this faster. For the moment we do
+    # things in a simpler way:
+
+    line_ids = np.unique(ES.grid_whichline)
+    for lineid in line_ids:
+        bthisline = ES.grid_whichline == lineid
+
+        for isho in range(neval):
+            xthis = ES.xsamples[isho][bthisline]
+            ythis = ES.ysamples[isho][bthisline]
+
+            if isho < 1:
+                color = 'k'
+                zorder=10
+                alpha=0.3
+            else:
+                color='b'
+                zorder=1
+                alpha=0.02
+            
+            dum = ax1.plot(xthis, ythis, \
+                           color=color, zorder=zorder, \
+                           alpha=alpha)
+    
+    #for isho in range(neval):
+        #dum2 = ax1.scatter(ES.xsamples[isho], ES.ysamples[isho], s=.5, \
+        #                   alpha=0.05, color='b')
+
+        
+        
