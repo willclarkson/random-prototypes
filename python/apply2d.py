@@ -15,6 +15,8 @@ import unctytwod
 import parset2d
 import obset2d
 
+# for drawing samples from the covariances
+from weightedDeltas import CovarsNx2x2
 
 class Evalset(object):
 
@@ -26,23 +28,27 @@ class Evalset(object):
     def __init__(self, \
                  pathpset='test_parset_guess.txt', \
                  pathflat='test_flat_fitPoly_500_order1fit1_noprior_run2.npy', \
+                 pathobs='', \
                  neval=100):
 
+        # Paths to any input files
         self.pathpset = pathpset[:]
         self.pathflat = pathflat[:]
-
+        self.pathobs = pathobs[:]
+        
         # The transformation object, flat samples
         self.transf = None
         self.parsamples = None
         self.pset = None
-
+        self.obset = None
+        
         # The non-nuisance parameters
         self.modelsamples = np.array([])
         self.lmodel = np.array([])
         
         # Number to evaluate, xy samples
         self.neval = np.copy(neval)
-        self.initxysamples()
+        self.initsamples_xieta()
         
         # datapoints for evaluation
         self.xy = None
@@ -64,6 +70,16 @@ class Evalset(object):
 
         # which flat samples are model parameters?
         self.lmodel = self.pset.lmodel
+
+    def getobs(self):
+
+        """Loads observations from disk"""
+
+        # Defensive programming
+        if len(self.pathobs) < 3:
+            return
+        
+        self.obset = loadobset(self.pathobs)
         
     def checkneval(self):
 
@@ -128,14 +144,14 @@ transformation"""
         # set the grid line ID marker
         self.grid_whichline = np.asarray(whichg, 'int')
         
-    def initxysamples(self):
+    def initsamples_xieta(self):
 
         """Initializes xy samples arrays"""
 
-        self.xsamples = np.array([])
-        self.ysamples = np.array([])
+        self.samples_xi = np.array([])
+        self.samples_eta = np.array([])
         
-    def setupxysamples(self):
+    def setupsamples_xieta(self):
 
         """Sets up arrays to hold the transformed samples"""
 
@@ -144,8 +160,8 @@ transformation"""
         
         # Separate arrays for each coordinate for now.
         ndata = np.shape(self.xy)[0]
-        self.xsamples = np.zeros(( self.neval, ndata ))
-        self.ysamples = np.zeros(( self.neval, ndata ))
+        self.samples_xi = np.zeros(( self.neval, ndata ))
+        self.samples_eta = np.zeros(( self.neval, ndata ))
 
     def runsamples_pars(self):
 
@@ -167,7 +183,7 @@ object"""
         """Applies the i'th transformation to the xy points"""
 
         # Safety valve
-        if itransf >= self.xsamples.size:
+        if itransf >= self.samples_xi.size:
             return
 
         # update the transformation parameters
@@ -175,8 +191,8 @@ object"""
         self.transf.updatetransf(modelpars)
 
         self.transf.tranpos()
-        self.xsamples[itransf] = self.transf.xtran
-        self.ysamples[itransf] = self.transf.ytran
+        self.samples_xi[itransf] = self.transf.xtran
+        self.samples_eta[itransf] = self.transf.ytran
         
         # If we have covariances, apply those too (Currently has no
         # destination)
@@ -422,7 +438,32 @@ Returns:
     # If we got here, then all should be OK.
     return True
 
+def loadobset(pathobs='', Verbose=True):
 
+    """Loads an observation set from disk.
+
+Inputs:
+
+    pathobs = path to text file containing coordinates
+
+    Verbose = print screen output
+
+Returns:
+
+    obset = Obset object. Blank if file not found.
+
+"""
+
+    obset = obset2d.Obset()
+    try:
+        obset.readobs(pathobs, strictlimits=False)
+    except:
+        if Verbose:
+            print("apply2d.loadobset WARN - problem loading obset path: %s" \
+                  % (pathobs))
+
+    return obset
+    
 ####### More involved utilities follow
 
 def loadparsamples(pathpset='', pathflat=''):
@@ -468,12 +509,15 @@ Returns:
 
 ##### test routines follow
 
-def traceplot(neval=10):
+def traceplot(neval=10, \
+              pathpset='test_parset_guess_poly_deg2_n100.txt', \
+              pathflat='test_flat_fitPoly_100_order2fit2_noprior_run1.npy'):
 
     """Evaluates the flat samples on a grid of coords"""
 
-    ES = Evalset(neval=neval, \
-                 pathflat='test_flat_fitPoly_50_order1fit1_noprior_run1.npy')
+    ES = Evalset(pathpset=pathpset, \
+                 pathflat=pathflat, \
+                 neval=neval)
     ES.getsamples()
 
     print(ES.pset.lmodel)
@@ -487,14 +531,14 @@ def traceplot(neval=10):
     
     # Set up and run the evaluations
     ES.checkneval()
-    ES.setupxysamples()
+    ES.setupsamples_xieta()
     ES.runsamples_pars()
     
     #print(ES.xy.shape)
     #print(ES.parsamples.shape)
-    #print(ES.xsamples.shape)
+    #print(ES.samples_xi.shape)
 
-    #print(ES.xsamples[:,0])
+    #print(ES.samples_xi[:,0])
 
     # orphan plots under development
     fig1 = plt.figure(1)
@@ -516,8 +560,8 @@ def traceplot(neval=10):
         bthisline = ES.grid_whichline == lineid
 
         for isho in range(neval):
-            xthis = ES.xsamples[isho][bthisline]
-            ythis = ES.ysamples[isho][bthisline]
+            xthis = ES.samples_xi[isho][bthisline]
+            ythis = ES.samples_eta[isho][bthisline]
 
             if isho < 1:
                 color = 'k'
@@ -533,7 +577,7 @@ def traceplot(neval=10):
                            alpha=alpha)
     
     #for isho in range(neval):
-        #dum2 = ax1.scatter(ES.xsamples[isho], ES.ysamples[isho], s=.5, \
+        #dum2 = ax1.scatter(ES.samples_xi[isho], ES.samples_eta[isho], s=.5, \
         #                   alpha=0.05, color='b')
 
         
