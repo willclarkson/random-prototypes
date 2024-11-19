@@ -62,6 +62,10 @@ class Evalset(object):
         # these for the reference points
         self.xyref = np.array([])
 
+        # Propagated covariance from the source frame (to enable
+        # checking against the covariance of the propagated positions)
+        self.cov_propagated = None
+        
         # Covariances in the sample plane
         self.med_xieta = np.array([])
         self.cov_xieta = None
@@ -109,7 +113,20 @@ observation file to the self.xy, self.covxy quantities"""
 
         # populate the covariance object to draw samples
         self.covobj = CovarsNx2x2(self.covxy)
-        
+
+    def propagate_covar(self):
+
+        """Propagates the covariance using the transformation's
+methods. Useful to check against the covariance of tha propagated
+samples."""
+
+        if self.transf is None:
+            return
+
+        self.transf.trancov()
+
+        # now pass this up to the instance
+        self.cov_propagated = CovarsNx2x2(self.transf.covtran)
         
     def checkneval(self):
 
@@ -599,6 +616,11 @@ Inputs:
     US.getsamples()
     US.getobs()
     US.covfromobs()
+
+    # Pass the samples to the transformation and compute the
+    # propagated covariance
+    US.setdata()
+    US.propagate_covar()
     
     US.setupsamples_xieta()
     US.runsamples_uncty()
@@ -609,6 +631,11 @@ Inputs:
     print(US.cov_xieta.covars.shape)
     print(US.cov_xieta.majors[0:4])
     print(US.cov_xieta.minors[0:4])
+
+    # cross-check
+    print("cross-check INFO:")
+    print(US.cov_xieta.covars[10])
+    print(US.cov_propagated.covars[10])
     
     ## stack the xi, eta samples together and do statistics on them
     #samples_xieta = np.stack((US.samples_xi, US.samples_eta), axis=1)
