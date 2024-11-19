@@ -61,6 +61,10 @@ class Evalset(object):
         # If producing datapoints by perturbing a "truth" set, use
         # these for the reference points
         self.xyref = np.array([])
+
+        # Covariances in the sample plane
+        self.med_xieta = np.array([])
+        self.cov_xieta = None
         
         # If generating a grid, use these parameters
         self.grid_nxcoarse = 15 # 5
@@ -246,6 +250,20 @@ itransf'th sample set"""
         # destination)
         if np.size(self.transf.covxy) > 0:
             self.transf.trancov()
+
+    def samples_stats(self):
+
+        """Commputes the medians and covariances in xi, eta of the samples"""
+
+        if np.size(self.samples_xi) < 1:
+            return
+
+        samples_xieta = np.stack((self.samples_xi, \
+                                  self.samples_eta), axis=1)
+
+        self.med_xieta = np.median(samples_xieta, axis=0).T
+        self.cov_xieta = CovarsNx2x2(xysamples=samples_xieta)
+        self.cov_xieta.eigensFromCovars()
         
 # Utilities to import the samples and parameters follow. These are set
 # outside a class in order to be accessible from anywhere.
@@ -585,6 +603,20 @@ Inputs:
     US.setupsamples_xieta()
     US.runsamples_uncty()
 
+    # Perform statistics on the samples
+    US.samples_stats()
+    print(US.med_xieta.shape)
+    print(US.cov_xieta.covars.shape)
+    print(US.cov_xieta.majors[0:4])
+    print(US.cov_xieta.minors[0:4])
+    
+    ## stack the xi, eta samples together and do statistics on them
+    #samples_xieta = np.stack((US.samples_xi, US.samples_eta), axis=1)
+    ### print(np.ndim(samples_xieta), np.shape(samples_xieta))
+    #covsamples = CovarsNx2x2(xysamples=samples_xieta)
+    
+    ## print("DBG:", covsamples.covars[0])
+    
     # Scatter plot of the samples
     if not plotsamples:
         return

@@ -1705,6 +1705,11 @@ class CovarsNx2x2(object):
 
     rotDegs = N-element array of rotation angles
 
+    --- If supplying xy samples:
+
+    xysamples = [N,2, nsamples] samples in X, Y for which to compute
+    the covariances
+
     --- arguments for generating data follow ---
 
     nPts = number of points to generate
@@ -1731,6 +1736,7 @@ class CovarsNx2x2(object):
                      stdx=np.array([]), stdy=np.array([]), \
                      corrxy=np.array([]), \
                      rotDegs=np.array([]), \
+                 xysamples=np.array([]), \
                      majors=np.array([]), \
                      minors=np.array([]), \
                      nPts=100, rotDeg=30., \
@@ -1778,6 +1784,11 @@ class CovarsNx2x2(object):
         self.RR = np.array([]) # the rotation (+ skew?) matrix
         self.TT = np.array([]) # the transformation matrix 
 
+        # If xy samples were passed in, use them to populate the
+        # covariance array
+        if np.size(xysamples) > 1:
+            self.computeSampleCovariance(xysamples)
+        
         # Populate the covariance stack from inputs if any were given
         self.populateCovarsFromInputs()
 
@@ -1793,6 +1804,40 @@ class CovarsNx2x2(object):
         # so that we know what to call this attribute if we decide
         # elsewhere that we do need it after all.
         self.planeLabels = []
+
+    def computeSampleCovariance(self, xy=np.array([]) ):
+
+        """Populates the covars array by computation from input samples.
+
+Inputs:
+
+        xy = [nsamples, 2, ndata] array 
+
+Outputs:
+
+        None - attribute covars is updated.
+
+        """
+
+        # Do nothing if input not 3d
+        if np.ndim(xy) != 3:
+            return
+
+        nsamples, ndim, ndata = xy.shape
+
+        # calculate the vxx, vyy, vxy terms
+        meanxy = np.mean(xy, axis=0)
+        var = np.sum((xy - meanxy[None, :, :])**2, axis=0)/(ndata + 1.)
+    
+        vxy = np.sum( (xy[:,0,:] - meanxy[None,0,:]) * \
+                     (xy[:,1,:] - meanxy[None,1,:]), axis=0 ) /(ndata+1.)
+
+        # assemble the output into an nx2x2 covariance array.
+        self.covars = np.zeros(( ndata, ndim, ndim ))
+        self.covars[:,0,0] = var[0]
+        self.covars[:,1,1] = var[1]
+        self.covars[:,0,1] = vxy
+        self.covars[:,1,0] = vxy
 
     def populateCovarsFromInputs(self):
 
