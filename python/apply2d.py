@@ -54,6 +54,14 @@ class Evalset(object):
         self.xy = None
         self.covxy = None
 
+        # Source-frame covariances as an object with methods we may
+        # want
+        self.covobj = None
+        
+        # If producing datapoints by perturbing a "truth" set, use
+        # these for the reference points
+        self.xyref = np.array([])
+        
         # If generating a grid, use these parameters
         self.grid_nxcoarse = 15 # 5
         self.grid_nycoarse = 15 # 5
@@ -80,6 +88,24 @@ class Evalset(object):
             return
         
         self.obset = loadobset(self.pathobs)
+
+    def covfromobs(self):
+
+        """Passes the covariance and position information from the input
+observation file to the self.xy, self.covxy quantities"""
+
+        if not hasattr(self.obset, 'covxy'):
+            return
+
+        if np.size(self.obset.covxy) < 3:
+            return
+
+        self.covxy = np.copy(self.obset.covxy)
+        self.xy = np.copy(self.obset.xy)
+
+        # populate the covariance object to draw samples
+        self.covobj = CovarsNx2x2(self.covxy)
+        
         
     def checkneval(self):
 
@@ -150,7 +176,7 @@ transformation"""
 
         self.samples_xi = np.array([])
         self.samples_eta = np.array([])
-        
+
     def setupsamples_xieta(self):
 
         """Sets up arrays to hold the transformed samples"""
@@ -163,22 +189,39 @@ transformation"""
         self.samples_xi = np.zeros(( self.neval, ndata ))
         self.samples_eta = np.zeros(( self.neval, ndata ))
 
+    def runsamples_uncty(self):
+
+        """Runs samples under the uncertainty distribution"""
+
+        if self.covobj is None:
+            return
+
+        for isample in range(self.neval):
+            xypert = self.covobj.getsamples()
+            self.setdata(self.xy + xypert)
+            
+            self.applytransf(isample)
+            
     def runsamples_pars(self):
 
         """Runs the parameter samples"""
 
         self.setdata()
         for iset in range(self.neval):
+            self.updatetransf(iset)
             self.applytransf(iset)
             
-    def setdata(self):
+    def setdata(self, xy=np.array([]) ):
 
         """Passes the x, y data and any covariances to the transformation
 object"""
 
-        self.transf.updatedata(xy=self.xy, covxy=self.covxy)
+        if np.size(xy) < 1:
+            xy = self.xy
+        
+        self.transf.updatedata(xy=xy, covxy=self.covxy)
 
-    def applytransf(self, itransf=0):
+    def updatetransf(self, itransf=0):
 
         """Applies the i'th transformation to the xy points"""
 
@@ -190,6 +233,11 @@ object"""
         modelpars = self.parsamples[itransf, self.lmodel]
         self.transf.updatetransf(modelpars)
 
+    def applytransf(self, itransf=0):
+
+        """Applies the current transformation, slotting the results into the
+itransf'th sample set"""
+        
         self.transf.tranpos()
         self.samples_xi[itransf] = self.transf.xtran
         self.samples_eta[itransf] = self.transf.ytran
@@ -509,6 +557,47 @@ Returns:
 
 ##### test routines follow
 
+def unctysamples(nsamples=10, \
+                 pathpset='test_parset_guess_poly_deg2_n100.txt', \
+                 pathobs='test_obs_src.dat', \
+                 plotsamples=True):
+
+    """Performes monte carlo sampling of the source uncertainty,
+propagated through to the target frame.
+
+Inputs:
+
+    nsamples = how many samples we want to draw
+
+    pathpset = path to parameter set to be used for the transformation
+
+    pathobs = path to observations including uncertainty covariances
+
+    plotsamples = do a scatter plot of the samples
+
+"""
+
+    US = Evalset(pathpset=pathpset, neval=nsamples, pathobs=pathobs)
+    US.getsamples()
+    US.getobs()
+    US.covfromobs()
+    
+    US.setupsamples_xieta()
+    US.runsamples_uncty()
+
+    # Scatter plot of the samples
+    if not plotsamples:
+        return
+
+    # Just plot the point clouds for the moment!
+    fig2 = plt.figure(2)
+    fig2.clf()
+    ax2 = fig2.add_subplot(111)
+    dum = ax2.scatter(US.samples_xi, US.samples_eta, s=1)
+    ax2.set_xlabel(r'$\xi$')
+    ax2.set_ylabel(r'$\eta$')
+    ax2.set_title('Samples from source-frame uncertainty distribution')
+    
 def traceplot(neval=10, \
               pathpset='test_parset_guess_poly_deg2_n100.txt', \
               pathflat='test_flat_fitPoly_100_order2fit2_noprior_run1.npy'):
