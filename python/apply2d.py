@@ -5,6 +5,7 @@
 # WIC 2024-11-12 - methods to apply MCMC2d results
 
 import numpy as np
+from scipy import stats
 
 import matplotlib.pylab as plt
 plt.ion()
@@ -66,9 +67,13 @@ class Evalset(object):
         # checking against the covariance of the propagated positions)
         self.cov_propagated = None
         
-        # Covariances in the sample plane
+        # Covariances in the sample plane, and some other statistics
+        # of interest
         self.med_xieta = np.array([])
         self.cov_xieta = None
+        self.skew_xieta = np.array([])
+        self.kurt_xieta = np.array([])
+        
         
         # If generating a grid, use these parameters
         self.grid_nxcoarse = 15 # 5
@@ -114,7 +119,7 @@ observation file to the self.xy, self.covxy quantities"""
         # populate the covariance object to draw samples
         self.covobj = CovarsNx2x2(self.covxy)
 
-    def gencovunif(self, major=1.0e-5, minor=0.7e-5, rotdeg=0.):
+    def gencovunif(self, major=1.0e-4, minor=0.7e-4, rotdeg=0.):
 
         """Creates uniform set of covariances for input positions"""
 
@@ -307,6 +312,10 @@ itransf'th sample set"""
         self.med_xieta = np.median(samples_xieta, axis=0).T
         self.cov_xieta = CovarsNx2x2(xysamples=samples_xieta)
         self.cov_xieta.eigensFromCovars()
+
+        # one-dimensional skew and kurtosis for each axis
+        self.skew_xieta = stats.skew(samples_xieta, axis=0).T
+        self.kurt_xieta = stats.kurtosis(samples_xieta, axis=0).T
         
 # Utilities to import the samples and parameters follow. These are set
 # outside a class in order to be accessible from anywhere.
