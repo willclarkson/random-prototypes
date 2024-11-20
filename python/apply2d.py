@@ -717,7 +717,8 @@ def unctysamples(nsamples=10, \
                  pathpset='test_parset_guess_poly_deg2_n100.txt', \
                  pathobs='test_obs_src.dat', \
                  plotsamples=True, \
-                 unifcovs=False):
+                 unifcovs=False, \
+                 maxplot=-1):
 
     """Performes monte carlo sampling of the source uncertainty,
 propagated through to the target frame.
@@ -733,6 +734,8 @@ Inputs:
     plotsamples = do a scatter plot of the samples
 
     unifcovs = assign uniform covariances (useful for testing)
+
+    maxplot = maximum number of samples to show in the scatterplots
 
 """
 
@@ -768,10 +771,9 @@ Inputs:
         print("Generated parameters:")
         print("unifcovs DBG - majors:", US.covobj.majors[0:4])
         print("unifcovs DBG - minors:", US.covobj.minors[0:4])
-        print("unifcovs DBG - posans:", US.covobj.rotDegs[0:4])
+        print("unifcovs DBG - posans (deg):", US.covobj.rotDegs[0:4])
 
         # ... and what was produced
-        print("Samples:", US.samples_x.shape, US.samples_y.shape)
         med, cov, skew, kurt = samples_moments(US.samples_x, \
                                                US.samples_y, \
                                                methcent=np.mean)
@@ -779,15 +781,60 @@ Inputs:
         print("Covariance of generated data, source frame:")
         print("Generated majors:", cov.majors[0:4])
         print("Generated minors:", cov.minors[0:4])
-        print("Generated posans:", cov.rotDegs[0:4])
+        print("Generated posans (deg):", cov.rotDegs[0:4])
+
+        # useful to display the check on the stddevs
+        print("Checking against stddev squared:")
+        print("var(x):", cov.stdx[0:4]**2)
+        print("var(y):", cov.stdy[0:4]**2)
+        print("np.std(x, ddof=1)**2:", \
+              np.std(US.samples_x,axis=0, ddof=1.)[0:4]**2)
+        print("np.std(y, ddof=1)**2:", \
+              np.std(US.samples_y,axis=0, ddof=1.)[0:4]**2)
 
 
+        # If we generated all the datapoints from the same
+        # distribution, take a look at the skew distributions
+        fig4 = plt.figure(4)
+        fig4.clf()
+        ax41 = fig4.add_subplot(211)
+        ax42 = fig4.add_subplot(212)
+
+        maxval = np.max(np.abs(np.hstack(( skew, US.skew_xieta)) ) )
+        nbins = 25
+        binrange = (-maxval, maxval)
+
+        axes = [ax41, ax42]
+        labs_src = [r'$X$', r'$Y$']
+        labs_tar = [r'$\xi$', r'$\eta$']
+        
+        for dim in range(len(axes)):
+            ax = axes[dim]
+            n, bins, patches = ax.hist(skew[:,dim], bins=nbins, \
+                                       range=binrange, \
+                                       histtype='step', zorder=6, \
+                                       label='source %s' % (labs_src[dim]))
+        
+            n, bins, patches = ax.hist(US.skew_xieta[:,dim], bins=nbins, \
+                                       range=binrange, \
+                                       histtype='stepfilled', \
+                                       zorder=5, \
+                                       label='transf %s' % (labs_tar[dim]), \
+                                       alpha=0.5)
+            leg = ax.legend()
+
+            ax.set_ylabel('N(skew)')
+            ax.set_xlabel('skew (%s or %s)' % (labs_src[dim], labs_tar[dim]))
+            
+        nsamples, ndata = US.samples_x.shape
+        fig4.suptitle('Marginal skew (%i objects at %i samples each)' % \
+                      (ndata, nsamples))
+        fig4.subplots_adjust(hspace=0.3, wspace=0.3)
+        
         print("#####")
 
 
     print("===== Transformed covariances =====")
-    #print(US.med_xieta.shape)
-    #print(US.cov_xieta.covars.shape)
     print("Covariances of propagated positions:")
     print("majors computed:", US.cov_xieta.majors[0:4])
     print("minors computed:", US.cov_xieta.minors[0:4])
@@ -799,27 +846,35 @@ Inputs:
     print("minors propag:", US.cov_propagated.minors[0:4])
     print("posans propag:", US.cov_propagated.rotDegs[0:4])
 
-    # print(US.cov_propagated.covars[10])
-    
-    ## stack the xi, eta samples together and do statistics on them
-    #samples_xieta = np.stack((US.samples_xi, US.samples_eta), axis=1)
-    ### print(np.ndim(samples_xieta), np.shape(samples_xieta))
-    #covsamples = CovarsNx2x2(xysamples=samples_xieta)
-    
-    ## print("DBG:", covsamples.covars[0])
     
     # Scatter plot of the samples
     if not plotsamples:
         return
 
-    # Just plot the point clouds for the moment!
+    #### Scatterplots of the monte carlo follow.
+
+    # Allow plotting of a subset if there are many samples
+    nsamples, ndata = US.samples_x.shape
+    if maxplot < 1 or maxplot > nsamples:
+        maxplot = nsamples 
+    rng = np.random.default_rng()
+    lsho = rng.choice(nsamples, maxplot, replace=False)
+
+    # Assign an ID to each row
+    lid = np.arange(ndata)
+    arrid = np.tile(lid, nsamples).reshape(nsamples, ndata)
+    
     fig2 = plt.figure(2)
     fig2.clf()
     ax2 = fig2.add_subplot(111)
-    dum = ax2.scatter(US.samples_xi, US.samples_eta, s=1)
+    dum = ax2.scatter(US.samples_xi[lsho,:], \
+                      US.samples_eta[lsho,:], s=1, \
+                      alpha=0.5, \
+                      c=arrid[lsho,:])
     ax2.set_xlabel(r'$\xi$')
     ax2.set_ylabel(r'$\eta$')
-    ax2.set_title('Transformed samples from source-frame uncertainty')
+    ax2.set_title('%i Transformed samples from source-frame uncertainty' \
+                  % (np.size(lsho)))
 
     # Plot the original point clouds
     if np.size(US.samples_x) < 1:
@@ -827,10 +882,14 @@ Inputs:
     fig3 = plt.figure(3)
     fig3.clf()
     ax3 = fig3.add_subplot(111)
-    dum = ax3.scatter(US.samples_x, US.samples_y, s=1)
+    dum = ax3.scatter(US.samples_x[lsho,:], \
+                      US.samples_y[lsho,:], s=1, \
+                      alpha=0.5, \
+                      c=arrid[lsho,:])
     ax3.set_xlabel(r'$X$')
     ax3.set_ylabel(r'$Y$')
-    ax3.set_title('Samples from source-frame uncertainty')
+    ax3.set_title('%i of %i Samples from source-frame uncertainty' \
+                  % (np.size(lsho), nsamples))
     
     
 def traceplot(neval=10, \
