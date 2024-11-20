@@ -765,8 +765,10 @@ Inputs:
 
         # What was sent to the generator...
         US.covobj.eigensFromCovars()
+        print("Generated parameters:")
         print("unifcovs DBG - majors:", US.covobj.majors[0:4])
         print("unifcovs DBG - minors:", US.covobj.minors[0:4])
+        print("unifcovs DBG - posans:", US.covobj.rotDegs[0:4])
 
         # ... and what was produced
         print("Samples:", US.samples_x.shape, US.samples_y.shape)
@@ -774,9 +776,10 @@ Inputs:
                                                US.samples_y, \
                                                methcent=np.mean)
     
-        print("Computed covxy:")
-        print(cov.majors[0:4])
-        print(cov.minors[0:4])
+        print("Covariance of generated data, source frame:")
+        print("Generated majors:", cov.majors[0:4])
+        print("Generated minors:", cov.minors[0:4])
+        print("Generated posans:", cov.rotDegs[0:4])
 
 
         print("#####")
@@ -785,13 +788,16 @@ Inputs:
     print("===== Transformed covariances =====")
     #print(US.med_xieta.shape)
     #print(US.cov_xieta.covars.shape)
+    print("Covariances of propagated positions:")
     print("majors computed:", US.cov_xieta.majors[0:4])
     print("minors computed:", US.cov_xieta.minors[0:4])
+    print("posans computed:", US.cov_xieta.rotDegs[0:4])
 
     # cross-check
-    print("cross-check INFO:")
+    print("Propagated covariances of input positions")
     print("majors propag:", US.cov_propagated.majors[0:4])
     print("minors propag:", US.cov_propagated.minors[0:4])
+    print("posans propag:", US.cov_propagated.rotDegs[0:4])
 
     # print(US.cov_propagated.covars[10])
     
