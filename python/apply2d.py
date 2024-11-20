@@ -114,6 +114,29 @@ observation file to the self.xy, self.covxy quantities"""
         # populate the covariance object to draw samples
         self.covobj = CovarsNx2x2(self.covxy)
 
+    def gencovunif(self, major=1.0e-5, minor=0.7e-5, rotdeg=0.):
+
+        """Creates uniform set of covariances for input positions"""
+
+        # We're going to use the positions to propagate the
+        # covariances.
+        if np.ndim(self.xy) < 1:
+            return
+
+        npts = np.shape(self.xy)[0]
+
+        # This time we create the covariance object first and read off
+        # the covariances from it:
+        majors = np.repeat(major, npts)
+        minors = np.repeat(minor, npts)
+        posans = np.repeat(rotdeg, npts)
+
+        self.covobj = CovarsNx2x2(majors=majors, \
+                                  minors=minors, \
+                                  rotDegs=posans)
+
+        self.covxy = np.copy(self.covobj.covars)
+        
     def propagate_covar(self):
 
         """Propagates the covariance using the transformation's
@@ -125,8 +148,11 @@ samples."""
 
         self.transf.trancov()
 
-        # now pass this up to the instance
+        # now pass this up to the instance...
         self.cov_propagated = CovarsNx2x2(self.transf.covtran)
+
+        # ... and compute the eigen rep
+        self.cov_propagated.eigensFromCovars()
         
     def checkneval(self):
 
@@ -190,7 +216,7 @@ transformation"""
 
         # set the grid line ID marker
         self.grid_whichline = np.asarray(whichg, 'int')
-        
+
     def initsamples_xieta(self):
 
         """Initializes xy samples arrays"""
@@ -595,7 +621,8 @@ Returns:
 def unctysamples(nsamples=10, \
                  pathpset='test_parset_guess_poly_deg2_n100.txt', \
                  pathobs='test_obs_src.dat', \
-                 plotsamples=True):
+                 plotsamples=True, \
+                 unifcovs=False):
 
     """Performes monte carlo sampling of the source uncertainty,
 propagated through to the target frame.
@@ -610,6 +637,8 @@ Inputs:
 
     plotsamples = do a scatter plot of the samples
 
+    unifcovs = assign uniform covariances (useful for testing)
+
 """
 
     US = Evalset(pathpset=pathpset, neval=nsamples, pathobs=pathobs)
@@ -617,6 +646,10 @@ Inputs:
     US.getobs()
     US.covfromobs()
 
+    # Replace covariances with uniform covariances?
+    if unifcovs:
+        US.gencovunif()
+    
     # Pass the samples to the transformation and compute the
     # propagated covariance
     US.setdata()
@@ -627,15 +660,24 @@ Inputs:
 
     # Perform statistics on the samples
     US.samples_stats()
+
+    # Calculate the eigenvalue rep for the simulated data
+    if unifcovs:
+        US.covobj.eigensFromCovars()
+        print("unifcovs DBG - majors:", US.covobj.majors[0:4])
+        print("unifcovs DBG - minors:", US.covobj.minors[0:4])
+        
     print(US.med_xieta.shape)
     print(US.cov_xieta.covars.shape)
-    print(US.cov_xieta.majors[0:4])
-    print(US.cov_xieta.minors[0:4])
+    print("majors computed:", US.cov_xieta.majors[0:4])
+    print("minors computed:", US.cov_xieta.minors[0:4])
 
     # cross-check
     print("cross-check INFO:")
-    print(US.cov_xieta.covars[10])
-    print(US.cov_propagated.covars[10])
+    print("majors propag:", US.cov_propagated.majors[0:4])
+    print("minors propag:", US.cov_propagated.minors[0:4])
+
+    # print(US.cov_propagated.covars[10])
     
     ## stack the xi, eta samples together and do statistics on them
     #samples_xieta = np.stack((US.samples_xi, US.samples_eta), axis=1)
