@@ -7,6 +7,8 @@
 import numpy as np
 from scipy import stats
 
+import time
+
 import matplotlib.pylab as plt
 plt.ion()
 
@@ -754,9 +756,12 @@ Inputs:
     US.propagate_covar()
 
     # Now set up the samples and run the parametric monte carlo
+    print("unctysamples INFO - starting %.2e MC samples..." % (nsamples))
+    t0 = time.time()
     US.keepxysamples = True
     US.setupsamples_xieta()
     US.runsamples_uncty()
+    print("... done in %.2e seconds" % (time.time() - t0))
 
     # Perform statistics on the samples
     US.samples_stats()
@@ -800,9 +805,11 @@ Inputs:
         ax41 = fig4.add_subplot(211)
         ax42 = fig4.add_subplot(212)
 
-        maxval = np.max(np.abs(np.hstack(( skew, US.skew_xieta)) ) )
+        ss = np.vstack(( skew, US.skew_xieta))
+        maxval = np.max(np.abs(ss), axis=0)
+        
         nbins = 25
-        binrange = (-maxval, maxval)
+        #binrange = (-maxval, maxval)
 
         axes = [ax41, ax42]
         labs_src = [r'$X$', r'$Y$']
@@ -810,13 +817,14 @@ Inputs:
         
         for dim in range(len(axes)):
             ax = axes[dim]
+            rang = [-maxval[dim], maxval[dim]]
             n, bins, patches = ax.hist(skew[:,dim], bins=nbins, \
-                                       range=binrange, \
+                                       range=rang, \
                                        histtype='step', zorder=6, \
                                        label='source %s' % (labs_src[dim]))
         
             n, bins, patches = ax.hist(US.skew_xieta[:,dim], bins=nbins, \
-                                       range=binrange, \
+                                       range=rang, \
                                        histtype='stepfilled', \
                                        zorder=5, \
                                        label='transf %s' % (labs_tar[dim]), \
@@ -862,35 +870,61 @@ Inputs:
 
     # Assign an ID to each row
     lid = np.arange(ndata)
+    lid = US.skew_xieta[:,1] # show skewness in eta
     arrid = np.tile(lid, nsamples).reshape(nsamples, ndata)
     
     fig2 = plt.figure(2)
     fig2.clf()
     ax2 = fig2.add_subplot(111)
-    dum = ax2.scatter(US.samples_xi[lsho,:], \
-                      US.samples_eta[lsho,:], s=1, \
-                      alpha=0.5, \
-                      c=arrid[lsho,:])
+    dum2 = ax2.scatter(US.samples_xi[lsho,:], \
+                       US.samples_eta[lsho,:], s=1, \
+                       alpha=0.5, \
+                       c=arrid[lsho,:])
     ax2.set_xlabel(r'$\xi$')
     ax2.set_ylabel(r'$\eta$')
-    ax2.set_title('%i Transformed samples from source-frame uncertainty' \
+    ax2.set_title('%i transformed samples from source-frame uncertainty' \
                   % (np.size(lsho)))
 
+    cbar2=fig2.colorbar(dum2, ax=ax2)
+    
     # Plot the original point clouds
     if np.size(US.samples_x) < 1:
         return
     fig3 = plt.figure(3)
     fig3.clf()
     ax3 = fig3.add_subplot(111)
-    dum = ax3.scatter(US.samples_x[lsho,:], \
-                      US.samples_y[lsho,:], s=1, \
-                      alpha=0.5, \
-                      c=arrid[lsho,:])
+    dum3 = ax3.scatter(US.samples_x[lsho,:], \
+                       US.samples_y[lsho,:], s=1, \
+                       alpha=0.5, \
+                       c=arrid[lsho,:])
     ax3.set_xlabel(r'$X$')
     ax3.set_ylabel(r'$Y$')
-    ax3.set_title('%i of %i Samples from source-frame uncertainty' \
+    ax3.set_title('%i of %i samples from source-frame uncertainty' \
                   % (np.size(lsho), nsamples))
-    
+
+    cbar3 = fig3.colorbar(dum3, ax=ax3)
+
+    # add a coordinate grid to the scatter plots
+    GG = Evalset(pathpset=pathpset)
+    GG.grid_nxfine=100
+    GG.grid_nyfine=100
+    GG.getsamples()
+    GG.gengrid()
+    GG.setdata()
+    GG.transf.tranpos()
+
+    for lineid in np.unique(GG.grid_whichline):
+        bthisline = GG.grid_whichline == lineid
+
+        dum3g = ax3.plot(GG.transf.x[bthisline], \
+                         GG.transf.y[bthisline], \
+                         color='0.5', alpha=0.5, zorder=1, \
+                         lw=0.5)
+
+        dum2g = ax2.plot(GG.transf.xtran[bthisline], \
+                         GG.transf.ytran[bthisline], \
+                         color='0.5', alpha=0.5, zorder=1, \
+                         lw=0.5)
     
 def traceplot(neval=10, \
               pathpset='test_parset_guess_poly_deg2_n100.txt', \
