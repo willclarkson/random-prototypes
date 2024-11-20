@@ -47,9 +47,15 @@ class Evalset(object):
         self.modelsamples = np.array([])
         self.lmodel = np.array([])
         
-        # Number to evaluate, xy samples
+        # Number to evaluate, xi, eta samples
         self.neval = np.copy(neval)
         self.initsamples_xieta()
+
+        # Are we keeping the xy samples? (Usually no, unless we want
+        # to perform statistics on parametric monte-carlo to test the
+        # routines)
+        self.keepxysamples = False
+        self.initsamples_xy()
         
         # datapoints for evaluation
         self.xy = None
@@ -222,9 +228,22 @@ transformation"""
         # set the grid line ID marker
         self.grid_whichline = np.asarray(whichg, 'int')
 
+    def initsamples_xy(self):
+
+        """Initialises samples array in source frame"""
+
+        self.samples_x = np.array([])
+        self.samples_y = np.array([])
+
+    def setupsamples_xy(self):
+
+        """Populates zeros-arrays with samples in x, y"""
+
+        self.samples_x, self.samples_y = self.blanksamples()
+        
     def initsamples_xieta(self):
 
-        """Initializes xy samples arrays"""
+        """Initializes xi, eta samples arrays"""
 
         self.samples_xi = np.array([])
         self.samples_eta = np.array([])
@@ -233,13 +252,19 @@ transformation"""
 
         """Sets up arrays to hold the transformed samples"""
 
+        self.samples_xi, self.samples_eta = self.blanksamples()
+        
+    def blanksamples(self):
+
+        """Creates zero-arrays for samples, shaped [ndata, nsamples]"""
+        
         if np.ndim(self.xy) < 2:
-            return
+            return np.array([]), np.array([]) 
         
         # Separate arrays for each coordinate for now.
         ndata = np.shape(self.xy)[0]
-        self.samples_xi = np.zeros(( self.neval, ndata ))
-        self.samples_eta = np.zeros(( self.neval, ndata ))
+
+        return np.zeros((self.neval, ndata)), np.zeros((self.neval, ndata))
 
     def runsamples_uncty(self):
 
@@ -248,11 +273,19 @@ transformation"""
         if self.covobj is None:
             return
 
+        # If we are keeping the xy samples, set up the samples arrays
+        # here.
+        if self.keepxysamples:
+            self.setupsamples_xy()
+        
         for isample in range(self.neval):
-            xypert = self.covobj.getsamples()
-            self.setdata(self.xy + xypert)
-            
+            xysample = self.covobj.getsamples() + self.xy
+            self.setdata(xysample)
             self.applytransf(isample)
+
+            if self.keepxysamples:
+                self.samples_x[isample] = xysample[:,0]
+                self.samples_y[isample] = xysample[:,1]
             
     def runsamples_pars(self):
 
@@ -301,21 +334,74 @@ itransf'th sample set"""
 
     def samples_stats(self):
 
-        """Commputes the medians and covariances in xi, eta of the samples"""
+        """Computes moments of the xi, eta samples"""
 
-        if np.size(self.samples_xi) < 1:
-            return
+        self.med_xieta, self.cov_xieta, \
+            self.skew_xieta, self.kurt_xieta = \
+                samples_moments(self.samples_xi, self.samples_eta)
+        
+## Generally useful utilities follow
+            
+def samples_moments(samples=np.array([]), \
+                    samples_y=np.array([]), \
+                    methcent=np.median, \
+                    Verbose=True):
 
-        samples_xieta = np.stack((self.samples_xi, \
-                                  self.samples_eta), axis=1)
+        """Computes moments of input samples.
 
-        self.med_xieta = np.median(samples_xieta, axis=0).T
-        self.cov_xieta = CovarsNx2x2(xysamples=samples_xieta)
-        self.cov_xieta.eigensFromCovars()
+Inputs:
 
+        samples = [nsamples, 2, ndata] set of xy samples, OR [nsamples, ndata] array of x values only
+
+        samples_y = [nsamples, ndata] array of y samples. Optional unless samples_xy is two dimensional
+
+        methcent = method used to compute the centroid. Defaults to median
+
+        Verbose = print screen output if error
+
+Returns:
+
+        med = centroid of the data. Default median
+
+        cov = CovarsNx2x2 object describing the covariance
+
+        skew = [N, 2] - element describing skew of marginal x, y
+
+        kurt = [N, 2] - element describing kurtosis of marginal x, y
+
+"""
+
+        # to avoid typos
+        blank = np.array([])
+        
+        # Just a bit of parsing on the dimensionality of the input
+        if np.size(samples) < 1:
+            return blank, None, blank, blank
+
+        # allow passing in of separate x, y samples
+        ndim = np.ndim(samples)
+        if ndim == 3:
+            samples_xieta = samples
+        else:
+            try:
+                samples_xieta = np.stack((samples, samples_y), axis=1)
+            except:
+                if Verbose:
+                    print("apply2d.samples_moments WARN - samples problem")
+                    print("samples, samples_y shapes:" \
+                          , np.shape(samples), np.shape(samples_y))
+                return blank, None, blank, blank
+
+        # Now compute the moments
+        med = methcent(samples_xieta, axis=0).T
+        cov = CovarsNx2x2(xysamples=samples_xieta)
+        cov.eigensFromCovars()
+        
         # one-dimensional skew and kurtosis for each axis
-        self.skew_xieta = stats.skew(samples_xieta, axis=0).T
-        self.kurt_xieta = stats.kurtosis(samples_xieta, axis=0).T
+        skew = stats.skew(samples_xieta, axis=0).T
+        kurt = stats.kurtosis(samples_xieta, axis=0).T
+
+        return med, cov, skew, kurt
         
 # Utilities to import the samples and parameters follow. These are set
 # outside a class in order to be accessible from anywhere.
@@ -663,21 +749,42 @@ Inputs:
     # propagated covariance
     US.setdata()
     US.propagate_covar()
-    
+
+    # Now set up the samples and run the parametric monte carlo
+    US.keepxysamples = True
     US.setupsamples_xieta()
     US.runsamples_uncty()
 
     # Perform statistics on the samples
     US.samples_stats()
 
-    # Calculate the eigenvalue rep for the simulated data
+    # Perform statistics on the *generated* samples, just to ensure
+    # that part works...
     if unifcovs:
+        print("### Generated samples, source frame: ####")
+
+        # What was sent to the generator...
         US.covobj.eigensFromCovars()
         print("unifcovs DBG - majors:", US.covobj.majors[0:4])
         print("unifcovs DBG - minors:", US.covobj.minors[0:4])
-        
-    print(US.med_xieta.shape)
-    print(US.cov_xieta.covars.shape)
+
+        # ... and what was produced
+        print("Samples:", US.samples_x.shape, US.samples_y.shape)
+        med, cov, skew, kurt = samples_moments(US.samples_x, \
+                                               US.samples_y, \
+                                               methcent=np.mean)
+    
+        print("Computed covxy:")
+        print(cov.majors[0:4])
+        print(cov.minors[0:4])
+
+
+        print("#####")
+
+
+    print("===== Transformed covariances =====")
+    #print(US.med_xieta.shape)
+    #print(US.cov_xieta.covars.shape)
     print("majors computed:", US.cov_xieta.majors[0:4])
     print("minors computed:", US.cov_xieta.minors[0:4])
 
@@ -706,7 +813,19 @@ Inputs:
     dum = ax2.scatter(US.samples_xi, US.samples_eta, s=1)
     ax2.set_xlabel(r'$\xi$')
     ax2.set_ylabel(r'$\eta$')
-    ax2.set_title('Samples from source-frame uncertainty distribution')
+    ax2.set_title('Transformed samples from source-frame uncertainty')
+
+    # Plot the original point clouds
+    if np.size(US.samples_x) < 1:
+        return
+    fig3 = plt.figure(3)
+    fig3.clf()
+    ax3 = fig3.add_subplot(111)
+    dum = ax3.scatter(US.samples_x, US.samples_y, s=1)
+    ax3.set_xlabel(r'$X$')
+    ax3.set_ylabel(r'$Y$')
+    ax3.set_title('Samples from source-frame uncertainty')
+    
     
 def traceplot(neval=10, \
               pathpset='test_parset_guess_poly_deg2_n100.txt', \

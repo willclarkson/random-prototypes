@@ -1827,11 +1827,15 @@ Outputs:
 
         # calculate the vxx, vyy, vxy terms
         meanxy = np.mean(xy, axis=0)
-        var = np.sum((xy - meanxy[None, :, :])**2, axis=0)/(ndata + 1.)
+        var = np.sum((xy - meanxy[None, :, :])**2, axis=0)/(nsamples - 1.)
     
         vxy = np.sum( (xy[:,0,:] - meanxy[None,0,:]) * \
-                     (xy[:,1,:] - meanxy[None,1,:]), axis=0 ) /(ndata+1.)
+                     (xy[:,1,:] - meanxy[None,1,:]), axis=0 ) /(nsamples-1.)
 
+        ##print("WD DEBUG:")
+        ##print(xy[0:4,0,0], np.std(xy[:,0,0]), var[0,0]**0.5)
+        ##print(xy[0:4,1,0], np.std(xy[:,1,0]), var[1,0]**0.5)
+        
         # assemble the output into an nx2x2 covariance array.
         self.covars = np.zeros(( ndata, ndim, ndim ))
         self.covars[:,0,0] = var[0]
