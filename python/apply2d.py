@@ -4,6 +4,7 @@
 
 # WIC 2024-11-12 - methods to apply MCMC2d results
 
+import copy
 import numpy as np
 from scipy import stats
 
@@ -20,6 +21,9 @@ import obset2d
 
 # for drawing samples from the covariances
 from weightedDeltas import CovarsNx2x2
+
+# convenient binning statistics
+from binstats2d import Binstats
 
 class Evalset(object):
 
@@ -715,6 +719,131 @@ Returns:
 
 ##### test routines follow
 
+def eval_uncty(neval=250, \
+               pathpset='test_parset_guess_poly_deg2_n100.txt', \
+               pathflat='test_flat_fitPoly_100_order2fit2_noprior_run1.npy', \
+               pathobs='test_obs_src.dat', \
+               plotmajors=True):
+
+    """Evaluates both the pointing and propagated uncertainty based on
+MCMC trial output.
+
+Inputs:
+
+    neval = number of evaluations to draw
+
+    pathpset = parameter guess set (to interpret the flat samples)
+
+    pathflat = path to MCMC flattened samples
+
+    pathobs = path to observation file with positions and covariances
+    
+    plotmajors = plot debug plot of output vs input major axes
+    
+
+    """
+
+    # Samples from the flattened MCMC:
+    ES = Evalset(pathpset=pathpset, \
+                 pathflat=pathflat, \
+                 pathobs=pathobs, \
+                 neval=neval)
+
+    # Populate the source-frame coordinates and covariances
+    ES.getsamples()
+    ES.getobs()
+    ES.covfromobs()
+    ES.setdata()
+    ES.checkneval()
+    ES.covobj.eigensFromCovars()
+    
+    # now draw transformation uncertainty samples and do statistics on
+    # them
+    t0=time.time()
+    print("sample_uncty INFO - starting %.2e flat samples..." \
+          % (ES.neval))
+    ES.setupsamples_xieta()
+    ES.runsamples_pars()
+    ES.samples_stats()
+    print("sample_uncty INFO - ... done in %.2e seconds" \
+          % (time.time()-t0))
+    
+    # Copy into a new object to run the samples in the data
+    # uncertainty
+    t0 = time.time()
+    print("sample_uncty INFO - starting %.2e MC samples..." % (ES.neval))
+    MS = copy.copy(ES)
+    MS.setupsamples_xieta()
+    MS.runsamples_uncty()
+    MS.samples_stats()
+    print("sample_uncty INFO - ... done in %.2e seconds" \
+          % (time.time()-t0))
+
+    # try a plot of output covariance against input covariance
+    if not plotmajors:
+        return
+
+    # length of evaluations
+    print(ES.covobj.majors.shape, \
+          ES.cov_xieta.majors.shape, \
+          MS.cov_xieta.majors.shape)
+
+    # magnitude vector
+    xvec = ES.covobj.majors
+    try:
+        xvec = ES.obset.mags
+        labx = r'mag'
+    except:
+        magprob = True
+        labx = r'Major axis (X,Y)'
+
+    # Compute binned trends for plotting:
+    bstran = Binstats(xvec, np.atleast_2d(ES.cov_xieta.majors).T, nbins=10)
+    bsmeas = Binstats(xvec, np.atleast_2d(MS.cov_xieta.majors).T, nbins=10)
+        
+    fig7 = plt.figure(7)
+    fig7.clf()
+    ax71 = fig7.add_subplot(111)
+
+    dum711 = ax71.scatter(xvec, \
+                          ES.cov_xieta.majors, s=3, \
+                          cmap='Blues', \
+                          label=r'transformation')
+    dum712 = ax71.scatter(xvec, \
+                          MS.cov_xieta.majors, s=6, \
+                          marker='s',\
+                          cmap='Reds', \
+                          label=r'measurement')
+
+    trendtran = ax71.step(bstran.medns, bstran.meansxy, c='b', \
+                          where='mid', lw=0.5, alpha=0.5)
+
+    trendmeas = ax71.step(bsmeas.medns, bsmeas.meansxy, c='r', \
+                          where='mid', lw=0.75, alpha=0.5)
+
+    
+    # Add bounds?
+    stdtran = np.sqrt(bstran.covsxy.squeeze())
+    stdmeas = np.sqrt(bstran.covsxy.squeeze())
+
+    #dummeas = ax71.step(bsmeas.medns, \
+    #                    bsmeas.meansxy.squeeze() + stdmeas, \
+    #                    c='r', \
+    #                    where='mid', lw=0.75, alpha=0.5, ls='--')
+
+    #dummeas = ax71.step(bsmeas.medns, \
+    #                    bsmeas.meansxy.squeeze() - stdmeas, \
+    #                    c='r', \
+    #                    where='mid', lw=0.75, alpha=0.5, ls='--')
+
+    
+    # print("DBG:", bsmeas.meansxy.shape, bstran.covsxy.shape)
+    
+    ax71.set_xlabel(labx)
+    ax71.set_ylabel(r'Major axis ($\xi,\eta$)')
+    ax71.set_yscale('log')
+    leg7 = ax71.legend()
+    
 def unctysamples(nsamples=10, \
                  pathpset='test_parset_guess_poly_deg2_n100.txt', \
                  pathobs='test_obs_src.dat', \
