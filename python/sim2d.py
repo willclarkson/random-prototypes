@@ -772,11 +772,18 @@ of arguments to the minimizer"""
         
         # Baseline x, y, covars in source frame
         self.makefakexy()
-        self.makefakemags()        
-        if self.gen_noise_model:
-            self.makemagcovars()
+        self.makefakemags()
+
+
+        # Allow noise to be optional
+        if np.size(self.pars_noise) < 1:
+            covs = np.zeros(( self.npts, 2, 2))
+            self.Cxy = CovarsNx2x2(covs)
         else:
-            self.makeunifcovars()
+            if self.gen_noise_model:
+                self.makemagcovars()
+            else:
+                self.makeunifcovars()
         self.assignoutliers()
         
         # Define the transformed frame and propagate to it

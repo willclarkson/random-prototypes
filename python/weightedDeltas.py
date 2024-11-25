@@ -1885,7 +1885,16 @@ Outputs:
         # three components. 
         self.stdx = np.sqrt(self.covars[:,0,0])
         self.stdy = np.sqrt(self.covars[:,1,1])
-        self.corrxy = self.covars[:,0,1] / (self.stdx * self.stdy)
+
+        # Initialize correlation to zero...
+        self.corrxy = self.stdx * 0.
+
+        # ... and apply corrxy to nonzero elements
+        bok = self.stdx * self.stdy > 0.
+        self.corrxy[bok] = \
+            self.covars[bok,0,1] / (self.stdx[bok] * self.stdy[bok])
+
+        #self.corrxy = self.covars[:,0,1] / (self.stdx * self.stdy)
 
     def covStackFromXY(self):
 
