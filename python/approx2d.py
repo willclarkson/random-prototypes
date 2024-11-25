@@ -15,8 +15,9 @@ class Simset(object):
 
     """Simulated data with polynomial fits [to be tidied up]"""
 
-    def __init__(self, ndata=2500, \
-                 parsim='test_sim_equat_nonoise.ini'):
+    def __init__(self, ndata=10000, \
+                 parsim='test_sim_equat_nonoise.ini', \
+                 degmin=1, degmax=5, polytype='Chebyshev'):
 
         # How many points are we generating?
         self.ndata = ndata
@@ -25,8 +26,11 @@ class Simset(object):
         self.parfile_sim = parsim[:]
         self.setupsim()
 
-        # fit object
-        self.lsq = None
+        # fit information
+        self.llsq = []
+        self.degmin = degmin
+        self.degmax = degmax
+        self.polytype = polytype
         
     def setupsim(self):
 
@@ -47,6 +51,27 @@ class Simset(object):
 
         self.sim.generatedata()
 
+    def performfits(self):
+
+        """Sweeps through the degrees, performing lstsq fits"""
+
+        self.llsq = []
+        degs = np.arange(self.degmin, self.degmax+1., 1., 'int')
+        wts = np.ones(self.sim.xy.shape[0])
+        for deg in degs:
+            lsq = fitpoly2d.Leastsq2d(self.sim.xy[:,0], \
+                                      self.sim.xy[:,1], \
+                                      deg=deg, \
+                                      w=wts, \
+                                      kind=self.polytype, \
+                                      xytarg=self.sim.xytarg)
+
+            # Add a residuals attribute to the lsq object
+            lsq.xyresid = lsq.xytarg - lsq.ev()
+
+            # ... finally, append the fit onto the list
+            self.llsq.append(lsq)
+            
     def setupfit(self):
 
         """Sets up least-squares fitting object"""
@@ -67,29 +92,77 @@ class Simset(object):
         
 ##### Methods that use this follow
 
-def testsim():
+def testsim(ndata=2500, polytype='Chebyshev'):
 
     """Tests the functionality"""
 
-    SS = Simset()
+    SS = Simset(ndata, polytype=polytype)
     SS.makedata()
 
-    # Now do the fit for degree 1
-    SS.setupfit()
+    # Now sweep through the fits
+    SS.performfits()
 
-    print(SS.lsq.pars)
-    
+
+    print("approx2d.testsim INFO - plotting...")
     fig1 = plt.figure(1)
     fig1.clf()
-    ax11 = fig1.add_subplot(121)
-    ax12 = fig1.add_subplot(122)
+
+    # loop through the orders
+    nords = len(SS.llsq)
+    for iset in range(nords):
+        ax1 = fig1.add_subplot(2, nords, iset+1)
+        ax2 = fig1.add_subplot(2, nords, iset+1+nords)
+
+        lsq = SS.llsq[iset]
+        dum1 = ax1.scatter(SS.sim.xytran[:,0], \
+                           SS.sim.xytran[:,1], s=1, \
+                           c=lsq.xyresid[:,0])
+        dum2 = ax2.scatter(SS.sim.xytran[:,0], \
+                           SS.sim.xytran[:,1], s=1, \
+                           c=lsq.xyresid[:,1])
+
+        cbar1 = fig1.colorbar(dum1, ax=ax1)
+        cbar2 = fig1.colorbar(dum2, ax=ax2)
+
+        ax1.set_title('deg %i' % (lsq.fitdeg))
+
+        # label the bottom vertical axes
+        ax2.set_xlabel(r'$\alpha$')
+        
+        # hide the vertical tick labels for all but the first plot
+        if iset > 0:
+            ax1.set_yticklabels([])
+            ax2.set_yticklabels([])
+        else:
+            ax1.set_ylabel(r'$\delta$')
+            ax2.set_ylabel(r'$\delta$')
+        
+    return
+        
+    ax11 = fig1.add_subplot(221)
+    ax12 = fig1.add_subplot(222)
+    ax13 = fig1.add_subplot(224)
     
     dum11 = ax11.scatter(SS.sim.xy[:,0], \
                          SS.sim.xy[:,1], s=1, c='g')
     dum12 = ax12.scatter(SS.sim.xytran[:,0], \
-                         SS.sim.xytran[:,1], s=1, c='b')
+                         SS.sim.xytran[:,1], s=1, \
+                         c=SS.llsq[ordr-1].xyresid[:,0])
+
+    dum13 = ax13.scatter(SS.sim.xytran[:,0], \
+                         SS.sim.xytran[:,1], s=1, \
+                         c=SS.llsq[ordr-1].xyresid[:,1])
+
     
     ax11.set_xlabel(r'$\xi$')
     ax11.set_ylabel(r'$\eta$')
     ax12.set_xlabel(r'$\alpha$')
     ax12.set_ylabel(r'$\delta$')
+    ax13.set_xlabel(r'$\alpha$')
+    ax13.set_ylabel(r'$\delta$')
+
+    ax12.set_title('Order %i' % (SS.llsq[ordr-1].fitdeg))
+    
+    # colorbar for axis 2
+    cbar2 = fig1.colorbar(dum12, ax=ax12)
+    cbar3 = fig1.colorbar(dum13, ax=ax13)
