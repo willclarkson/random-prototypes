@@ -39,6 +39,7 @@ multiprocessing.
                  parfile_prior='', \
                  pathjitter='', \
                  ignoretruth=False, \
+                 doboots_poly=False, \
                  Verbose=True):
 
         # Control variables
@@ -47,6 +48,9 @@ multiprocessing.
         # If simulating, ignore the truth values when setting up the
         # guess?
         self.ignoretruth = ignoretruth
+
+        # Do non-parametric bootstrapping on polynomial?
+        self.doboots_poly = doboots_poly
         
         # Parameters for simulation and for guess
         self.parfile_sim = parfile_sim[:]
@@ -881,6 +885,12 @@ Inputs:
             if not self.ignoretruth:
                 self.guessfromlstsq()
 
+                # 2024-11-25 - try nonparametric bootstrapping? (Note:
+                # not sure this should be in this ignoretruth
+                # conditional, since we might want to try this anyway)
+                if self.doboots_poly:
+                    self.guess.bootstraplsq()
+
         # By this point we should have the parameter set. Check that
         # we do.
         print("doguess DEBUG - parameter indices:")
@@ -930,7 +940,9 @@ def setupmcmc(pathsim='test_sim_mixmod.ini', \
               pathjitter='', \
               ignoretruth=False, \
               chainlen=40000, debug=False, \
-              writedata=True):
+              writedata=True, \
+              doboots_poly=False, \
+              pathboots='test_boots.npy'):
 
     """Sets up for mcmc simulations. 
 
@@ -952,6 +964,10 @@ Inputs:
 
     writedata = write generated data to disk
 
+    doboots_poly = do non-parametric bootstrap for polynomial model?
+
+    pathboots = path for output non-parameteric bootstrap trials
+
 Returns:
 
     esargs = dictionary of arguments for the ensemble sampler
@@ -963,7 +979,8 @@ Returns:
 """
 
     mc = MCMCrun(pathsim, pathfit, chainlen, pathprior, \
-                 pathjitter=pathjitter, ignoretruth=ignoretruth)
+                 pathjitter=pathjitter, ignoretruth=ignoretruth, \
+                 doboots_poly=doboots_poly)
     mc.dosim()
     mc.doguess(norun=debug)
     
@@ -1002,7 +1019,17 @@ Returns:
     if writedata:
         mc.guess.obssrc.writeobs('test_obs_src.dat')
         mc.guess.obstarg.writeobs('test_obs_targ.dat')
-    
+
+    # If nonparametric bootstraps were done, write them to disk
+    if np.size(mc.guess.boots_pars) > 0:
+        np.save(pathboots, mc.guess.boots_pars)
+        print("setupmcmc INFO - written nonparametric bootstraps to %s" \
+              % (pathboots))
+        stdboots = np.std(mc.guess.boots_pars, axis=0)
+        print("setupmcmc INFO - stddev of nonparametric bootstraps:")
+        print(stdboots)
+        
+        
     # Let's see if reading this back in works...
     # mc.readjitterball(debug=True)
     

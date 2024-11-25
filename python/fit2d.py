@@ -7,11 +7,14 @@
 # methods
 #
 
+import time # for timing
 import numpy as np
 
 # For writing/reading configurations
 import configparser
 
+# For copying objects
+import copy
 
 from parset2d import Pars1d
 import unctytwod
@@ -155,6 +158,11 @@ likely work better.)
         # Least squares object
         self.LSQ = None
 
+        # Non-parametric bootstrap parameters (implemented currently
+        # only for the polynomial model).
+        self.nboots = 1000 # keep a record
+        self.boots_pars = np.array([])
+        
         # Initial guess as Pars1d object
         self.Parset = None
 
@@ -560,6 +568,66 @@ supplied as None"""
 
         # populate the formal uncertainty estimate
         self.guess_uncty_formal = np.linalg.inv(self.LSQ.H)
+
+    def bootstraplsq(self, nboots=-1, seed=None):
+
+        """Does nonparametric bootstrap least-squares fitting.
+
+Inputs:
+
+        nboots = number of samples. If <0, defaults to self.nboots
+
+        seed = random number seed
+
+Returns:
+
+        No returns - attribute self.boots_pars is populated.
+
+"""
+
+        # First ensure the whole sample is fit so that we know what
+        # shape to build the bootstrap parameters array. We will use
+        # self.LSQ as a template.
+        if not hasattr(self.LSQ, 'pars'):
+            self.fitlsq()
+            
+        if nboots < 0:
+            nboots = self.nboots
+        else:
+            self.nboots = nboots
+            
+        # Set up and run the bootstrap trials
+        lsq_boots = copy.copy(self.LSQ)
+        self.boots_pars = np.zeros(( nboots, self.LSQ.pars.size))
+
+        # Now we do the bootstrap:
+        if self.Verbose:
+            t0 = time.time()
+            print("fit2d.bootstraplsq INFO - starting %i non-parametric bootstrap samples..." % (nboots))
+            
+        ndata = np.size(self.LSQ.x)
+        rng = np.random.default_rng(seed=seed)
+        for iboot in range(nboots):
+            lsample = rng.integers(low=0, high=ndata, size=ndata)
+
+            # update the lsq object with this sample
+            lsq_boots.x = self.LSQ.x[lsample]
+            lsq_boots.y = self.LSQ.y[lsample]
+            lsq_boots.W = self.LSQ.W[lsample]
+            lsq_boots.xytarg = self.LSQ.xytarg[lsample]
+
+            lsq_boots.setpatternmatrix()
+            lsq_boots.sethessian()
+            lsq_boots.setbeta()
+            lsq_boots.solvepars()
+
+            # Now slot the parameters into the bootstrap sample
+            self.boots_pars[iboot] = np.copy(lsq_boots.pars)
+
+        if self.Verbose:
+            print("fit2d.bootstraplsq INFO - ... done in %.2e seconds" \
+                  % (time.time()-t0))
+            
         
     def populateparset(self):
 

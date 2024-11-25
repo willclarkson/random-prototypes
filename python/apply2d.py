@@ -723,7 +723,7 @@ def eval_uncty(neval=250, \
                pathpset='test_parset_guess_poly_deg2_n100.txt', \
                pathflat='test_flat_fitPoly_100_order2fit2_noprior_run1.npy', \
                pathobs='test_obs_src.dat', \
-               plotmajors=True):
+               plotmajors=True, sqrtplot=True):
 
     """Evaluates both the pointing and propagated uncertainty based on
 MCMC trial output.
@@ -740,6 +740,7 @@ Inputs:
     
     plotmajors = plot debug plot of output vs input major axes
     
+    sqrtplot = plot sqrt(major axes)
 
     """
 
@@ -797,20 +798,35 @@ Inputs:
         magprob = True
         labx = r'Major axis (X,Y)'
 
+    # What are we plotting
+    ytran = np.copy(ES.cov_xieta.majors)
+    ymeas = np.copy(MS.cov_xieta.majors)
+        
+    # out of curiosity, sqrt the majors
+    #ES.cov_xieta.majors = np.sqrt(ES.cov_xieta.majors)
+    #MS.cov_xieta.majors = np.sqrt(MS.cov_xieta.majors)
+
+    labely=r'Major axis ($\xi,\eta$)'
+    if sqrtplot:
+        ytran = np.sqrt(ytran)
+        ymeas = np.sqrt(ymeas)
+        labely=r'$\sqrt{Major axis (\xi,\eta)}$'
+        
+        
     # Compute binned trends for plotting:
-    bstran = Binstats(xvec, np.atleast_2d(ES.cov_xieta.majors).T, nbins=10)
-    bsmeas = Binstats(xvec, np.atleast_2d(MS.cov_xieta.majors).T, nbins=10)
+    bstran = Binstats(xvec, np.atleast_2d(ytran).T, nbins=10)
+    bsmeas = Binstats(xvec, np.atleast_2d(ymeas).T, nbins=10)
         
     fig7 = plt.figure(7)
     fig7.clf()
     ax71 = fig7.add_subplot(111)
 
     dum711 = ax71.scatter(xvec, \
-                          ES.cov_xieta.majors, s=3, \
+                          ytran, s=3, \
                           cmap='Blues', \
                           label=r'transformation')
     dum712 = ax71.scatter(xvec, \
-                          MS.cov_xieta.majors, s=6, \
+                          ymeas, s=6, \
                           marker='s',\
                           cmap='Reds', \
                           label=r'measurement')
@@ -840,7 +856,7 @@ Inputs:
     # print("DBG:", bsmeas.meansxy.shape, bstran.covsxy.shape)
     
     ax71.set_xlabel(labx)
-    ax71.set_ylabel(r'Major axis ($\xi,\eta$)')
+    ax71.set_ylabel(labely)
     ax71.set_yscale('log')
     leg7 = ax71.legend()
     

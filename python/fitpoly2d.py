@@ -341,7 +341,7 @@ data, 2d input, 2d output"""
         # Weights
         self.W = np.array([])
         self.initweights()
-        self.parseweights(w)
+        self.parseweights(w) # no, this is not a typo! Should be w, not W.
 
         # x, y in target space
         self.xytarg = np.copy(xytarg)
@@ -489,6 +489,47 @@ data, 2d input, 2d output"""
             self.W = np.copy(wts)
             return
 
+    def updatedata(self, x=np.array([]), y=np.array([]), \
+                   W=np.array([]), xy=np.array([]) ):
+
+        """Replaces the data with input arguments and re-computes the leastsq
+solution. Intended as a convenience method for non-parametric
+bootstrap trials.
+
+Inputs:
+
+        x = [N-element] x data, source frame
+        
+        y = [N-element] y data, source frame
+
+        W = [N, 2, 2] weights array
+
+        xy = [N,2] xy data, target frame
+
+Returns:
+
+        None. Attributes x, y, W, xy, beta, H, pars are updated.
+
+        """
+        
+        # Everything must be supplied for this to work
+        if np.size(xy) < 1 or np.size(W) < 1 or np.size(x) < 1 \
+           or np.size(y) < 1:
+            return
+        
+        self.x = x
+        self.y = y
+        self.W = W
+        self.xy = xy
+
+        # Re-set the attributes that rely on the data
+        self.setpatternmatrix()
+        self.sethessian()
+        self.setbeta()
+
+        # re-solve for the parameters
+        self.solvepars()
+        
     def setpatternmatrix(self):
 
         """Sets up the pattern matrix object"""
