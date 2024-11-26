@@ -31,6 +31,10 @@ class Simset(object):
         self.degmin = degmin
         self.degmax = degmax
         self.polytype = polytype
+
+        # quantiles for residuals statistics
+        self.quantiles = np.array([0.01, 0.1, 0.5, 0.90, 0.99])
+        self.resid_quantiles = np.array([])
         
     def setupsim(self):
 
@@ -58,6 +62,10 @@ class Simset(object):
         self.llsq = []
         degs = np.arange(self.degmin, self.degmax+1., 1., 'int')
         wts = np.ones(self.sim.xy.shape[0])
+
+        # Set up the summary statistics array
+        self.resid_quantiles = np.array([])
+        
         for deg in degs:
             lsq = fitpoly2d.Leastsq2d(self.sim.xy[:,0], \
                                       self.sim.xy[:,1], \
@@ -69,6 +77,18 @@ class Simset(object):
             # Add a residuals attribute to the lsq object
             lsq.xyresid = lsq.xytarg - lsq.ev()
 
+            # Add quantiles information
+            lsq.quantiles = self.quantiles
+            lsq.resid_quantiles = np.quantile(lsq.xyresid, \
+                                              lsq.quantiles, axis=0)
+
+            # quantiles in xy residuals
+            if np.size(self.resid_quantiles) < 1:
+                self.resid_quantiles = np.copy(lsq.resid_quantiles)
+            else:
+                self.resid_quantiles = np.dstack(( self.resid_quantiles, \
+                                                   lsq.resid_quantiles))
+            
             # ... finally, append the fit onto the list
             self.llsq.append(lsq)
             
@@ -102,7 +122,11 @@ def testsim(ndata=2500, polytype='Chebyshev'):
     # Now sweep through the fits
     SS.performfits()
 
-
+    # Tell the quantiles
+    print("quantiles:", SS.resid_quantiles.shape)
+    print(SS.resid_quantiles[0,0,:]*3.6e6) # along N for x
+    print(SS.resid_quantiles[0,1,:]*3.6e6) # along N for y
+    
     print("approx2d.testsim INFO - plotting...")
     fig1 = plt.figure(1)
     fig1.clf()
