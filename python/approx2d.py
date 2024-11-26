@@ -2,6 +2,7 @@
 # approx2d.py  - approximate transformations by polynomials
 #
 
+import copy
 import numpy as np
 import matplotlib.pylab as plt
 plt.ion()
@@ -9,7 +10,7 @@ plt.ion()
 # methods for simulating and fitting data
 import sim2d, fit2d
 import fitpoly2d
-
+from weightedDeltas import CovarsNx2x2
 
 class Simset(object):
 
@@ -35,7 +36,18 @@ class Simset(object):
         # quantiles for residuals statistics
         self.quantiles = np.array([0.01, 0.1, 0.5, 0.90, 0.99])
         self.resid_quantiles = np.array([])
-        
+
+        # transformation objects for "test" samples
+        self.transf_test = None
+
+        # parameters for "test" data (source frame). Include uniform
+        # covariances to assess how that propagates.
+        self.test_nx = 8
+        self.test_ny = 8
+        self.test_major = 1.0e-6
+        self.test_minor = 7.0e-7
+        self.test_rotdeg = 30.
+
     def setupsim(self):
 
         """Sets up the simulated data"""
@@ -55,6 +67,81 @@ class Simset(object):
 
         self.sim.generatedata()
 
+    def settransf_used(self):
+
+        """Sets up transformation object for the 'truth' transformation"""
+
+        self.transf_test = copy.copy(self.sim.PTruth)
+
+    def populatetestdata(self):
+
+        """Populates the 'test' dataset"""
+
+        if self.transf_test is None:
+            self.settransf_used()
+
+        # if this is STILL None, return
+        if self.transf_test is None:
+            return
+
+        # Get the positions...
+        xs, ys = self.gridxy()
+
+        # ... build the covariances
+        majors = np.repeat(self.test_major, xs.size)
+        minors = np.repeat(self.test_minor, xs.size)
+        rotdegs = np.repeat(self.test_rotdeg, xs.size)
+
+        # Compute the covariances
+        Cov = CovarsNx2x2(majors=majors, minors=minors, rotDegs=rotdegs)
+
+        # update the transformation source data...
+        self.transf_test.x = xs
+        self.transf_test.y = ys
+        self.transf_test.covxy = Cov.covars
+
+        # ... update its jacobian...
+        try:
+            self.transf_test.getjacobian()
+        except:
+            self.transf_test.setjacobian() ## FIX THIS
+            
+        # ... and re-propagate positions and uncertainties to the
+        # target frame
+        self.transf_test.initxytran()
+        self.transf_test.propagate()
+        
+    def gridxy(self):
+
+        """Returns a grid of x, y positions using the instance's grid
+settings"""
+
+        if self.transf_test is None:
+            return np.array([]), np.array([])
+
+        # Allow transf not to have domain information
+        xmin = np.min(self.transf_test.x)
+        xmax = np.max(self.transf_test.x)
+        ymin = np.min(self.transf_test.y)
+        ymax = np.max(self.transf_test.y)
+
+        if hasattr(self.transf_test, 'xmin'):
+            xmin = self.transf_test.xmin
+        if hasattr(self.transf_test, 'xmax'):
+            xmax = self.transf_test.xmax
+        if hasattr(self.transf_test, 'ymin'):
+            ymin = self.transf_test.ymin
+        if hasattr(self.transf_test, 'ymax'):
+            ymax = self.transf_testy.ymax
+            
+        
+        vx = np.linspace(xmin, xmax, self.test_nx)
+        vy = np.linspace(ymin, ymax, self.test_ny)
+
+        xx, yy = np.meshgrid(vx, vy, indexing='ij')
+
+        return np.ravel(xx), np.ravel(yy)
+        
     def performfits(self):
 
         """Sweeps through the degrees, performing lstsq fits"""
@@ -119,9 +206,15 @@ def testsim(ndata=2500, polytype='Chebyshev'):
     SS = Simset(ndata, polytype=polytype)
     SS.makedata()
 
+    # Transformation
+    print(SS.sim.transf.__name__)
+    
     # Now sweep through the fits
     SS.performfits()
 
+    # Prepare transformation object with test data
+    SS.populatetestdata()
+    
     # Tell the quantiles
     print("quantiles:", SS.resid_quantiles.shape)
     print(SS.resid_quantiles[0,0,:]*3.6e6) # along N for x
