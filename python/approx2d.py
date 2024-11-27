@@ -10,6 +10,7 @@ plt.ion()
 # methods for simulating and fitting data
 import sim2d, fit2d
 import fitpoly2d
+import unctytwod
 from weightedDeltas import CovarsNx2x2
 
 class Simset(object):
@@ -47,7 +48,8 @@ class Simset(object):
         self.test_major = 1.0e-6
         self.test_minor = 7.0e-7
         self.test_rotdeg = 30.
-
+        self.ltest = [] # transformation objects on test data
+        
     def setupsim(self):
 
         """Sets up the simulated data"""
@@ -110,6 +112,10 @@ class Simset(object):
         # target frame
         self.transf_test.initxytran()
         self.transf_test.propagate()
+
+        # decorate this with a covarsNx2x2 object
+        self.transf_test.ctran = CovarsNx2x2(self.transf_test.covtran)
+        self.transf_test.ctran.eigensFromCovars()
         
     def gridxy(self):
 
@@ -120,20 +126,24 @@ settings"""
             return np.array([]), np.array([])
 
         # Allow transf not to have domain information
-        xmin = np.min(self.transf_test.x)
-        xmax = np.max(self.transf_test.x)
-        ymin = np.min(self.transf_test.y)
-        ymax = np.max(self.transf_test.y)
+        #xmin = np.min(self.transf_test.x)
+        #xmax = np.max(self.transf_test.x)
+        #ymin = np.min(self.transf_test.y)
+        #ymax = np.max(self.transf_test.y)
 
-        if hasattr(self.transf_test, 'xmin'):
-            xmin = self.transf_test.xmin
-        if hasattr(self.transf_test, 'xmax'):
-            xmax = self.transf_test.xmax
-        if hasattr(self.transf_test, 'ymin'):
-            ymin = self.transf_test.ymin
-        if hasattr(self.transf_test, 'ymax'):
-            ymax = self.transf_testy.ymax
-            
+        #if hasattr(self.transf_test, 'xmin'):
+        #    xmin = self.transf_test.xmin
+        #if hasattr(self.transf_test, 'xmax'):
+        #    xmax = self.transf_test.xmax
+        #if hasattr(self.transf_test, 'ymin'):
+        #    ymin = self.transf_test.ymin
+        #if hasattr(self.transf_test, 'ymax'):
+        #    ymax = self.transf_testy.ymax
+
+        xmin = self.sim.xmin
+        xmax = self.sim.xmax
+        ymin = self.sim.ymin
+        ymax = self.sim.ymax
         
         vx = np.linspace(xmin, xmax, self.test_nx)
         vy = np.linspace(ymin, ymax, self.test_ny)
@@ -178,7 +188,53 @@ settings"""
             
             # ... finally, append the fit onto the list
             self.llsq.append(lsq)
+
+            # apply the polynomial to test positions and covariances
+            # at these positions
+            transf_poly= self.gettransf_poly(lsq.pars)
+            if transf_poly is None:
+                continue
+
+            transf_poly.propagate()
+            transf_poly.ctran = CovarsNx2x2(transf_poly.covtran)
+            transf_poly.ctran.eigensFromCovars()
             
+            self.ltest.append(transf_poly)
+            
+    def gettransf_poly(self, pars=np.array([]) ):
+
+        """Utility - returns transformation object for polynomial, gathering
+data characteristics from the instance.
+
+Inputs:
+
+        pars = M-array of fit parameters
+
+"""
+
+        if np.size(pars) < 1:
+            return None
+
+        if self.transf_test is None:
+            return None
+
+        # limits need to be the same as the lsq object. Bring this out
+        # here
+        xmin = np.min(self.sim.xy[:,0])
+        xmax = np.max(self.sim.xy[:,0])
+        ymin = np.min(self.sim.xy[:,1])
+        ymax = np.max(self.sim.xy[:,1])
+        
+        transf_poly = unctytwod.Poly(self.transf_test.x, \
+                                     self.transf_test.y, \
+                                     self.transf_test.covxy, \
+                                     pars, checkparsy=True, \
+                                     kindpoly=self.polytype, \
+                                     xmin=xmin, xmax=xmax, \
+                                     ymin=ymin, ymax=ymax)
+
+        return transf_poly
+        
     def setupfit(self):
 
         """Sets up least-squares fitting object"""
@@ -206,14 +262,22 @@ def testsim(ndata=2500, polytype='Chebyshev'):
     SS = Simset(ndata, polytype=polytype)
     SS.makedata()
 
+    print("xmin:", SS.sim.xmin)
+    
     # Transformation
     print(SS.sim.transf.__name__)
+
+    # Prepare transformation object with test data
+    SS.populatetestdata()
     
     # Now sweep through the fits
     SS.performfits()
 
-    # Prepare transformation object with test data
-    SS.populatetestdata()
+    # take a look at the transformed test data
+    print("Test DBG:", SS.transf_test.covtran[0])
+    for ordr in range(len(SS.ltest)):
+        print('Test order %i' % (ordr+1), \
+              SS.transf_test.covtran[0] - SS.ltest[ordr].covtran[0])
     
     # Tell the quantiles
     print("quantiles:", SS.resid_quantiles.shape)

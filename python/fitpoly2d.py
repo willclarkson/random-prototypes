@@ -535,7 +535,8 @@ Returns:
         """Sets up the pattern matrix object"""
 
         self.pattern = Patternmatrix(self.fitdeg, self.x, self.y, \
-                                     self.fitkind, norescale=self.fitnorescale)
+                                     self.fitkind, \
+                                     norescale=self.fitnorescale)
 
         # sets up the P matrix itself
         self.P = self.pattern.pattern
