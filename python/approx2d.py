@@ -43,8 +43,8 @@ class Simset(object):
 
         # parameters for "test" data (source frame). Include uniform
         # covariances to assess how that propagates.
-        self.test_nx = 8
-        self.test_ny = 8
+        self.test_nx = 15
+        self.test_ny = 15
         self.test_major = 1.0e-6
         self.test_minor = 7.0e-7
         self.test_rotdeg = 30.
@@ -255,7 +255,7 @@ Inputs:
         
 ##### Methods that use this follow
 
-def testsim(ndata=2500, polytype='Chebyshev'):
+def testsim(ndata=2500, polytype='Chebyshev', quivscale=None):
 
     """Tests the functionality"""
 
@@ -274,10 +274,10 @@ def testsim(ndata=2500, polytype='Chebyshev'):
     SS.performfits()
 
     # take a look at the transformed test data
-    print("Test DBG:", SS.transf_test.covtran[0])
-    for ordr in range(len(SS.ltest)):
-        print('Test order %i' % (ordr+1), \
-              SS.transf_test.covtran[0] - SS.ltest[ordr].covtran[0])
+    #print("Test DBG:", SS.transf_test.covtran[0])
+    #for ordr in range(len(SS.ltest)):
+    #    print('Test order %i' % (ordr+1), \
+    #          SS.transf_test.covtran[0] - SS.ltest[ordr].covtran[0])
     
     # Tell the quantiles
     print("quantiles:", SS.resid_quantiles.shape)
@@ -288,6 +288,35 @@ def testsim(ndata=2500, polytype='Chebyshev'):
     fig1 = plt.figure(1)
     fig1.clf()
 
+    # Do a quiver plot (make this an option later)
+    nords = len(SS.ltest)
+    for iset in range(nords):
+        ax1 = fig1.add_subplot(2, nords, iset+1+nords)
+        xyresid = SS.transf_test.xytran - SS.ltest[iset].xytran
+
+        dum1 = ax1.quiver(SS.transf_test.xytran[:,0], \
+                          SS.transf_test.xytran[:,1], \
+                          xyresid[:,0], xyresid[:,1], \
+                          np.sqrt(xyresid[:,0]**2 + \
+                                  xyresid[:,1]**2), \
+                          scale=quivscale)
+
+        cbar1 = fig1.colorbar(dum1, ax=ax1)
+        ax1.set_title('deg %i' % (SS.llsq[iset].fitdeg))
+
+        # label the bottom vertical axes
+        ax1.set_xlabel(r'$\alpha$')
+        
+        # hide the vertical tick labels for all but the first plot
+        if iset > 0:
+            ax1.set_yticklabels([])
+        else:
+            ax1.set_ylabel(r'$\delta$')
+
+        
+        
+    return
+    
     # loop through the orders
     nords = len(SS.llsq)
     for iset in range(nords):
