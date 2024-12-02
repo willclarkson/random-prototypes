@@ -113,7 +113,7 @@ class Evalset(object):
             return
         
         self.obset = loadobset(self.pathobs)
-
+        
     def covfromobs(self):
 
         """Passes the covariance and position information from the input
@@ -131,6 +131,23 @@ observation file to the self.xy, self.covxy quantities"""
         # populate the covariance object to draw samples
         self.covobj = CovarsNx2x2(self.covxy)
 
+    def genposran(self, ngen=100, seed=None):
+
+        """Generates random uniform points over the range defined by the
+transformation xmin, xmax, ymin, ymax"""
+
+        # Convenience views for the limits
+        xmin = self.transf.xmin
+        xmax = self.transf.xmax
+        ymin = self.transf.ymin
+        ymax = self.transf.ymax
+        
+        rng = np.random.default_rng(seed)
+        x = rng.uniform(xmin, xmax, ngen)
+        y = rng.uniform(ymin, ymax, ngen)
+
+        self.xy = np.stack((x, y), axis=1)
+        
     def gencovunif(self, major=1.0e-4, minor=0.7e-4, rotdeg=0.):
 
         """Creates uniform set of covariances for input positions"""
@@ -702,8 +719,9 @@ Returns:
 
     # Load the parameter set and parse its transformation names
     pset = parset2d.loadparset(pathpset)
+    print(pathpset, pset.transfname)
     if not transfnamesok(pset):
-        return None, np.array([])
+        return None, np.array([]), np.array([])
 
     # now create the transformation object
     transf = blanktransf(pset.transfname, pset.polyname)
@@ -865,7 +883,9 @@ def unctysamples(nsamples=10, \
                  pathobs='test_obs_src.dat', \
                  plotsamples=True, \
                  unifcovs=False, \
-                 maxplot=-1):
+                 unif_major=1.0e-4, unif_minor=0.4e-4, unif_posan=0., \
+                 maxplot=-1, \
+                 genpos=False):
 
     """Performes monte carlo sampling of the source uncertainty,
 propagated through to the target frame.
@@ -882,7 +902,11 @@ Inputs:
 
     unifcovs = assign uniform covariances (useful for testing)
 
+    unif_major, unif_minor, unif_posan = uniform covariance scalars
+
     maxplot = maximum number of samples to show in the scatterplots
+
+    genpos = generate positions using limits in transformation
 
 """
 
@@ -891,9 +915,16 @@ Inputs:
     US.getobs()
     US.covfromobs()
 
+    # Replace or generate uniform random positions over transf limits
+    if genpos or len(US.pathobs) < 3:
+        US.genposran(50)
+
     # Replace covariances with uniform covariances?
-    if unifcovs:
-        US.gencovunif()
+    if unifcovs or US.xy.shape[0] != US.covxy.shape[0]:
+        print("unctysamples INFO - generating uniform covariances")
+        US.gencovunif(major=unif_major, \
+                      minor=unif_minor, \
+                      rotdeg=unif_posan)
     
     # Pass the samples to the transformation and compute the
     # propagated covariance
@@ -1004,6 +1035,16 @@ Inputs:
     if not plotsamples:
         return
 
+    #### Histogram of one or two "representative" points
+    skeweta = US.skew_xieta[:,0]
+    iskew = np.argmax(np.abs(US.skew_xieta[:,0]))
+    fig5 = plt.figure(5)
+    fig5.clf()
+    ax51 = fig5.add_subplot(111)
+    dum51 = ax51.hist(US.samples_xi[:,iskew], bins=40)
+    ax51.set_xlabel(r'$\xi$')
+    ax51.set_ylabel(r'$N(\xi)$')
+    
     #### Scatterplots of the monte carlo follow.
 
     # Allow plotting of a subset if there are many samples
@@ -1015,7 +1056,7 @@ Inputs:
 
     # Assign an ID to each row
     lid = np.arange(ndata)
-    lid = US.skew_xieta[:,1] # show skewness in eta
+    lid = US.skew_xieta[:,0] # show skewness in eta
     arrid = np.tile(lid, nsamples).reshape(nsamples, ndata)
     
     fig2 = plt.figure(2)

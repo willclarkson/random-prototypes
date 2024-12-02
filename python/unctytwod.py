@@ -1496,7 +1496,13 @@ from the tangent plane to the sky.
         self.pars = pars # the tangent point
 
         self.Verbose = Verbose # control variable
-         
+
+        # We store xmin, xmax, etc.
+        self.xmin = xmin
+        self.xmax = xmax
+        self.ymin = ymin
+        self.ymax = ymax
+        
         # Input coordinates are in degrees? (Alternate is radians)
         self.degrees = degrees
         self.conv2rad = 1.
@@ -1523,6 +1529,58 @@ from the tangent plane to the sky.
         # initialize the xytran convenience-view
         self.xytran = np.array([])
         self.initxytran()
+
+    def updatedata(self, x=np.array([]), y=np.array([]), \
+                   covxy=np.array([]), \
+                   xy=np.array([]) ):
+
+        """Ingests supplied data to populate x, y, covars. 
+
+Inputs:
+
+
+        x = [N] array of X-values. 
+
+        y = [N] array of Y-values
+
+        covxy = [N,2,2] array of XY covariances
+
+        xy = [N,2] xy array. If set, supersedes x, y.
+
+        
+        Outputs:
+        None - internal attributes self.x, self.y, self.covxy
+
+"""
+
+        # Positions
+        if np.ndim(xy) == 2:
+            self.x = xy[:,0]
+            self.y = xy[:,1]
+        else:
+            self.x = np.copy(x)
+            self.y = np.copy(y)
+            
+        # covariances. We parse here for matching size with the
+        # positions before updating
+        if np.ndim(covxy) != 3:
+            return
+
+        ndata = np.size(self.x)
+        ncov = np.shape(covxy)[0]
+
+        if ndata != ncov:
+            return
+
+        self.covxy = np.copy(covxy)
+
+    def updatejacobian(self):
+
+        """One-liner to update the jacobian"""
+
+        # This is called from another method that uses
+        # updatejacobian() as its call.
+        self.setjacobian()
         
     def initxytran(self):
 
@@ -1553,6 +1611,17 @@ data x"""
         self.conv2rad = 1.
         if self.degrees:
             self.conv2rad = np.pi/180.
+
+    def updatelimits(self, xmin=None, xmax=None, ymin=None, ymax=None):
+
+        """Updates xmin, xmax, etc. attributes"""
+
+        # For this object, is used mainly for compatibility
+        
+        self.xmin = np.copy(xmin)
+        self.xmax = np.copy(xmax)
+        self.ymin = np.copy(ymin)
+        self.ymax = np.copy(ymax)
         
     def setjacobian(self):
 
