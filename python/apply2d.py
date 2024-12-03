@@ -180,7 +180,12 @@ samples."""
         if self.transf is None:
             return
 
-        self.transf.trancov()
+        # ensure xytran is populated
+        if np.size(self.transf.xytran) < 1:
+            self.transf.initxytran()
+            self.transf.propagate()
+        else:
+            self.transf.trancov()
 
         # now pass this up to the instance...
         self.cov_propagated = CovarsNx2x2(self.transf.covtran)
@@ -362,6 +367,7 @@ itransf'th sample set"""
         self.med_xieta, self.cov_xieta, \
             self.skew_xieta, self.kurt_xieta = \
                 samples_moments(self.samples_xi, self.samples_eta)
+
         
 ## Generally useful utilities follow
             
@@ -885,7 +891,8 @@ def unctysamples(nsamples=10, \
                  unifcovs=False, \
                  unif_major=1.0e-4, unif_minor=0.4e-4, unif_posan=0., \
                  maxplot=-1, \
-                 genpos=False):
+                 genpos=False, \
+                 showshifts=True):
 
     """Performes monte carlo sampling of the source uncertainty,
 propagated through to the target frame.
@@ -907,6 +914,8 @@ Inputs:
     maxplot = maximum number of samples to show in the scatterplots
 
     genpos = generate positions using limits in transformation
+
+    showshifts = show quiver plot with offsets
 
 """
 
@@ -931,6 +940,9 @@ Inputs:
     US.setdata()
     US.propagate_covar()
 
+    # For computing the bias in midpoints later
+    US.med_input_xieta = US.transf.xytran
+    
     # Now set up the samples and run the parametric monte carlo
     print("unctysamples INFO - starting %.2e MC samples..." % (nsamples))
     t0 = time.time()
@@ -942,6 +954,25 @@ Inputs:
     # Perform statistics on the samples
     US.samples_stats()
 
+    # Find the median of the transformed minus the transformed median
+    xieta_means, _, _, _ = samples_moments(US.samples_xi, \
+                                           US.samples_eta, \
+                                           methcent=np.mean)
+    # dxieta_midpoints = US.med_xieta - US.med_input_xieta
+    dxieta_midpoints = US.med_xieta - xieta_means
+    
+    if showshifts:
+        fig6 = plt.figure(6)
+        fig6.clf()
+        ax6 = fig6.add_subplot(111)
+        dum6 = ax6.quiver(US.med_xieta[:,0], \
+                          US.med_xieta[:,1], \
+                          dxieta_midpoints[:,0], \
+                          dxieta_midpoints[:,1])
+
+        ax6.set_title('Centroid offsets')
+    
+    
     # Perform statistics on the *generated* samples, just to ensure
     # that part works...
     if unifcovs:
@@ -1037,13 +1068,31 @@ Inputs:
 
     #### Histogram of one or two "representative" points
     skeweta = US.skew_xieta[:,0]
-    iskew = np.argmax(np.abs(US.skew_xieta[:,0]))
+    iskew = np.argmax(np.abs(US.skew_xieta[:,1]))
     fig5 = plt.figure(5)
     fig5.clf()
     ax51 = fig5.add_subplot(111)
-    dum51 = ax51.hist(US.samples_xi[:,iskew], bins=40)
-    ax51.set_xlabel(r'$\xi$')
-    ax51.set_ylabel(r'$N(\xi)$')
+    dum51 = ax51.hist(US.samples_eta[:,iskew], bins=40, alpha=0.5)
+    ax51.set_xlabel(r'$\eta$')
+    ax51.set_ylabel(r'$N(\eta)$')
+
+    dumv1 = ax51.axvline(US.med_xieta[iskew,1], zorder=25, color='k')
+    dumv2 = ax51.axvline(US.med_input_xieta[iskew,1], zorder=25, \
+                         color='k', linestyle='--')
+    dumv3 = ax51.axvline(xieta_means[iskew,1], zorder=25, \
+                         color='r', linestyle='--', lw=2)
+
+    # Try getting the mode (thought: in two dimensions, best to use
+    # two marginals so that the grid for the fine samples doesn't get
+    # huge)
+    distr = stats.gaussian_kde(US.samples_eta[:,iskew])
+    xfine = np.linspace(np.min(US.samples_eta[:,iskew]), \
+                       np.max(US.samples_eta[:,iskew]), \
+                       5000)
+    imax = np.argmax(distr.pdf(xfine))
+    dumv4 = ax51.axvline(xfine[imax], zorder=25, color='y', lw=2)
+    
+    ax51.set_title(r'Skew ($\eta$): %.2f' % (US.skew_xieta[iskew, 1]))
     
     #### Scatterplots of the monte carlo follow.
 
