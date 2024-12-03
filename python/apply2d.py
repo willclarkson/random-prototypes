@@ -19,6 +19,9 @@ import unctytwod
 import parset2d
 import obset2d
 
+# For computing moments
+import moments2d
+
 # for drawing samples from the covariances
 from weightedDeltas import CovarsNx2x2
 
@@ -147,6 +150,31 @@ transformation xmin, xmax, ymin, ymax"""
         y = rng.uniform(ymin, ymax, ngen)
 
         self.xy = np.stack((x, y), axis=1)
+
+    def genposgrid(self, nx=7, ny=7):
+
+        """Generates positions on a simple grid (no dual-scaling).
+
+Inputs:
+
+        nx = number of grid points in x
+
+        ny = number of grid points in y
+
+Returns:
+
+        No returns - updates attribute self.xy
+
+"""
+
+        vx = np.linspace(self.transf.xmin, self.transf.xmax, \
+                         nx, endpoint=True)
+        vy = np.linspace(self.transf.ymin, self.transf.ymax, \
+                         ny, endpoint=True)
+
+        xx, yy = np.meshgrid(vx, vy, indexing='ij')
+
+        self.xy = np.stack( (xx.ravel(), yy.ravel()), axis=1)
         
     def gencovunif(self, major=1.0e-4, minor=0.7e-4, rotdeg=0.):
 
@@ -892,6 +920,7 @@ def unctysamples(nsamples=10, \
                  unif_major=1.0e-4, unif_minor=0.4e-4, unif_posan=0., \
                  maxplot=-1, \
                  genpos=False, \
+                 nx=7, ny=7, \
                  showshifts=True):
 
     """Performes monte carlo sampling of the source uncertainty,
@@ -915,6 +944,8 @@ Inputs:
 
     genpos = generate positions using limits in transformation
 
+    nx, ny = number of positions in x, y to produce on regular grid
+
     showshifts = show quiver plot with offsets
 
 """
@@ -926,8 +957,9 @@ Inputs:
 
     # Replace or generate uniform random positions over transf limits
     if genpos or len(US.pathobs) < 3:
-        US.genposran(50)
-
+        # US.genposran(50)
+        US.genposgrid(nx, ny)
+        
     # Replace covariances with uniform covariances?
     if unifcovs or US.xy.shape[0] != US.covxy.shape[0]:
         print("unctysamples INFO - generating uniform covariances")
@@ -954,25 +986,67 @@ Inputs:
     # Perform statistics on the samples
     US.samples_stats()
 
+    # Use our new moments calculator
+    print("Computing moments...")
+    t99 = time.time()
+    moments = moments2d.Moments2d(US.samples_xi, US.samples_eta, \
+                                  nomode=True)
+    print("")
+    print("... done in %.2e seconds." % (time.time()-t99))
+
+    print(moments.mean.shape)
+    print(moments.skew.shape)
+    print(moments.covars.shape)
+    print(moments.mode.shape)
+    
+    # return
+    
     # Find the median of the transformed minus the transformed median
     xieta_means, _, _, _ = samples_moments(US.samples_xi, \
                                            US.samples_eta, \
                                            methcent=np.mean)
-    # dxieta_midpoints = US.med_xieta - US.med_input_xieta
-    dxieta_midpoints = US.med_xieta - xieta_means
+
+    dxieta_modes = US.med_xieta - xieta_means    
+    #dxieta_modes = US.med_xieta - US.med_input_xieta    
+
+    if np.size(moments.mode) > 0:
+        dxieta_modes = moments.median - moments.mode
     
     if showshifts:
+
+        # magnitudes of the shifts
+        mags = np.sqrt(dxieta_modes[:,0]**2 + dxieta_modes[:,1]**2)
+        
         fig6 = plt.figure(6)
         fig6.clf()
         ax6 = fig6.add_subplot(111)
         dum6 = ax6.quiver(US.med_xieta[:,0], \
                           US.med_xieta[:,1], \
-                          dxieta_midpoints[:,0], \
-                          dxieta_midpoints[:,1])
-
+                          dxieta_modes[:,0], \
+                          dxieta_modes[:,1], \
+                          mags)
+        cbar6 = fig6.colorbar(dum6, ax=ax6)
         ax6.set_title('Centroid offsets')
-    
-    
+
+        # OK I have to see what this is doing...
+        fig7 = plt.figure(7)
+        fig7.clf()
+        ax71 = fig7.add_subplot(121)
+        ax72 = fig7.add_subplot(122)
+        axes = [ax71, ax72]
+        sdel = [r'$\Delta \xi$', r'$\Delta \eta$']
+        for iset in range(len(axes)):
+            ss = dxieta_modes[:,iset]
+            dum = axes[iset].hist(ss, \
+                                  bins=30, alpha=0.5, \
+                                  density=True)
+            kde = stats.gaussian_kde(ss)
+            xfine = np.linspace(np.min(ss), np.max(ss), 1000, \
+                                endpoint=True)
+            dumf = axes[iset].plot(xfine, kde.pdf(xfine))
+            axes[iset].set_xlabel(sdel[iset])
+        fig7.suptitle(r'Peak-to-median offsets')
+            
     # Perform statistics on the *generated* samples, just to ensure
     # that part works...
     if unifcovs:
@@ -1068,19 +1142,24 @@ Inputs:
 
     #### Histogram of one or two "representative" points
     skeweta = US.skew_xieta[:,0]
-    iskew = np.argmax(np.abs(US.skew_xieta[:,1]))
+
+    iskew = np.argmax(np.abs(US.skew_xieta[:,0]))
     fig5 = plt.figure(5)
     fig5.clf()
     ax51 = fig5.add_subplot(111)
-    dum51 = ax51.hist(US.samples_eta[:,iskew], bins=40, alpha=0.5)
-    ax51.set_xlabel(r'$\eta$')
-    ax51.set_ylabel(r'$N(\eta)$')
+    dum51 = ax51.hist(US.samples_xi[:,iskew], bins=40, alpha=0.5, \
+                      label='Transformed samples')
+    ax51.set_xlabel(r'$\xi$')
+    ax51.set_ylabel(r'$N(\xi)$')
 
-    dumv1 = ax51.axvline(US.med_xieta[iskew,1], zorder=25, color='k')
-    dumv2 = ax51.axvline(US.med_input_xieta[iskew,1], zorder=25, \
-                         color='k', linestyle='--')
-    dumv3 = ax51.axvline(xieta_means[iskew,1], zorder=25, \
-                         color='r', linestyle='--', lw=2)
+    dumv1 = ax51.axvline(US.med_xieta[iskew,0], zorder=25, color='k', \
+                         label='median of transformed')
+    dumv2 = ax51.axvline(US.med_input_xieta[iskew,0], zorder=25, \
+                         color='m', linestyle='--', \
+                         label='transformed median')
+    dumv3 = ax51.axvline(xieta_means[iskew,0], zorder=25, \
+                         color='r', linestyle='--', lw=2, \
+                         label='mean of transformed')
 
     # Try getting the mode (thought: in two dimensions, best to use
     # two marginals so that the grid for the fine samples doesn't get
@@ -1090,9 +1169,17 @@ Inputs:
                        np.max(US.samples_eta[:,iskew]), \
                        5000)
     imax = np.argmax(distr.pdf(xfine))
-    dumv4 = ax51.axvline(xfine[imax], zorder=25, color='y', lw=2)
-    
-    ax51.set_title(r'Skew ($\eta$): %.2f' % (US.skew_xieta[iskew, 1]))
+    #dumv4 = ax51.axvline(xfine[imax], zorder=25, color='y', lw=2)
+    try:
+        dumv4 = ax51.axvline(moments.mode[iskew, 0], color='g', lw=1, \
+                             zorder=30, label='Mode of transformed')
+    except:
+        # mode not computed
+        dummy = 4
+        
+    ax51.set_title(r'Skew ($\eta$): %.2f' % (US.skew_xieta[iskew, 0]) )
+
+    leg51 = ax51.legend()
     
     #### Scatterplots of the monte carlo follow.
 
@@ -1160,7 +1247,13 @@ Inputs:
                          GG.transf.ytran[bthisline], \
                          color='0.5', alpha=0.5, zorder=1, \
                          lw=0.5)
-    
+
+        # Ditto the quiver plot
+        dum6g = ax6.plot(GG.transf.xtran[bthisline], \
+                         GG.transf.ytran[bthisline], \
+                         color='0.5', alpha=0.5, zorder=1, \
+                         lw=0.5)
+        
 def traceplot(neval=10, \
               pathpset='test_parset_guess_poly_deg2_n100.txt', \
               pathflat='test_flat_fitPoly_100_order2fit2_noprior_run1.npy'):
