@@ -22,6 +22,10 @@ import obset2d
 # For computing moments
 import moments2d
 
+# for occasional polyfitting
+from fitpoly2d import Leastsq2d
+import sixterm2d
+
 # for drawing samples from the covariances
 from weightedDeltas import CovarsNx2x2
 
@@ -921,7 +925,8 @@ def unctysamples(nsamples=10, \
                  maxplot=-1, \
                  genpos=False, \
                  nx=7, ny=7, \
-                 showshifts=True):
+                 showshifts=True, \
+                 deg=1):
 
     """Performes monte carlo sampling of the source uncertainty,
 propagated through to the target frame.
@@ -947,6 +952,8 @@ Inputs:
     nx, ny = number of positions in x, y to produce on regular grid
 
     showshifts = show quiver plot with offsets
+
+    deg = polynomial degree for residual approximation
 
 """
 
@@ -1006,8 +1013,9 @@ Inputs:
                                            US.samples_eta, \
                                            methcent=np.mean)
 
-    dxieta_modes = US.med_xieta - xieta_means    
-    #dxieta_modes = US.med_xieta - US.med_input_xieta    
+    # The difference in medians is a (much) larger signal...
+    #dxieta_modes = US.med_xieta - xieta_means    
+    dxieta_modes = US.med_xieta - US.med_input_xieta    
 
     if np.size(moments.mode) > 0:
         dxieta_modes = moments.median - moments.mode
@@ -1016,18 +1024,72 @@ Inputs:
 
         # magnitudes of the shifts
         mags = np.sqrt(dxieta_modes[:,0]**2 + dxieta_modes[:,1]**2)
+
+        # I'm just curious... what if we scale the horizontal deltas
+        # by 1/cos(dec)?
+        dalpha = dxieta_modes[:,0] * np.cos(np.radians(US.med_xieta[:,1]))
         
         fig6 = plt.figure(6)
         fig6.clf()
         ax6 = fig6.add_subplot(111)
-        dum6 = ax6.quiver(US.med_xieta[:,0], \
-                          US.med_xieta[:,1], \
-                          dxieta_modes[:,0], \
+        dum6 = ax6.quiver(US.med_input_xieta[:,0], \
+                          US.med_input_xieta[:,1], \
+                          #dxieta_modes[:,0], \
+                          dalpha, \
                           dxieta_modes[:,1], \
                           mags)
         cbar6 = fig6.colorbar(dum6, ax=ax6)
-        ax6.set_title('Centroid offsets')
+        ax6.set_title(r'Centroid offsets ($\Delta \alpha^{\ast}, \Delta \delta$)')
 
+        # fit these (not strictly correct because euclidean distance
+        # isn't the right metric)
+        xytarg = US.med_input_xieta + dxieta_modes
+        xytarg[:,0] = US.med_input_xieta[:,0] + dalpha
+
+        #xytarg = US.med_xieta
+
+        print("Offset INFO - median offset:", \
+              np.median(dxieta_modes, axis=0))
+        
+        lsq = Leastsq2d(US.med_input_xieta[:,0], \
+                        US.med_input_xieta[:,1], \
+                        deg=deg, kind='Poly', \
+                        xytarg=xytarg, \
+                        norescale=True)
+
+        # translate parameters into 6-terms. Note that we need to know
+        # which is which...
+        geom = sixterm2d.getpars(lsq.pars[0:6])
+        
+        # evaluate residuals
+        xyeval = lsq.ev()
+        dxyeval = xyeval - US.med_input_xieta  # Model of offsets
+        dxyresid = xyeval - xytarg
+        
+        fig8 = plt.figure(8)
+        fig8.clf()
+        ax8=fig8.add_subplot(222)
+        ax82=fig8.add_subplot(224)
+
+        dum8 = ax8.quiver(US.med_input_xieta[:,0], \
+                          US.med_input_xieta[:,1], \
+                          dxyeval[:,0], dxyeval[:,1], \
+                          np.sqrt(dxyeval[:,0]**2 + dxyeval[:,1]**2) )
+        cbar8 = fig8.colorbar(dum8, ax=ax8)
+        ax8.set_title(r'Fit to centroid offsets, degree %i' % (deg))
+
+        dum82 = ax82.quiver(US.med_input_xieta[:,0], \
+                            US.med_input_xieta[:,1], \
+                            dxyresid[:,0], dxyresid[:,1], \
+                            np.sqrt(dxyresid[:,0]**2 + dxyresid[:,1]**2) )
+        cbar82 = fig8.colorbar(dum82, ax=ax82)
+        ax82.set_title(r'Fit residuals, degree %i' % (deg))
+
+        
+        print("lsq pars:", lsq.pars)
+        print("lsq geom:", geom)
+        #return
+        
         # OK I have to see what this is doing...
         fig7 = plt.figure(7)
         fig7.clf()
@@ -1046,7 +1108,10 @@ Inputs:
             dumf = axes[iset].plot(xfine, kde.pdf(xfine))
             axes[iset].set_xlabel(sdel[iset])
         fig7.suptitle(r'Peak-to-median offsets')
-            
+
+        # Return for the moment to see output
+        # return
+        
     # Perform statistics on the *generated* samples, just to ensure
     # that part works...
     if unifcovs:
