@@ -926,9 +926,12 @@ def unctysamples(nsamples=10, \
                  genpos=False, \
                  nx=7, ny=7, \
                  showshifts=True, \
-                 deg=1):
+                 deg=1, \
+                 returnmedian=False, \
+                 parsswap = np.array([]), \
+                 nomode=True):
 
-    """Performes monte carlo sampling of the source uncertainty,
+    """Performs monte carlo sampling of the source uncertainty,
 propagated through to the target frame.
 
 Inputs:
@@ -955,13 +958,25 @@ Inputs:
 
     deg = polynomial degree for residual approximation
 
-"""
+    returnmedian = return median delta? (Useful if wrapping)
+
+    parsswap = parameters to substitute for the transformation
+    parameters (useful if calling in a loop)
+
+    """
 
     US = Evalset(pathpset=pathpset, neval=nsamples, pathobs=pathobs)
     US.getsamples()
     US.getobs()
     US.covfromobs()
 
+    print("unctysamples INFO - transformation name:", US.pset.transfname)
+    
+    # Replace transformation parameters with input parameters? (Trust
+    # the user to get the parameters right)
+    if np.size(parsswap) > 0:
+        US.transf.updatetransf(parsswap)
+    
     # Replace or generate uniform random positions over transf limits
     if genpos or len(US.pathobs) < 3:
         # US.genposran(50)
@@ -997,7 +1012,7 @@ Inputs:
     print("Computing moments...")
     t99 = time.time()
     moments = moments2d.Moments2d(US.samples_xi, US.samples_eta, \
-                                  nomode=True)
+                                  nomode=nomode)
     print("")
     print("... done in %.2e seconds." % (time.time()-t99))
 
@@ -1006,7 +1021,6 @@ Inputs:
     print(moments.covars.shape)
     print(moments.mode.shape)
     
-    # return
     
     # Find the median of the transformed minus the transformed median
     xieta_means, _, _, _ = samples_moments(US.samples_xi, \
@@ -1014,20 +1028,39 @@ Inputs:
                                            methcent=np.mean)
 
     # The difference in medians is a (much) larger signal...
-    #dxieta_modes = US.med_xieta - xieta_means    
+    #dxieta_modes = US.med_xieta - xieta_means
+    ### dxieta_modes = xieta_means - US.med_input_xieta
     dxieta_modes = US.med_xieta - US.med_input_xieta    
-
+    dxyeta_asymm = US.med_xieta - xieta_means
+    
     if np.size(moments.mode) > 0:
         dxieta_modes = moments.median - moments.mode
+
+    # scale delta alpha -> delta alpha* 
+    dalpha = dxieta_modes[:,0] * np.cos(np.radians(US.med_xieta[:,1]))
+        
+    # Try subtracting off the median delta (consider making this an
+    # input argument)
+    #
+    # 
+    # dxieta_modes -= np.median(dxieta_modes, axis=0)[None,:]
+
+    # Subtract off the median coordinate so that the fit parameters
+    # will be easier to interpret
+    coocen = np.zeros(2)
+    coocen = np.median(US.med_input_xieta, axis=0)
+
+    if US.pset.transfname.find('Tan2equ') > -1:
+        print("unctysamples INFO - assigning TP as median coord")
+        coocen = np.copy(US.transf.pars)
+    
+    US.med_input_xieta -= coocen[None,:]
+    US.med_xieta -= coocen[None,:]
     
     if showshifts:
 
         # magnitudes of the shifts
         mags = np.sqrt(dxieta_modes[:,0]**2 + dxieta_modes[:,1]**2)
-
-        # I'm just curious... what if we scale the horizontal deltas
-        # by 1/cos(dec)?
-        dalpha = dxieta_modes[:,0] * np.cos(np.radians(US.med_xieta[:,1]))
         
         fig6 = plt.figure(6)
         fig6.clf()
@@ -1070,6 +1103,7 @@ Inputs:
         fig8.clf()
         ax8=fig8.add_subplot(222)
         ax82=fig8.add_subplot(224)
+        ax83=fig8.add_subplot(223)
 
         dum8 = ax8.quiver(US.med_input_xieta[:,0], \
                           US.med_input_xieta[:,1], \
@@ -1085,6 +1119,15 @@ Inputs:
         cbar82 = fig8.colorbar(dum82, ax=ax82)
         ax82.set_title(r'Fit residuals, degree %i' % (deg))
 
+        # median delta subtracted
+        medev = np.median(dxyeval, axis=0)
+        dxyone = dxyeval - medev[None,:]
+        dum83 = ax83.quiver(US.med_input_xieta[:,0], \
+                            US.med_input_xieta[:,1], \
+                            dxyone[:,0], dxyone[:,1], \
+                            np.sqrt(dxyone[:,0]**2 + dxyone[:,1]**2) )
+        cbar83 = fig8.colorbar(dum83, ax=ax83)
+        ax83.set_title(r'Fit minus median offset')
         
         print("lsq pars:", lsq.pars)
         print("lsq geom:", geom)
@@ -1208,21 +1251,23 @@ Inputs:
     #### Histogram of one or two "representative" points
     skeweta = US.skew_xieta[:,0]
 
-    iskew = np.argmax(np.abs(US.skew_xieta[:,0]))
+    iskew = np.argmax(np.abs(US.skew_xieta[:,1]))
     fig5 = plt.figure(5)
     fig5.clf()
     ax51 = fig5.add_subplot(111)
-    dum51 = ax51.hist(US.samples_xi[:,iskew], bins=40, alpha=0.5, \
+    dum51 = ax51.hist(US.samples_eta[:,iskew], bins=40, alpha=0.5, \
                       label='Transformed samples')
-    ax51.set_xlabel(r'$\xi$')
-    ax51.set_ylabel(r'$N(\xi)$')
+    ax51.set_xlabel(r'$\eta$')
+    ax51.set_ylabel(r'$N(\eta)$')
 
-    dumv1 = ax51.axvline(US.med_xieta[iskew,0], zorder=25, color='k', \
+    dumv1 = ax51.axvline(US.med_xieta[iskew,1]+coocen[1], \
+                         zorder=25, color='k', \
                          label='median of transformed')
-    dumv2 = ax51.axvline(US.med_input_xieta[iskew,0], zorder=25, \
+    dumv2 = ax51.axvline(US.med_input_xieta[iskew,1]+coocen[1], \
+                         zorder=25, \
                          color='m', linestyle='--', \
                          label='transformed median')
-    dumv3 = ax51.axvline(xieta_means[iskew,0], zorder=25, \
+    dumv3 = ax51.axvline(xieta_means[iskew,1], zorder=25, \
                          color='r', linestyle='--', lw=2, \
                          label='mean of transformed')
 
@@ -1242,7 +1287,7 @@ Inputs:
         # mode not computed
         dummy = 4
         
-    ax51.set_title(r'Skew ($\eta$): %.2f' % (US.skew_xieta[iskew, 0]) )
+    ax51.set_title(r'Skew ($\eta$): %.2f' % (US.skew_xieta[iskew, 1]) )
 
     leg51 = ax51.legend()
     
@@ -1296,6 +1341,12 @@ Inputs:
     GG.grid_nxfine=100
     GG.grid_nyfine=100
     GG.getsamples()
+
+    # if we subtracted the pointing off the points, we need to do it
+    # to the grid, too
+    if np.size(parsswap) > 0:
+        GG.transf.updatetransf(parsswap)
+    
     GG.gengrid()
     GG.setdata()
     GG.transf.tranpos()
@@ -1314,10 +1365,14 @@ Inputs:
                          lw=0.5)
 
         # Ditto the quiver plot
-        dum6g = ax6.plot(GG.transf.xtran[bthisline], \
-                         GG.transf.ytran[bthisline], \
+        dum6g = ax6.plot(GG.transf.xtran[bthisline] - coocen[0], \
+                         GG.transf.ytran[bthisline] - coocen[1], \
                          color='0.5', alpha=0.5, zorder=1, \
                          lw=0.5)
+
+    # return the median delta?
+    if returnmedian:
+        return np.median(dxieta_modes, axis=0), geom
         
 def traceplot(neval=10, \
               pathpset='test_parset_guess_poly_deg2_n100.txt', \
@@ -1390,5 +1445,63 @@ def traceplot(neval=10, \
         #dum2 = ax1.scatter(ES.samples_xi[isho], ES.samples_eta[isho], s=.5, \
         #                   alpha=0.05, color='b')
 
+##### A few canned analyses follow
+
+def mc_uncertainty_pointings(major=0.5, minor=0.5, posan=0., nsets=10, \
+                             alpha0=220., \
+                             pathpars='test_parset_tan2equ.txt', \
+                             nsamples=100000, \
+                             nx=15, ny=15, deg=1, \
+                             delta0max=80.):
+
+    """Does a loop of bias searches for fixed semimajor, minor axes but looping over central pointings. This is a wrapper around unctysamples."""
+
+    # tangent points
+    alpha0s = np.repeat(alpha0, nsets)
+    delta0s = np.linspace(0., delta0max, nsets, endpoint=True)
+    tps = np.stack((alpha0s, delta0s), axis=1)
         
+    # results arrays
+    medians = np.zeros(tps.shape)
+    geoms = np.zeros((tps.shape[0], 6))
+    
+    # now do everything...
+    for iset in range(medians.shape[0]):
+        thismed, geom = unctysamples(nsamples, pathpset=pathpars, genpos=True, \
+                                     unif_major=major, unif_minor=minor, \
+                                     unif_posan=posan, unifcovs=True, \
+                                     maxplot=100, nx=nx, ny=ny, deg=deg, \
+                                     returnmedian=True, \
+                                     parsswap=tps[iset])
+        medians[iset] = thismed
+        geoms[iset] = geom
+        print(">>>>>>>> Done %i, %.2e, %.2e" \
+              % (iset, tps[iset,0], tps[iset,1]), \
+              thismed, "<<<<<<<<<<")
         
+    fig10 = plt.figure(10)
+    fig10.clf()
+    ax101 = fig10.add_subplot(311)
+    ax102 = fig10.add_subplot(312, sharex=ax101)
+    ax103 = fig10.add_subplot(313, sharex=ax101)
+
+    dum101 = ax101.scatter(tps[:,1], medians[:,0])
+    dum102 = ax102.scatter(tps[:,1], medians[:,1])
+    dum103 = ax103.scatter(tps[:,1], geoms[:,3])
+
+    ax101.set_ylabel(r'$\Delta \alpha^{\ast}$')
+    ax102.set_ylabel(r'$\Delta \delta$')
+    ax103.set_ylabel(r'$s_y$')
+
+    # Try a candidate fit to the vertical offsets...
+    xfine = np.linspace(0., delta0max, 100, endpoint=True)
+    cosdec = np.cos(np.radians(xfine))
+    dum = ax102.plot(xfine, 0.04*(0.98-1./cosdec**0.25), ls='--')
+    
+    for ax in [ax101, ax102, ax103]:
+        ax.set_xlabel(r'$\delta_0$')
+
+    fig10.suptitle(r'$\alpha_0 = %.2f$, major=%.2f, minor=%.2f, $\theta$=%.1f' % (alpha0, major, minor, posan))
+        
+    # Return the statistics so that we can do things with them
+    return tps, medians, geoms
