@@ -929,7 +929,8 @@ def unctysamples(nsamples=10, \
                  deg=1, \
                  returnmedian=False, \
                  parsswap = np.array([]), \
-                 nomode=True):
+                 nomode=True, \
+                 iskew=-1):
 
     """Performs monte carlo sampling of the source uncertainty,
 propagated through to the target frame.
@@ -962,6 +963,11 @@ Inputs:
 
     parsswap = parameters to substitute for the transformation
     parameters (useful if calling in a loop)
+
+    nomode = don't compute the sample mode (which is slow)
+
+    iskew = if > -1, plot the eta distribution for this
+    object. Otherwise find the one with maximum (Eta) skew.
 
     """
 
@@ -1034,8 +1040,10 @@ Inputs:
     dxyeta_asymm = US.med_xieta - xieta_means
     
     if np.size(moments.mode) > 0:
-        dxieta_modes = moments.median - moments.mode
-
+        print("unctysamples INFO - using the median-to-mode as offset")
+        #dxieta_modes = moments.median - moments.mode
+        dxieta_modes = moments.mode - US.med_input_xieta
+        
     # scale delta alpha -> delta alpha* 
     dalpha = dxieta_modes[:,0] * np.cos(np.radians(US.med_xieta[:,1]))
         
@@ -1048,11 +1056,11 @@ Inputs:
     # Subtract off the median coordinate so that the fit parameters
     # will be easier to interpret
     coocen = np.zeros(2)
-    coocen = np.median(US.med_input_xieta, axis=0)
+    # coocen = np.median(US.med_input_xieta, axis=0)
 
-    if US.pset.transfname.find('Tan2equ') > -1:
-        print("unctysamples INFO - assigning TP as median coord")
-        coocen = np.copy(US.transf.pars)
+    #if US.pset.transfname.find('Tan2equ') > -1:
+    #    print("unctysamples INFO - assigning TP as median coord")
+    #    coocen = np.copy(US.transf.pars)
     
     US.med_input_xieta -= coocen[None,:]
     US.med_xieta -= coocen[None,:]
@@ -1251,12 +1259,13 @@ Inputs:
     #### Histogram of one or two "representative" points
     skeweta = US.skew_xieta[:,0]
 
-    iskew = np.argmax(np.abs(US.skew_xieta[:,1]))
+    if iskew < 0:
+        iskew = np.argmax(np.abs(US.skew_xieta[:,1]))
     fig5 = plt.figure(5)
     fig5.clf()
     ax51 = fig5.add_subplot(111)
-    dum51 = ax51.hist(US.samples_eta[:,iskew], bins=40, alpha=0.5, \
-                      label='Transformed samples')
+    dum51 = ax51.hist(US.samples_eta[:,iskew], bins=100, alpha=0.5, \
+                      label='Transformed samples', density=True)
     ax51.set_xlabel(r'$\eta$')
     ax51.set_ylabel(r'$N(\eta)$')
 
@@ -1266,7 +1275,7 @@ Inputs:
     dumv2 = ax51.axvline(US.med_input_xieta[iskew,1]+coocen[1], \
                          zorder=25, \
                          color='m', linestyle='--', \
-                         label='transformed median')
+                         label='transformed input peak')
     dumv3 = ax51.axvline(xieta_means[iskew,1], zorder=25, \
                          color='r', linestyle='--', lw=2, \
                          label='mean of transformed')
@@ -1279,16 +1288,20 @@ Inputs:
                        np.max(US.samples_eta[:,iskew]), \
                        5000)
     imax = np.argmax(distr.pdf(xfine))
-    #dumv4 = ax51.axvline(xfine[imax], zorder=25, color='y', lw=2)
+    dumfine = ax51.plot(xfine, distr.pdf(xfine), zorder=50, \
+                        color='g', lw=1, label='KDE')
+    #dumv4 = ax51.axvline(xfine[imax], zorder=25, color='y', lw=2, \
+    #                     label='')
     try:
-        dumv4 = ax51.axvline(moments.mode[iskew, 0], color='g', lw=1, \
+        dumv4 = ax51.axvline(moments.mode[iskew, 1], color='g', lw=2, \
                              zorder=30, label='Mode of transformed')
     except:
         # mode not computed
         dummy = 4
         
     ax51.set_title(r'Skew ($\eta$): %.2f' % (US.skew_xieta[iskew, 1]) )
-
+    fig5.suptitle('iskew: %i' % (iskew))
+    
     leg51 = ax51.legend()
     
     #### Scatterplots of the monte carlo follow.
@@ -1452,7 +1465,8 @@ def mc_uncertainty_pointings(major=0.5, minor=0.5, posan=0., nsets=10, \
                              pathpars='test_parset_tan2equ.txt', \
                              nsamples=100000, \
                              nx=15, ny=15, deg=1, \
-                             delta0max=80.):
+                             delta0max=80., \
+                             nomode=True, iskew=-1):
 
     """Does a loop of bias searches for fixed semimajor, minor axes but looping over central pointings. This is a wrapper around unctysamples."""
 
@@ -1472,7 +1486,9 @@ def mc_uncertainty_pointings(major=0.5, minor=0.5, posan=0., nsets=10, \
                                      unif_posan=posan, unifcovs=True, \
                                      maxplot=100, nx=nx, ny=ny, deg=deg, \
                                      returnmedian=True, \
-                                     parsswap=tps[iset])
+                                     parsswap=tps[iset], \
+                                     nomode=nomode, \
+                                     iskew=iskew)
         medians[iset] = thismed
         geoms[iset] = geom
         print(">>>>>>>> Done %i, %.2e, %.2e" \
@@ -1496,7 +1512,8 @@ def mc_uncertainty_pointings(major=0.5, minor=0.5, posan=0., nsets=10, \
     # Try a candidate fit to the vertical offsets...
     xfine = np.linspace(0., delta0max, 100, endpoint=True)
     cosdec = np.cos(np.radians(xfine))
-    dum = ax102.plot(xfine, 0.04*(0.98-1./cosdec**0.25), ls='--')
+    # dum = ax102.plot(xfine, 0.04*(0.98-1./cosdec**0.25), ls='--')
+    # dum = ax102.plot(cosdec
     
     for ax in [ax101, ax102, ax103]:
         ax.set_xlabel(r'$\delta_0$')
