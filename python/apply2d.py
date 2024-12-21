@@ -761,6 +761,25 @@ Returns:
     if not transfnamesok(pset):
         return None, np.array([]), np.array([])
 
+    # If we're dealing with a pointing and the tangent point is not
+    # within the limits, treat the limits as differential. Currently
+    # this is a bit hardwired to the one case:
+    if pset.transfname.find('Equ2tan') > -1:
+        x0 = pset.model[0]
+        y0 = pset.model[1]
+        if x0 < pset.xmin or x0 > pset.xmax or \
+           y0 < pset.ymin or y0 > pset.ymax:
+            print("loadparsamples INFO - treating the xy limits as relative")
+            print("loadparsamples INFO - xlims %.2f, %.2f <> %.2f" \
+                  % (pset.xmin, pset.xmax, x0))
+            print("loadparsamples INFO - ylims %.2f, %.2f <> %.2f" \
+                  % (pset.ymin, pset.ymax, y0))
+
+            pset.xmin = x0 + pset.xmin
+            pset.xmax = x0 + pset.xmax
+            pset.ymin = y0 + pset.ymin
+            pset.ymax = y0 + pset.ymax
+            
     # now create the transformation object
     transf = blanktransf(pset.transfname, pset.polyname)
     transf.updatelimits(pset.xmin, pset.xmax, pset.ymin, pset.ymax)
@@ -1522,3 +1541,96 @@ def mc_uncertainty_pointings(major=0.5, minor=0.5, posan=0., nsets=10, \
         
     # Return the statistics so that we can do things with them
     return tps, medians, geoms
+
+def showgrids(pathpset='test_parset_tan2equ.txt', \
+              nxfine=100, nyfine=100, \
+              alpha0=220., delta0=85., \
+              dalphadeg = 0.5, ddeltadeg=0., \
+              xlen=2.0, ylen=2.0, \
+              tan2equ=True):
+
+    """For eventual paper: show tangent-plane coordinates for two pointings offset by different tangent points"""
+
+    # TODO - feed the transformed grid from GR into GS as a dataset,
+    # then transform back
+    
+    # Currently a canned analysis if going the other way. This could /
+    # should be generalized.
+    xlabel=r'$\alpha$'
+    ylabel=r'$\delta$'
+    if not tan2equ:
+        pathpset='test_parset_eq2tan.txt'
+        xlabel=r'$\xi$'
+        ylabel=r'$\eta$'
+
+    # Set up the grid object
+    GR = Evalset(pathpset=pathpset)
+    GR.grid_nxfine = nxfine
+    GR.grid_nyfine = nyfine
+    GR.getsamples()
+
+    # Create our altered pointing object
+    GS = copy.deepcopy(GR)
+    
+    # Swap in the model parameters
+    tp0 = np.array([alpha0, delta0])
+    tp1 = tp0 + np.array([dalphadeg, ddeltadeg])
+
+    # This means we also have to update the limits
+    GR.transf.updatelimits(tp0[0] - 0.5*xlen, tp0[0] + 0.5*xlen, \
+                           tp0[1] - 0.5*ylen, tp0[1] + 0.5*ylen)
+    GS.transf.updatelimits(tp0[0] - 0.5*xlen, tp0[0] + 0.5*xlen, \
+                           tp0[1] - 0.5*ylen, tp0[1] + 0.5*ylen)
+    
+    GR.transf.updatetransf(tp0)
+    GS.transf.updatetransf(tp1)
+
+    
+    print(GR.transf.pars)
+    print(GS.transf.pars)
+    
+    # Create the grids
+    grids = [GR, GS]
+    for obj in grids:
+        obj.gengrid()
+        obj.setdata()
+        obj.transf.tranpos()
+
+    # Some debugging
+    if not tan2equ:
+        print("DBG:", GR.transf.pars)
+        print("DBG:", np.max(GR.transf.x), np.min(GR.transf.x))
+        print("DBG:", np.max(GR.transf.y), np.min(GR.transf.y))
+
+        
+    # Now create a figure and plot the two grids
+    fig10 = plt.figure(10)
+    fig10.clf()
+    ax10 = fig10.add_subplot(111)
+
+    colors = ['g', 'b']
+    lss = ['-', '--']
+    syms = ['*', 's']
+    for lineid in np.unique(GR.grid_whichline):
+
+        # go thru both grids
+        for igrid in range(len(grids)):
+            grid = grids[igrid]
+            bthisline = grid.grid_whichline == lineid
+            dum10g = ax10.plot(grid.transf.xtran[bthisline], \
+                               grid.transf.ytran[bthisline], \
+                               color=colors[igrid], \
+                               ls=lss[igrid], lw=0.5)
+
+            # Plot the tangent points
+            if tan2equ:
+                dum0 = ax10.plot(grid.transf.pars[0], \
+                                 grid.transf.pars[1], \
+                                 marker=syms[igrid], \
+                                 color=colors[igrid], \
+                                 ms=4)
+            
+    ax10.set_xlabel(xlabel)
+    ax10.set_ylabel(ylabel)
+
+    
