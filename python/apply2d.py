@@ -43,7 +43,8 @@ class Evalset(object):
                  pathpset='test_parset_guess.txt', \
                  pathflat='test_flat_fitPoly_500_order1fit1_noprior_run2.npy', \
                  pathobs='', \
-                 neval=100):
+                 neval=100, \
+                 transf=None):
 
         # Paths to any input files
         self.pathpset = pathpset[:]
@@ -51,7 +52,7 @@ class Evalset(object):
         self.pathobs = pathobs[:]
         
         # The transformation object, flat samples
-        self.transf = None
+        self.transf = transf # allow passing input
         self.parsamples = None
         self.pset = None
         self.obset = None
@@ -1602,7 +1603,7 @@ def showgrids(pathpset='test_parset_tan2equ.txt', \
         print("DBG:", np.max(GR.transf.x), np.min(GR.transf.x))
         print("DBG:", np.max(GR.transf.y), np.min(GR.transf.y))
 
-        
+
     # Now create a figure and plot the two grids
     fig10 = plt.figure(10)
     fig10.clf()
@@ -1634,3 +1635,159 @@ def showgrids(pathpset='test_parset_tan2equ.txt', \
     ax10.set_ylabel(ylabel)
 
     
+def focal(alpha0=230., delta0=29., dalpha0=1., ddelta0=1., \
+          xlen=40., ylen=40., nxfine=100, nyfine=100, \
+          colors=['k','r'], lss=['-','--'], \
+          degpoly=1, submedian=False):
+
+    """Canned analysis - create a grid at one tangent point, then
+'reobserve' from a second tangent point (in focal plane coordinates)
+and compare.
+
+Inputs:
+
+    alpha0, delta0 = tangent point, degrees
+
+    dalpha0, ddelta0 = offset in tangent point in degrees
+
+    xlen, ylen = side-length in degrees in focal plane coordinates
+
+    nxfine, nyfine = fine-grained number of points
+
+    colors = [2] = matplotlib colors for generated and offset
+
+    lss = [2] = matplotlib linestyles for generated and offset
+
+    degpoly = fit degree for the polynomial
+
+    submedian = subtract off the median delta before fitting"""
+
+    # Create the transformation objects
+    transf_gen = blanktransf('Tan2equ')
+    transf_off = blanktransf('Equ2tan')
+
+    transf_gen.pars = np.array([alpha0, delta0])
+    transf_off.pars = np.array([alpha0 + dalpha0, \
+                                delta0 + ddelta0])
+    
+    # limits
+    transf_gen.xmin = 0.-0.5*xlen
+    transf_gen.xmax = 0.+0.5*xlen
+    transf_gen.ymin = 0.-0.5*ylen
+    transf_gen.ymax = 0.+0.5*ylen
+
+    # Now generate evaluation-set going from focal plane to sky
+    Gen = Evalset('','','', transf=transf_gen)
+    Gen.grid_nxfine = nxfine
+    Gen.grid_nyfine = nyfine
+
+    # Set up the focal plane grid
+    Gen.gengrid()
+    Gen.setdata()
+    Gen.transf.tranpos()
+
+    # OK that created a set of datapoints on the sky that can now be
+    # translated back. So:
+    Off = Evalset('','','', transf=transf_off)
+
+    # Set data and limits
+    Off.setdata(np.vstack((Gen.transf.xtran, Gen.transf.ytran)).T)
+    Off.transf.updatelimits(np.min(Off.transf.x), \
+                            np.max(Off.transf.x), \
+                            np.min(Off.transf.y), \
+                            np.max(Off.transf.y))
+
+    # Copy the "whichgrid" information so that we know which line is
+    # which in the plot
+    Off.grid_whichline = np.copy(Gen.grid_whichline)
+    
+    # Now transform these positions back to the focal plane
+    Off.transf.tranpos()
+
+    # Now we examine the resulting transformation in the focal plane.
+    print(Gen.transf.x.shape, Off.transf.xtran.shape)
+    xytarg = np.copy(np.vstack((Off.transf.xtran, Off.transf.ytran)).T)
+    if submedian:
+        xytarg -= np.median(xytarg,axis=0)[None,:]
+    LSQ = Leastsq2d(Gen.transf.x, Gen.transf.y, deg=degpoly, \
+                    norescale=True, \
+                    xytarg=xytarg)
+
+    # Interpret the pars
+    coefs = sixterm2d.getpars(LSQ.pars)
+    print("Fit pars:", LSQ.pars)
+    print("As coefs:", coefs)
+
+    # Find the residuals and their magnitudes
+    resids = LSQ.ev() - xytarg
+    rmags = np.sqrt(resids[:,0]**2 + resids[:,1]**2)
+    
+    # Now show these:
+    fig11 = plt.figure(11)
+    fig11.clf()
+    ax11 = fig11.add_subplot(2,2,1)
+    ax12 = fig11.add_subplot(2,2,2)
+    
+    # Because we're actually plotting different attributes, we lift
+    # those out here:
+    wline = [Gen.grid_whichline, Off.grid_whichline]
+    xshos = [Gen.transf.x, Off.transf.xtran]
+    yshos = [Gen.transf.y, Off.transf.ytran]
+    labls = [r'$\alpha_0, \delta_0 = (%.2f, %.2f)$' % (alpha0, delta0), \
+             r'$\Delta \alpha_0, \Delta \delta_0 = %.2e, %.2e$' \
+             % (dalpha0, ddelta0)]
+
+    labelsdone = -1
+    for lineid in np.unique(wline[0]):
+        labelsdone += 1
+        
+        for iset in range(len(xshos)):
+            bthisline = wline[iset] == lineid
+            labl = labls[iset]
+            if labelsdone > 0:
+                labl=None
+            dum11a = ax11.plot(xshos[iset][bthisline], \
+                               yshos[iset][bthisline], \
+                               color=colors[iset], \
+                               ls=lss[iset], \
+                               lw=0.5, \
+                               label=labl)
+
+    ax11.set_xlabel(r'$\xi$')
+    ax11.set_ylabel(r'$\eta$')
+    leg = ax11.legend()
+
+            
+    # now show the residuals
+    dum = ax12.quiver(Off.transf.xtran, \
+                      Off.transf.ytran, \
+                      resids[:,0], resids[:,1], rmags, cmap='viridis_r')
+    cbar2 = fig11.colorbar(dum, ax=ax12)
+    
+    ax12.set_xlabel(r'$\xi$')
+    ax12.set_ylabel(r'$\eta$')
+    ax12.set_title('Residuals, polynomial order %i' % (degpoly))
+
+    # For interest, show the residuals after subtracting the median
+    # offset. It should look like a rotation.
+    dxmed = np.median(Off.transf.xtran - Gen.transf.x)
+    dymed = np.median(Off.transf.ytran - Gen.transf.x)
+    ax13 = fig11.add_subplot(2,2,3)
+    dum13 = ax13.quiver(Gen.transf.x, Gen.transf.y, \
+                        Off.transf.xtran - dxmed - Gen.transf.x, \
+                        Off.transf.ytran - dymed - Gen.transf.y, \
+                        scale=1.0, scale_units='xy', angles='xy')
+
+    ax13.set_title('Offsets minus median')
+    ax13.set_xlabel(r'$\xi$')
+    ax13.set_ylabel(r'$\eta$')
+
+    # histogram of the residual magnitudes
+    ax14 = fig11.add_subplot(2,2,4)
+    dum14 = ax14.hist(resids[:,0], bins=50, alpha=0.5, label=r'$\xi$')
+    dum15 = ax14.hist(resids[:,1], bins=50, alpha=0.5, label=r'$\eta$')
+
+    ax14.set_title('Distribution of residuals')
+    leg14 = ax14.legend()
+
+    fig11.subplots_adjust(wspace=0.4, hspace=0.4)
