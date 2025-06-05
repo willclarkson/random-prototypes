@@ -1889,12 +1889,12 @@ Example call:
         # slabels = dcovs[keylabels][0:nlsq]
 
     # Showing a heatmap of one of the quantities
-    fig6 = plt.figure(6, figsize=(8,6))
+    fig6 = plt.figure(6, figsize=(4,7))
     fig6.clf()
     if nlsq > 0:
-        ax61 = fig6.add_subplot(221)
-        ax62 = fig6.add_subplot(222)
-        ax63 = fig6.add_subplot(224)
+        ax61 = fig6.add_subplot(311)
+        ax62 = fig6.add_subplot(312)
+        ax63 = fig6.add_subplot(313)
     else:
         ax61 = fig6.add_subplot(111)
         ax62 = None
