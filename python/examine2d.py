@@ -621,9 +621,13 @@ and background"""
             
         # Set up binstats objects and compute
         if np.sum(bfg) > 1:
-            self.binstats_fg = Binstats(mags[bfg], dxytran[bfg], \
-                                        minperbin, nbins=nbins)
 
+            try:
+                self.binstats_fg = Binstats(mags[bfg], dxytran[bfg], \
+                                            minperbin, nbins=nbins)
+            except:
+                print("Flatsamples.computebinnedstats WARN - problem binning fg by magnitude (likely too few fg objects)")
+                
         if np.sum(bbg) > 1:
             self.binstats_bg = Binstats(mags[bbg], dxytran[bbg], \
                                         minperbin)
