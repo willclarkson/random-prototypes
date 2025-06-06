@@ -983,13 +983,18 @@ Inputs:
 
     blah33 = ax33.scatter(xytarg[bfg, 0], xytarg[bfg,1], \
                           c=mags[bfg], s=9, cmap='viridis_r')
-    
+
+    # 2025-06-06 I think it's more informative to show the fg original
+    # (so we can assess the source frame uncertainties); we already
+    # have the displacement figure.
     ax34 = fig3.add_subplot(222)
-    blah34 = ax34.scatter(transf.xytran[bfg, 0], transf.xytran[bfg,1], \
+    #blah34 = ax34.scatter(transf.xytran[bfg, 0], transf.xytran[bfg,1], \
+    #                      c=mags[bfg], s=9, cmap='viridis_r')
+    blah34 = ax34.scatter(xyobs[bfg, 0], xyobs[bfg,1], \
                           c=mags[bfg], s=9, cmap='viridis_r')
 
-    #blah34 = ax34.scatter(xytarg[bfg, 1], dxytran[bfg,1], \
-    #                      c=mags[bfg], s=9, cmap='viridis_r')
+    ##blah34 = ax34.scatter(xytarg[bfg, 1], dxytran[bfg,1], \
+    ##                      c=mags[bfg], s=9, cmap='viridis_r')
 
     
     cbar3 = fig3.colorbar(blah33, ax=ax33)
@@ -1011,15 +1016,17 @@ Inputs:
     #ax33.set_ylabel(labeldxtran)
     ax33.set_ylabel(labelytran)
     
-    ax34.set_xlabel(labelytran)
-    #ax34.set_ylabel(labeldytran)
-    ax34.set_ylabel(labelytran)
-
+    #ax34.set_xlabel(labelytran)  # 2025-06-06
+    ##ax34.set_ylabel(labeldytran)
+    #ax34.set_ylabel(labelytran)
+    ax34.set_xlabel(labelxsrc)
+    ax34.set_ylabel(labelysrc)
 
     # plot labels
     ax31.set_title('foreground')
-    ax33.set_title('fg, target')
-    ax34.set_title('fg, transformed')
+    ax33.set_title('fg, target')    
+    #ax34.set_title('fg, transformed') # 2025-06-06
+    ax34.set_title('fg, source')
     
     #for ax in [ax31, ax33, ax34]:
     #    ax.set_title('foreground')
