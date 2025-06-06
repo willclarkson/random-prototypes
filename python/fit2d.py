@@ -590,10 +590,17 @@ the fitted parameters (if any).
         """If we have an initial-guess least-squares fit, this method updates
 it with propagated covariances from the obs frame."""
 
+        
         self.covobs2targ()
 
         # Now add the target-frame covariances, update the weights in
         # the LSQ object, and re-fit.
+        if np.shape(self.PGuess.covtran) != np.shape(self.obstarg.covxy):
+            if self.Verbose:
+                print("fit2d.Guess.updatelsq_covars INFO - shape mismatch between source and target covariances. Not updating.")
+            return
+
+        
         covs_targ_sum = self.PGuess.covtran + self.obstarg.covxy
         bbad = self.getbadcovs(covs_targ_sum)
         if np.sum(~bbad) < 1:

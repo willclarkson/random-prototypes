@@ -867,19 +867,22 @@ Inputs:
                                [covobs[:,0,0], covtarg[:,0,0]], \
                                        ['assumed (src)', 'assumed (target)'], \
                                        ['#702082','#00274C']):
-        dumobs = ax.scatter(mags, quan, c=color, s=2, label=label)
-
+        dumobs = ax.scatter(mags, quan, c=color, s=6, \
+                            label=label, marker='s', zorder=1)
+        
+        
     # On the "target frame" mag plot, show the source frame
     # uncertainty, propagated out to the target frame.
     ctransf = ax33.scatter(mags, transf.covtran[:,0,0], c='#702082', \
-                           label='source transformed', s=2, alpha=0.6)
+                           label='source transformed', s=6, alpha=0.6, \
+                           zorder=1)
         
     # On the "target frame" mag plot, show the quad sum of the target
     # assumed covariance and the covariance projected from the source
     # frame. This is what a hypothetical observer might adopt as the
     # "measured" covariance.
     cassume = ax33.scatter(mags, covassume[:,0,0], c='#00B2A9', \
-                          label='assumed (total)', s=4)
+                           label='assumed (total)', s=2, zorder=4)
 
     # Any extra noise under the current guess model parameters. KEEP
     # THIS IN even if zero, it's useful to ensure we're not adding
