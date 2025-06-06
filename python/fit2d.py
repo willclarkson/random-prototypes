@@ -9,6 +9,7 @@
 
 import time # for timing
 import numpy as np
+import copy
 
 # For writing/reading configurations
 import configparser
@@ -158,10 +159,15 @@ likely work better.)
         # Least squares object
         self.LSQ = None
 
+        # backup of least squares object (to keep the original if we
+        # are shunting updated weights into LSQ)
+        self.LSQ_BAK = None
+        
         # Non-parametric bootstrap parameters (implemented currently
         # only for the polynomial model).
-        self.nboots = 1000 # keep a record
+        self.nboots = 10000 # keep a record (2025-06-06 - was 1,000)
         self.boots_pars = np.array([])
+        self.boots_ok = np.array([])
         
         # Initial guess as Pars1d object
         self.Parset = None
@@ -546,6 +552,81 @@ supplied as None"""
 
         return np.linalg.det(covars) <= 0.
 
+    def covobs2targ(self):
+
+        """Transforms covariances in the obs frame to the targ frame, using
+the fitted parameters (if any).
+
+        """
+
+        # count bad covariance planes, compare to number of obs
+        # datapoints
+        bbadobs = self.getbadcovs(self.obssrc.covxy)
+        nsrc = self.obssrc.xy.shape[0]
+
+        if np.sum(bbadobs) > 0:
+            if self.Verbose:
+                print("fit2d.Guess.covobs2targ WARN - too few good obs covars: %i, %i" % (np.sum(~bbadobs), self.obssrc.xy.shape[0]) )
+            return
+
+        # do we have parameters?
+        if np.size(self.PGuess.parsx) < 3:
+            if self.Verbose:
+                print("fit2d.Guess.covobs2targ WARN - guess parameters not yet populated.")
+            return
+
+        # If we are here then our guess has uncertainties to
+        # propagate. So propagate them!
+        
+        self.PGuess.propagate()
+
+        print("PROPAG COVAR DEBUG:")
+        print(self.PGuess.covtran[0])
+        print(self.obstarg.covxy[0])
+        print("==================")
+
+    def updatelsq_covars(self):
+
+        """If we have an initial-guess least-squares fit, this method updates
+it with propagated covariances from the obs frame."""
+
+        self.covobs2targ()
+
+        # Now add the target-frame covariances, update the weights in
+        # the LSQ object, and re-fit.
+        covs_targ_sum = self.PGuess.covtran + self.obstarg.covxy
+        bbad = self.getbadcovs(covs_targ_sum)
+        if np.sum(~bbad) < 1:
+            return
+
+        # now update the LSQ object, copying the old one to backup
+        self.LSQ_BAK = copy.deepcopy(self.LSQ)
+        self.wts_BAK = np.copy(self.wts)
+
+        # Copy the fit parameters and formal uncertainties as well
+        self.guess_transf_BAK = np.copy(self.guess_transf)
+        self.guess_uncty_formal_BAK = np.copy(self.guess_uncty_formal)
+        
+        self.wts = self.obstarg.covxy * 0.
+        self.wts[~bbad] = np.linalg.inv(covs_targ_sum[~bbad])
+
+        if self.Verbose:
+            print("fit2d.Guess.updatelsq_covars INFO - re-fitting the lsq with propagated covars")
+        self.fitlsq()
+        
+
+        # report results?
+        if self.Verbose:
+            print("fit2d.Guess.updatelsq_covars INFO - before and after:")
+            print(self.wts_BAK[0:2])
+            print(self.wts[0:2])
+            print("@@@@@@@@@@@@@@@@@@@@@@@@")
+            print(self.guess_uncty_formal_BAK)
+            print(self.guess_uncty_formal)
+
+            print("^^^^^^^^^^^^^^^^^^^^^^^^^")
+
+                
     def fitlsq(self):
 
         """Does least squares fitting
@@ -604,6 +685,9 @@ Returns:
         if self.Verbose:
             t0 = time.time()
             print("fit2d.bootstraplsq INFO - starting %i non-parametric bootstrap samples..." % (nboots))
+
+        # boolean for OK
+        self.boots_ok = np.repeat(True, nboots)
             
         ndata = np.size(self.LSQ.x)
         rng = np.random.default_rng(seed=seed)
@@ -619,15 +703,25 @@ Returns:
             lsq_boots.setpatternmatrix()
             lsq_boots.sethessian()
             lsq_boots.setbeta()
-            lsq_boots.solvepars()
 
-            # Now slot the parameters into the bootstrap sample
-            self.boots_pars[iboot] = np.copy(lsq_boots.pars)
+            # 2026-06-06 put this in try/except
+            try:
+                lsq_boots.solvepars()
 
+                # Now slot the parameters into the bootstrap sample
+                self.boots_pars[iboot] = np.copy(lsq_boots.pars)
+            except:
+                self.boots_ok[iboot] = False
+                
         if self.Verbose:
             print("fit2d.bootstraplsq INFO - ... done in %.2e seconds" \
                   % (time.time()-t0))
-            
+
+            print("Boots OK: %i of %i" \
+                  % (np.sum(self.boots_ok), np.size(self.boots_ok)) )
+
+        # trim down to the non-crashed bootstraps
+        self.boots_pars = self.boots_pars[self.boots_ok]
         
     def populateparset(self):
 

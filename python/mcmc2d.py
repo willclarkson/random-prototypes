@@ -40,6 +40,7 @@ multiprocessing.
                  pathjitter='', \
                  ignoretruth=False, \
                  doboots_poly=False, \
+                 lsq_uncty_trick=True,\
                  Verbose=True):
 
         # Control variables
@@ -51,6 +52,11 @@ multiprocessing.
 
         # Do non-parametric bootstrapping on polynomial?
         self.doboots_poly = doboots_poly
+
+        # if doing least-squared fit, project source uncertainty onto
+        # target frame after first fit, reweight, and refit? [Default
+        # to True while testing]
+        self.lsq_uncty_trick=lsq_uncty_trick
         
         # Parameters for simulation and for guess
         self.parfile_sim = parfile_sim[:]
@@ -196,6 +202,20 @@ parameters.
         self.guess.populateparset()
         self.guess.populateguesstransf()
 
+        if self.lsq_uncty_trick:
+            self.updatelstsquncty()
+        
+    def updatelstsquncty(self):
+
+        """Given a least-squares estimate, project the obs uncertainties onto
+the target frame, update, and re-weight"""
+
+        if not self.lsq_uncty_trick:
+            return
+
+        # Proof of life...
+        self.guess.updatelsq_covars()
+        
     def setupfitargs(self):
 
         """Sets up arguments for passing to minimizer and/or emcee"""
@@ -942,6 +962,7 @@ def setupmcmc(pathsim='test_sim_mixmod.ini', \
               chainlen=40000, debug=False, \
               writedata=True, \
               doboots_poly=False, \
+              lsq_uncty_trick=True,\
               pathboots='test_boots.npy'):
 
     """Sets up for mcmc simulations. 
@@ -966,6 +987,9 @@ Inputs:
 
     doboots_poly = do non-parametric bootstrap for polynomial model?
 
+    lsq_uncty_trick = project src frame uncertainties onto the target
+    frame, then re-evaluate the lsq with this combined uncertainty?
+
     pathboots = path for output non-parameteric bootstrap trials
 
 Returns:
@@ -976,11 +1000,12 @@ Returns:
 
     showargs = dictionary of arguments for analysing and showing the results
 
-"""
+    """
 
     mc = MCMCrun(pathsim, pathfit, chainlen, pathprior, \
                  pathjitter=pathjitter, ignoretruth=ignoretruth, \
-                 doboots_poly=doboots_poly)
+                 doboots_poly=doboots_poly, \
+                 lsq_uncty_trick=lsq_uncty_trick)
     mc.dosim()
     mc.doguess(norun=debug)
     
