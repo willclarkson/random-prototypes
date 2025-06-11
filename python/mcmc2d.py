@@ -40,7 +40,9 @@ multiprocessing.
                  pathjitter='', \
                  ignoretruth=False, \
                  doboots_poly=False, \
+                 nboots=10000,\
                  lsq_uncty_trick=True,\
+                 boots_ignoreweights=False,\
                  Verbose=True):
 
         # Control variables
@@ -50,9 +52,12 @@ multiprocessing.
         # guess?
         self.ignoretruth = ignoretruth
 
-        # Do non-parametric bootstrapping on polynomial?
+        # Do non-parametric bootstrapping on polynomial? If so, ignore
+        # weights?
         self.doboots_poly = doboots_poly
-
+        self.nboots = nboots
+        self.boots_ignoreweights = boots_ignoreweights
+        
         # if doing least-squared fit, project source uncertainty onto
         # target frame after first fit, reweight, and refit? [Default
         # to True while testing]
@@ -909,6 +914,10 @@ Inputs:
                 # not sure this should be in this ignoretruth
                 # conditional, since we might want to try this anyway)
                 if self.doboots_poly:
+                    self.guess.boots_ignoreweights = \
+                        self.boots_ignoreweights
+                    self.guess.nboots = self.nboots
+                    
                     self.guess.bootstraplsq()
 
         # By this point we should have the parameter set. Check that
@@ -962,7 +971,9 @@ def setupmcmc(pathsim='test_sim_mixmod.ini', \
               chainlen=40000, debug=False, \
               writedata=True, \
               doboots_poly=False, \
+              nboots=10000,\
               lsq_uncty_trick=True,\
+              boots_ignoreweights=False,\
               pathboots='test_boots.npy'):
 
     """Sets up for mcmc simulations. 
@@ -1004,8 +1015,9 @@ Returns:
 
     mc = MCMCrun(pathsim, pathfit, chainlen, pathprior, \
                  pathjitter=pathjitter, ignoretruth=ignoretruth, \
-                 doboots_poly=doboots_poly, \
-                 lsq_uncty_trick=lsq_uncty_trick)
+                 doboots_poly=doboots_poly, nboots=nboots, \
+                 lsq_uncty_trick=lsq_uncty_trick, \
+                 boots_ignoreweights=boots_ignoreweights)
     mc.dosim()
     mc.doguess(norun=debug)
     

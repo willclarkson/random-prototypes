@@ -166,6 +166,7 @@ likely work better.)
         # Non-parametric bootstrap parameters (implemented currently
         # only for the polynomial model).
         self.nboots = 10000 # keep a record (2025-06-06 - was 1,000)
+        self.boots_ignoreweights = False
         self.boots_pars = np.array([])
         self.boots_ok = np.array([])
         
@@ -693,6 +694,9 @@ Returns:
             t0 = time.time()
             print("fit2d.bootstraplsq INFO - starting %i non-parametric bootstrap samples..." % (nboots))
 
+            if self.boots_ignoreweights:
+                print("fit2d.bootstraplsq INFO - bootstraps will ignore weights")
+
         # boolean for OK
         self.boots_ok = np.repeat(True, nboots)
             
@@ -707,11 +711,15 @@ Returns:
             lsq_boots.W = self.LSQ.W[lsample]
             lsq_boots.xytarg = self.LSQ.xytarg[lsample]
 
+            # If ignoring weights, replace with identity matrices
+            if self.boots_ignoreweights:
+                lsq_boots.initweights()
+                
             lsq_boots.setpatternmatrix()
             lsq_boots.sethessian()
             lsq_boots.setbeta()
 
-            # 2026-06-06 put this in try/except
+            # 2026-06-06 put this in try/except to handle small n_data
             try:
                 lsq_boots.solvepars()
 
