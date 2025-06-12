@@ -799,7 +799,7 @@ def eval_uncty(neval=250, \
                pathpset='test_parset_guess_poly_deg2_n100.txt', \
                pathflat='test_flat_fitPoly_100_order2fit2_noprior_run1.npy', \
                pathobs='test_obs_src.dat', \
-               plotmajors=True, sqrtplot=True):
+               plotmajors=True, sqrtplot=True, nbins=10):
 
     """Evaluates both the pointing and propagated uncertainty based on
 MCMC trial output.
@@ -817,6 +817,9 @@ Inputs:
     plotmajors = plot debug plot of output vs input major axes
     
     sqrtplot = plot sqrt(major axes)
+
+    nbins = number of magnitude bins to plot (10 seems to be a
+    sensible default for most cases)
 
     """
 
@@ -890,19 +893,19 @@ Inputs:
         
         
     # Compute binned trends for plotting:
-    bstran = Binstats(xvec, np.atleast_2d(ytran).T, nbins=10)
-    bsmeas = Binstats(xvec, np.atleast_2d(ymeas).T, nbins=10)
+    bstran = Binstats(xvec, np.atleast_2d(ytran).T, nbins=nbins)
+    bsmeas = Binstats(xvec, np.atleast_2d(ymeas).T, nbins=nbins)
         
     fig7 = plt.figure(7)
     fig7.clf()
     ax71 = fig7.add_subplot(111)
 
     dum711 = ax71.scatter(xvec, \
-                          ytran, s=3, \
+                          ytran, s=9, \
                           cmap='Blues', \
                           label=r'transformation')
     dum712 = ax71.scatter(xvec, \
-                          ymeas, s=6, \
+                          ymeas, s=16, \
                           marker='s',\
                           cmap='Reds', \
                           label=r'measurement')
@@ -911,7 +914,7 @@ Inputs:
                           where='mid', lw=0.5, alpha=0.5)
 
     trendmeas = ax71.step(bsmeas.medns, bsmeas.meansxy, c='r', \
-                          where='mid', lw=0.75, alpha=0.5)
+                          where='mid', lw=2, alpha=0.5)
 
     
     # Add bounds?
