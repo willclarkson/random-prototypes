@@ -1038,7 +1038,9 @@ Inputs:
     fig3.subplots_adjust(left=0.18, bottom=0.17, hspace=0.4, wspace=0.49)
     
 def showresps(flatsamples=None, fignum=8, logx=False, creg=1.0e5, wantbg=True, \
-              clobber=True):
+              clobber=True, \
+              labeldxtran=r'$\Delta \xi$', labeldytran=r'$\Delta \eta$', \
+              cmap='RdBu_r'):
 
     """Plots the simulated and mcmc responsibilities after an mcmc run.
 
@@ -1056,6 +1058,10 @@ Inputs:
     wantbg = we want to plot the probabilities of being part of the background
 
     clobber = redo the logistic regression even if previously done
+
+    labeldxtran, labeldytran = labels for delta plots
+
+    cmap = colormap for delta plot
 
 Example call:
 
@@ -1130,12 +1136,15 @@ Example call:
     ax92 = fig9.add_subplot(212, sharex=ax91, sharey=ax91)
     dsim = ax91.scatter(flatsamples.dxyproj_truthpars[:,0], \
                         flatsamples.dxyproj_truthpars[:,1], \
-                            c=resp_sim, alpha=0.7, s=2, vmax=1.0)
+                            c=resp_sim, alpha=0.7, s=2, vmax=1.0, \
+                        cmap=cmap)
     
     dpost = ax92.scatter(flatsamples.dxyproj_truthpars[:,0], \
                          flatsamples.dxyproj_truthpars[:,1], \
-                         c=resp_post, alpha=0.7, s=2, vmax=1.0)
+                         c=resp_post, alpha=0.7, s=2, vmax=1.0, \
+                         cmap=cmap)
 
+    
     for obj, ax, label in zip([dsim, dpost], [ax91, ax92], \
                               ['Generated', 'Avg(samples)']):
         cbar = fig9.colorbar(obj, ax=ax, label=label)

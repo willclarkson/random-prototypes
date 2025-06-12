@@ -1013,6 +1013,12 @@ Returns:
 
     """
 
+    # par files must exist!
+    if not parspaths_exist(pathfit, pathsim):
+        return None, None, None
+    print("mcmc2d.setupmcmc INFO - found sim, guess files %s, %s" \
+          % (pathsim, pathfit))
+    
     mc = MCMCrun(pathsim, pathfit, chainlen, pathprior, \
                  pathjitter=pathjitter, ignoretruth=ignoretruth, \
                  doboots_poly=doboots_poly, nboots=nboots, \
@@ -1072,6 +1078,39 @@ Returns:
     
     # Get the arguments and print a helpful message...
     return mc.returnargs_emcee(Verbose=True)
+
+def parspaths_exist(pathfit='NONE', pathsim='', Verbose=True):
+
+    """Checks that the parameter files exist.
+
+INPUTS
+
+    pathfit = path to fit / guess file. Must exist.
+
+    pathsim = path to simulation parameter file. Only required if we
+    are simulating.
+
+OUTPUTS
+
+    pathsok = True if all the required paths are readable.
+
+    """
+
+    if not os.access(pathfit, os.R_OK):
+        if Verbose:
+            print("mcmc2d.parspaths_exist WARN - guess path not readable: %s" \
+                  % (pathfit))
+        return False
+
+    # we only look for the simulation parfile if it was specified
+    if len(pathsim) > 0:
+        if not os.access(pathsim, os.R_OK):
+            if Verbose:
+                print("mcmc2d.parspaths_exist WARN - sim pars not readable: %s" % (pathsim))
+            return False
+
+    # If we got here, then all the par files we need were readable.
+    return True
     
 def getflatsamples(sampler=None, \
                    pathflat='test_flat_samples.npy', \
