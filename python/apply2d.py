@@ -4,6 +4,7 @@
 
 # WIC 2024-11-12 - methods to apply MCMC2d results
 
+import os
 import copy
 import numpy as np
 from scipy import stats
@@ -729,6 +730,27 @@ Returns:
                   % (pathobs))
 
     return obset
+
+def paths_ok(paths=[]):
+
+    """Returns True if all the paths in a supplied list are readable. Returns False if any of the paths are unreadable, OR if the supplied list has zero length.
+
+    INPUTS
+
+    paths = list of paths to check"""
+
+    if len(paths) < 1:
+        return False
+    
+    for path in paths:
+        if not os.access(path, os.R_OK):
+            return False
+
+    # If we got here then all the paths were readable.
+    return True
+        
+
+    
     
 ####### More involved utilities follow
 
@@ -823,6 +845,13 @@ Inputs:
 
     """
 
+    # Check that all the paths are present
+    lpaths = [pathpset, pathflat, pathobs]
+    if not paths_ok(lpaths):
+        print("apply2d.eval_uncty WARN - one or more path unreadable:", \
+              lpaths)
+        return
+    
     # Samples from the flattened MCMC:
     ES = Evalset(pathpset=pathpset, \
                  pathflat=pathflat, \
@@ -994,6 +1023,12 @@ Inputs:
 
     """
 
+    lpaths = [pathpset, pathobs]
+    if not paths_ok(lpaths):
+        print("apply2d.unctysamples WARN - one or more unreadable:", \
+              lpaths)
+        return
+    
     US = Evalset(pathpset=pathpset, neval=nsamples, pathobs=pathobs)
     US.getsamples()
     US.getobs()
@@ -1416,6 +1451,11 @@ def traceplot(neval=10, \
 
     """Evaluates the flat samples on a grid of coords"""
 
+    if not paths_ok([pathpset, pathflat]):
+        print("traceplot WARN - not all paths readable: ", \
+              [pathpset, pathflat])
+        return
+    
     ES = Evalset(pathpset=pathpset, \
                  pathflat=pathflat, \
                  neval=neval)
