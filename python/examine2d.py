@@ -665,7 +665,9 @@ and background"""
             pickle.dump(parset, wobj)
         
 def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
-              pathfig='test_guess_deltas.png', showargs={}, \
+              pathfig='test_guess_deltas.png', \
+              pathfignoise='test_guess_noise.png', \
+              showargs={}, \
               usetruths=False, showquiver=True):
 
     """Plots up the guess transformation, noise, etc., before running mcmc.
@@ -792,27 +794,48 @@ Inputs:
     
     # A couple of things useful to standardize
     fontsz=10
+
+    # 2025-06-13 split the big figure into two figures so that the
+    # axes will be easier to read.
     
-    # Now set up the figure
+    # Now set up the figures
     fig2=plt.figure(fignum, figsize=(9., 7.))
     fig2.clf()
+
+    fig2b=plt.figure(fignum+1, figsize=(9., 5.))
+    fig2b.clf()
+
+    # 2025-06-13 INFO - the axis variable names (ax37 etc) are
+    # artefacts of how I originally threw together the plot. The
+    # numbers have no relation to the current position of the graphs,
+    # and some day sohuld be updated with more accurate descriptive
+    # variable names.
     
     # Positional residual plots
-    ax37=fig2.add_subplot(337)
-    ax38=fig2.add_subplot(338, sharey=ax37)
-    ax39=fig2.add_subplot(339, sharey=ax37)
-    ax34=fig2.add_subplot(334, sharex=ax37)
-    ax31=fig2.add_subplot(331, sharex=ax37)
+    # THIS WAS WITH 3x3 bigfigure:
+    #ax37=fig2.add_subplot(337)
+    #ax38=fig2.add_subplot(338, sharey=ax37)
+    #ax39=fig2.add_subplot(339, sharey=ax37)
+    #ax34=fig2.add_subplot(334, sharex=ax37)
+    #ax31=fig2.add_subplot(331, sharex=ax37)
+
+    # THIS IS WITH 3x2:
+    ax37=fig2b.add_subplot(232) # depsilon, dxi
+    ax38=fig2b.add_subplot(235, sharey=ax37) # deta vs xi
+    ax39=fig2b.add_subplot(236, sharey=ax37) # deta vs eta
+    ax34=fig2b.add_subplot(234, sharex=ax37) # xi vs dxi
+    ax31=fig2b.add_subplot(231, sharex=ax37) # eta vs dxi
 
     # noise vs mag plots
-    ax32 = fig2.add_subplot(332)
-    ax33 = fig2.add_subplot(333)
-
+    ax32 = fig2.add_subplot(221) # was 332
+    ax33 = fig2.add_subplot(222)
+    ax30 = fig2.add_subplot(223)
+    
     # truth parameters if we have them
     ax36=None
     magbins_fg_truth = np.array([])                            
     if ptruth is not None:
-        ax36 = fig2.add_subplot(336)
+        ax36 = fig2.add_subplot(224)
         ltruth = copy.deepcopy(llike)
         ltruth.updatesky(ptruth)
 
@@ -847,12 +870,14 @@ Inputs:
     ax31.set_ylabel(labelytran)
 
     # How do our responsibilities look?
-    ax35 = fig2.add_subplot(335)
+    # ax35 = fig2.add_subplot(335) # old BIGFIG
+    ax35 = fig2b.add_subplot(233)
     dum35 = ax35.scatter(dxytran[:,0], dxytran[:,1], c=llike.resps_fg, \
                          cmap='inferno', s=4, edgecolor=None, vmax=1., \
                          alpha=0.7)
-    cbar35 = fig2.colorbar(dum35, ax=ax35, label=r'$f_fg$')
+    cbar35 = fig2.colorbar(dum35, ax=ax35, label=r'$f_{fg}$')
     ax35.set_xlabel(labeldxtran)
+    ax35.set_title(r'Colors: $f_{fg}$')
     
     # Colorbars
     for obj, ax in zip([resid, residyx, residyy, residxx, residxy], \
@@ -862,11 +887,13 @@ Inputs:
     # label where we can fit it in
     ax31.set_title('Colors: mag')
         
-    # ... now do the vs magnitude plots
-    for ax, quan, label, color in zip([ax32, ax33], \
-                               [covobs[:,0,0], covtarg[:,0,0]], \
-                                       ['assumed (src)', 'assumed (target)'], \
-                                       ['#702082','#00274C']):
+    # ... now do the vs magnitude plots. Little bit of a fudge to
+    # duplicate the target plot in two axes
+    laxmag = [ax32, ax33, ax30]
+    lquan = [covobs[:,0,0], covtarg[:,0,0], covtarg[:,0,0] ]
+    llabl = ['assumed (src)', 'assumed (target)', 'target']
+    lcolo = ['#702082','#00274C', '#00274C']
+    for ax, quan, label, color in zip(laxmag, lquan, llabl, lcolo):
         dumobs = ax.scatter(mags, quan, c=color, s=6, \
                             label=label, marker='s', zorder=1)
         
@@ -934,12 +961,12 @@ Inputs:
                             s=9, \
                             zorder=25)
         
-        ax36.set_title('Truth model')
+        ax36.set_title('Target frame, Truth model')
         ax36.set_yscale('log')
         
     # now label the vs-mag plots
         
-    for ax in [ax32, ax33]:
+    for ax in [ax32, ax33, ax30]:
         ax.set_xlabel('mag')
 
     # We always want to log-scale the target frame, we only want to
@@ -947,26 +974,34 @@ Inputs:
     bpos = covobs[:,0,0] > 0.
     if np.sum(bpos) > 2:
         ax32.set_yscale('log')
-    ax33.set_yscale('log')
     ax32.set_ylabel(labelvxxsrc)
-    ax33.set_ylabel(labelvxxtran)
 
-    leg = ax33.legend(fontsize=5)
+    for ax in [ax33, ax30]:
+        ax.set_yscale('log')
+        ax.set_ylabel(labelvxxtran)
 
-    ax32.set_title('Source frame', fontsize=fontsz)
-    ax33.set_title('Target frame', fontsize=fontsz)
+    leg = ax33.legend(fontsize=8)
 
+    ax32.set_title('Source frame measurement uncertainty', fontsize=fontsz)
+    ax33.set_title('Target frame, guess pars', fontsize=fontsz)
+    ax30.set_title('Target frame measurement uncertainty', fontsize=fontsz)
+
+    
     # a few cosmetic things
     fig2.subplots_adjust(hspace=0.4, wspace=0.4)
+    fig2b.subplots_adjust(hspace=0.4, wspace=0.4)
 
     # save to disk
     if len(pathfig) > 3:
-        fig2.savefig(pathfig)
+        fig2b.savefig(pathfig)
 
+    if len(pathfignoise) > 3:
+        fig2.savefig(pathfignoise)
+        
     if not showquiver:
         return
 
-    fig3 = plt.figure(fignum+1, figsize=(8., 6.))
+    fig3 = plt.figure(fignum+2, figsize=(8., 6.))
     fig3.clf()
     ax31 = fig3.add_subplot(223)
 
