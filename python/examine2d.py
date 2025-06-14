@@ -976,8 +976,11 @@ Inputs:
         ax32.set_yscale('log')
     ax32.set_ylabel(labelvxxsrc)
 
+    btarg = covtarg[:,0,0] > 0.
     for ax in [ax33, ax30]:
-        ax.set_yscale('log')
+
+        if np.sum(btarg) > 0:
+            ax.set_yscale('log')
         ax.set_ylabel(labelvxxtran)
 
     leg = ax33.legend(fontsize=8)
@@ -1590,6 +1593,14 @@ Example call:
     parsnoise = flatsamples.flat_samples[:,lnoise]
     parssymm = flatsamples.flat_samples[:,lsymm]
 
+    # 2025-06-14: nothing much to do if the noise isn't already >1
+    # dimensional.
+    if parsnoise.ndim > 1:
+        if parsnoise.shape[-1] < 2:
+            print("examine2d.shownoisesamples INFO - parsnoise 1D. Nothing to show:", parsnoise.shape, parssymm.shape)
+            return
+    
+    
     stdxs, stdys, corrxys = noisemodel2d.mags2noise(parsnoise.T, parssymm.T, \
                                                     mshow[:,None], \
                                                     mag0=mag0, returnarrays=True, \
