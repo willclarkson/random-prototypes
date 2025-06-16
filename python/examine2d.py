@@ -59,7 +59,8 @@ Inputs:
 
     def __init__(self, flat_samples=np.array([]), path_samples='NA', \
                  esargs={}, ptruths=None, log_probs=np.array([]), \
-                 path_log_probs='NA', showargs={}):
+                 path_log_probs='NA', showargs={}, path_showargs='',\
+                 path_esargs=''):
 
         self.flat_samples = np.copy(flat_samples)
         self.path_samples = path_samples[:]
@@ -73,6 +74,20 @@ Inputs:
         self.path_log_probs = path_log_probs[:]
         if np.size(self.log_probs) < 1:
             self.loadlogprobs()
+
+        # show arguments. Input in preference to path
+        self.path_showargs = path_showargs[:]
+        if len(showargs.keys()) < 1:
+            self.loadshowargs()
+        else:
+            self.showargs = showargs
+            
+        # emcee arguments
+        self.path_esargs = path_esargs[:]
+        if len(esargs.keys()) < 1:
+            self.loadesargs()
+        else:
+            self.esargs = esargs
             
         # Populate the shape attributes that we will need to access
         self.nsamples = 0
@@ -80,10 +95,10 @@ Inputs:
         self.countsamples()
         
         # Dictionary of arguments that were passed to emcee.
-        self.esargs = esargs
+        # self.esargs = esargs ### replaced by syntax above
 
         # Dictionary of arguments sent to "show" routines
-        self.showargs = showargs
+        # self.showargs = showargs ## replaced by load syntax above.
         
         # Quantities we get from this dictionary
         self.inp_pguess = None
@@ -170,6 +185,30 @@ Inputs:
             self.log_probs = np.load(self.path_log_probs)
         except:
             nologprobs = True
+
+    def loadshowargs(self):
+
+        """Loads show arguments from disk if found"""
+
+        if len(self.path_showargs) < 4:
+            return
+
+        try:
+            self.showargs = pickle.load(open(self.path_showargs,'rb'))
+        except:
+            noshowargs = True
+
+    def loadesargs(self):
+
+        """Loads emcee arguments from disk"""
+
+        if len(self.path_esargs) < 4:
+            return
+
+        try:
+            self.esargs = pickle.load(open(self.path_esargs, 'rb'))
+        except:
+            noesargs = True
         
     def countsamples(self):
 
@@ -2158,3 +2197,90 @@ Outputs:
         
     # Some cosmetic settings
     fig.tight_layout()
+
+##### Methods to overlay multiple sets follow
+
+def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
+                          'eg10_mix_twoframe_flatsamples_n100_nobc.npy'], \
+                lprobs=['test_log_probs.npy', \
+                        'test_log_probs.npy'], \
+                lsho=['test_showargs.pickle', \
+                      'test_showargs.pickle'], \
+                lesa=['test_esargs.pickle', \
+                      'test_esargs.pickle'], \
+                fignum=5):
+
+    """Exoerimental method - show two sets of corner plots"""
+
+    # This will probably duplicate some of the functionality of
+    # showcorner() above, since we want to do something fairly
+    # specific here. Go for readability now, the two could perhaps be
+    # merged later on.
+    
+    # Currently we reconstruct new Flatsamples objects from the
+    # outputs of previous runs. This is inefficient (and indeed we
+    # probably could just pickle the FS objects from the run...) but
+    # hopefully should be easier to split apart when considering the
+    # fitting and simulation separately. Input arguments are in list
+    # form so that their length can be made flexible as easy as
+    # possible.
+    FSS = []
+    for iset in range(len(lsamples)):
+        FSS.append(Flatsamples(path_samples=lsamples[iset], \
+                               path_log_probs=lprobs[iset], \
+                               path_showargs=lsho[iset], \
+                               path_esargs=lesa[iset]) )
+
+    # Do some checking of the Flatsamples objects we just constructed:
+        
+    # Let's assume we are only interested in the model parameters
+    # (since the number of nuisance parameters may vary between
+    # comparison cases). Trust the user to try to compare two obsets
+    # that have the same number (and meaning) of model parameters, for
+    # now...
+    for iset in range(len(FSS)):
+
+        # Do we know which are the model parameters?
+        if not 'inds_abc' in FSS[iset].showargs['corner'].keys():
+            print("multicorner WARN - inds_abc not in showargs keys for FS %i")
+            return
+            
+    # now we can proceed! Set up the figure:
+    figc = plt.figure(fignum, figsize=(7,5))
+    figc.clf()
+
+    # plot colors
+    colos = ['b','r','g','m']
+    
+    # start with the zeroth case only while debugging
+    for iset in range(len(FSS)):
+        inds_abc = FSS[iset].showargs['corner']['inds_abc']
+        labels = np.array(FSS[iset].showargs['corner']['labels'])[inds_abc]
+        sampls = FSS[iset].flat_samples[:,inds_abc]
+
+        truths = None
+        if iset < 1:
+            truths = FSS[iset].showargs['corner']['truths'][inds_abc]
+
+        # reweight for the histograms
+        wts = np.ones(FSS[iset].nsamples)/FSS[iset].nsamples
+        
+        print("examine2d.multicorner INFO - plotting set %i: %i..." \
+              % (iset, FSS[iset].nsamples))
+        
+        cornr = corner.corner(sampls, labels=labels, truths=truths, \
+                              weights=wts, \
+                              truth_color='k', fig=figc, \
+                              labelpad=0.7, use_math_text=True, \
+                              plot_datapoints=False, color=colos[iset])
+
+    # Do the figure subplots adjust grumble grumble
+    figc.subplots_adjust(bottom=0.2, left=0.2, top=0.95)
+
+    # ... and that looks pretty good!
+    #
+    # To add:
+    #
+    # zorder and some transparency
+    #
+    # lnprobs figure
