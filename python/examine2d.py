@@ -21,6 +21,8 @@ import sixterm2d
 
 # for corner plots
 import matplotlib.pylab as plt
+import matplotlib.patches as mpatches
+from matplotlib.colors import colorConverter
 plt.ion()
 import corner
 
@@ -2208,9 +2210,69 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                       'test_eg10_nobc_showargs.pickle'], \
                 lesa=['eg10_noobs_test_esargs.pickle', \
                       'test_eg10_nobc_esargs.pickle'], \
-                fignum=5):
+                fignum=5, \
+                llabels=['no obs', 'no bc'], \
+                alpha=0.75, \
+                lFS = [], \
+                pathfig='test_multicorner.png', \
+                convert_linear=False, \
+                linestyles=['solid', 'dashed', 'dashdot', 'dotted'], \
+                linewidths=[1, 1., 1., 1.], \
+                levels=[0.393, 0.864], \
+                annotate_levels = True, \
+                fill_contours=False, \
+                lnprob_log=True, \
+                alpha_fill=0.15, \
+                scmap=''):
 
-    """Exoerimental method - show two sets of corner plots"""
+    """Exoerimental method - show two sets of corner plots.
+
+    INPUTS:
+
+    lFS = list of paths to Flatsamples pickle files. Used in preference of
+    the ingredients. 
+
+    llabels = list of dataset labels (for figure legend)
+
+    alpha = transparency parameter for corner, hist, legend
+
+    pathfig = path to output figure
+
+    convert_linear = convert 6term parameters to sxale, rotation, etc.
+
+    If reading in the pieces of the flatsamples, the following are used:
+
+    lsamples = list of .npy flat samples files
+
+    lprobs = list of .npy lnprobs files
+
+    lsho = list of "show" arguments files
+
+    lesa = list of "esargs" arguments files
+
+    linestyles = linestyles for plots
+
+    linewidths = linewidths for color plots
+
+    levels = levels for contours. The defaults [0.393, 0.864]
+    correspond to 1, 2 sigma in a 2D gaussian
+
+    annotate_levels = annotate the contour levels on the plot
+
+    fill_contours = fill the contour plots
+
+    lnprob_log = histogram of lnprob is logarithmic (vertically)
+
+    alpha_fill = transparency for fill histograms
+
+    scmap = colormap name to use when sampling colors (if zero length,
+    ignored)
+
+    OUTPUTS 
+
+    None - figure is drawn
+
+    """
 
     # This will probably duplicate some of the functionality of
     # showcorner() above, since we want to do something fairly
@@ -2225,13 +2287,21 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     # form so that their length can be made flexible as easy as
     # possible.
     FSS = []
-    for iset in range(len(lsamples)):
-        FSS.append(Flatsamples(path_samples=lsamples[iset], \
-                               path_log_probs=lprobs[iset], \
-                               path_showargs=lsho[iset], \
-                               path_esargs=lesa[iset]) )
 
-    # Do some checking of the Flatsamples objects we just constructed:
+    # If a list of flatsamples pickles was passed, use that in
+    # preference to the piece-by-piece
+    if len(lFS) > 1:
+        for iset in range(len(lFS)):
+            if os.access(lFS[iset], os.R_OK):
+                FSS.append(pickle.load(open(lFS[iset], 'rb'))) 
+    else:
+        for iset in range(len(lsamples)):
+            FSS.append(Flatsamples(path_samples=lsamples[iset], \
+                                   path_log_probs=lprobs[iset], \
+                                   path_showargs=lsho[iset], \
+                                   path_esargs=lesa[iset]) )
+
+    # Do some checking of the Flatsamples objects we just loaded:
         
     # Let's assume we are only interested in the model parameters
     # (since the number of nuisance parameters may vary between
@@ -2246,11 +2316,28 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
             return
             
     # now we can proceed! Set up the figure:
-    figc = plt.figure(fignum, figsize=(7,5))
+    figc = plt.figure(fignum, figsize=(8,7))
     figc.clf()
 
     # plot colors
     colos = ['b','r','g','m']
+
+    # umich marketing colors (why not...)
+    colos = ['#00274C', '#D86018', '#702082', '#9B9A6D']
+
+    # or try this...
+    try:
+        cmap = plt.get_cmap(scmap)
+        colos = cmap(np.linspace(0., 0.99, 4, endpoint=True))
+    except:
+        nocmap=True
+        
+    # for legend
+    legends = []
+
+    # histogram arguments, which we will want to replicate across the
+    # corner histograns, the lnprob histogram, and also the legends
+    lhistargs = []
     
     # start with the zeroth case only while debugging
     for iset in range(len(FSS)):
@@ -2262,39 +2349,100 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
         if iset < 1:
             truths = FSS[iset].showargs['corner']['truths'][inds_abc]
 
+        # Convert 6term to linear?
+        if convert_linear:
+            samplsall, labelsall, truthsall = \
+                sixterm2d.flatpars(FSS[iset].flat_samples, \
+                                   inds_abc, \
+                                   FSS[iset].showargs['corner']['labels'], \
+                                   FSS[iset].showargs['corner']['truths'])
+
+            sampls = samplsall[:,inds_abc]
+            labels = np.array(labelsall)[inds_abc]
+            if iset < 1:
+                truths = np.array(truthsall)[inds_abc]
+            
         # reweight for the histograms
         wts = np.ones(FSS[iset].nsamples)/FSS[iset].nsamples
 
-        
         print("examine2d.multicorner INFO - plotting set %i: %i..." \
               % (iset, FSS[iset].nsamples))
+
+        # Some customization
+        iline = iset % len(linewidths)
+        lw = linewidths[iline]
+        ls = linestyles[iline]
+        contour_kwargs = {'linewidths':lw, 'linestyles':ls, \
+                          'zorder':10-iset}
+
+        # try sending the fill and edge colors including the
+        # transparency
+        color_edge = colorConverter.to_rgba(colos[iset], alpha=1.)
+        color_fill = colorConverter.to_rgba(colos[iset], alpha=alpha_fill)
+
+        # Construct the histogram arguments and keep them so we can
+        # use them later
+        hist_kwargs = {'linewidth':lw, 'linestyle':ls, \
+                       'histtype':'stepfilled', \
+                       'edgecolor':color_edge, \
+                       'color':color_fill, \
+                       'zorder':10-iset}
+
+        lhistargs.append(hist_kwargs)
         
         cornr = corner.corner(sampls, labels=labels, truths=truths, \
                               weights=wts, \
-                              truth_color='k', fig=figc, \
+                              truth_color='0.4', \
+                              fig=figc, \
                               labelpad=0.7, use_math_text=True, \
-                              plot_datapoints=False, color=colos[iset])
+                              plot_datapoints=False, color=colos[iset], \
+                              alpha=alpha, \
+                              contour_kwargs=contour_kwargs, \
+                              hist_kwargs=hist_kwargs, \
+                              levels=levels, \
+                              fill_contours=fill_contours)
 
+        # accumulate for legend
+        legends.append(mpatches.Patch(label=llabels[iset], \
+                                      facecolor=hist_kwargs['color'], \
+                                      edgecolor=hist_kwargs['edgecolor'], \
+                                      linewidth=hist_kwargs['linewidth'], \
+                                      linestyle=hist_kwargs['linestyle'] ))
+        
+    # activate the legends for the legends axis
+    axleg = figc.axes[2]
+    leg = axleg.legend(handles=legends, fontsize=6, frameon=False)
+
+    # Annotate the levels?
+    if annotate_levels:
+        slevs = "Contour levels:\n%s" % ", ".join("%.3f" % (lev) for lev in levels)
+
+        dumlevs = axleg.annotate(slevs, (0.05,0.05), \
+                                 xycoords='axes fraction', \
+                                 va='bottom', ha='left', \
+                                 fontsize=6)
+        
     # the likelihoods plot requires a separate loop after the corner
     # plot has been made, because we want to override some of its
     # settings
     for iset in range(len(FSS)):
         
-        # likelihoods plot
+        # likelihoods plot - consider making ncoarse for this
         npars = sampls.shape[-1]
         if iset < 1:
-            axlike = figc.add_subplot(npars-1, npars-1, npars-1)
+            axlike = figc.add_subplot(npars-2, npars-2, npars-2)
 
-        hist = axlike.hist(FSS[iset].log_probs, density=True, log=True,\
-                           color=colos[iset], alpha=0.5)
+        hist = axlike.hist(FSS[iset].log_probs, \
+                           density=False, \
+                           log=lnprob_log,\
+                           **lhistargs[iset])
+
+    axlike.set_xlabel('ln(prob)')
+    axlike.set_ylabel('N')
         
     # Do the figure subplots adjust grumble grumble
     figc.subplots_adjust(bottom=0.2, left=0.2, top=0.95)
 
-    # ... and that looks pretty good!
-    #
-    # To add:
-    #
-    # zorder and some transparency
-    #
-    # lnprobs figure
+    # Save the figure to disk
+    if len(pathfig) > 3:
+        figc.savefig(pathfig)
