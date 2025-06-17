@@ -2202,12 +2202,12 @@ Outputs:
 
 def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                           'eg10_mix_twoframe_flatsamples_n100_nobc.npy'], \
-                lprobs=['test_log_probs.npy', \
+                lprobs=['eg10_mix_twoframe_lnprobs_n100_noobs.npy', \
                         'test_log_probs.npy'], \
-                lsho=['test_showargs.pickle', \
-                      'test_showargs.pickle'], \
-                lesa=['test_esargs.pickle', \
-                      'test_esargs.pickle'], \
+                lsho=['eg10_noobs_test_showargs.pickle', \
+                      'test_eg10_nobc_showargs.pickle'], \
+                lesa=['eg10_noobs_test_esargs.pickle', \
+                      'test_eg10_nobc_esargs.pickle'], \
                 fignum=5):
 
     """Exoerimental method - show two sets of corner plots"""
@@ -2264,6 +2264,7 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
 
         # reweight for the histograms
         wts = np.ones(FSS[iset].nsamples)/FSS[iset].nsamples
+
         
         print("examine2d.multicorner INFO - plotting set %i: %i..." \
               % (iset, FSS[iset].nsamples))
@@ -2274,6 +2275,19 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                               labelpad=0.7, use_math_text=True, \
                               plot_datapoints=False, color=colos[iset])
 
+    # the likelihoods plot requires a separate loop after the corner
+    # plot has been made, because we want to override some of its
+    # settings
+    for iset in range(len(FSS)):
+        
+        # likelihoods plot
+        npars = sampls.shape[-1]
+        if iset < 1:
+            axlike = figc.add_subplot(npars-1, npars-1, npars-1)
+
+        hist = axlike.hist(FSS[iset].log_probs, density=True, log=True,\
+                           color=colos[iset], alpha=0.5)
+        
     # Do the figure subplots adjust grumble grumble
     figc.subplots_adjust(bottom=0.2, left=0.2, top=0.95)
 
