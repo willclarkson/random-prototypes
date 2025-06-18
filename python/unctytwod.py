@@ -304,7 +304,8 @@ coefficients and the 2D convention expected by numpy methods"""
 
         degr = self.degfromcoeffs(np.size(self.p))
 
-        if np.abs(degr - np.int(degr)) > 1.0e-3:
+        if np.abs(degr - int(degr)) > 1.0e-3:
+        #if np.abs(degr - np.int(degr)) > 1.0e-3:
             if self.Verbose:
                 print("Polycoeffs.assigndeg WARN - parameters do not correspond to a degree: %i" % (np.size(self.p)))
             self.deg = -1
