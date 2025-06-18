@@ -2223,7 +2223,9 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                 fill_contours=False, \
                 lnprob_log=True, \
                 alpha_fill=0.15, \
-                scmap=''):
+                scmap='', cmapmax=0.9, \
+                zorders=[], \
+                ticklabelsize=6):
 
     """Exoerimental method - show two sets of corner plots.
 
@@ -2267,6 +2269,14 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
 
     scmap = colormap name to use when sampling colors (if zero length,
     ignored)
+
+    cmapmax = max value (0 - 1) to use for the drawing of cmap
+    values. (Useful if we don't want the extreme right edge of the
+    colormap)
+    
+    zorders = list of vertical orders for plots
+
+    ticklabelsize = fontsize for corner tick labels
 
     OUTPUTS 
 
@@ -2328,7 +2338,7 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     # or try this...
     try:
         cmap = plt.get_cmap(scmap)
-        colos = cmap(np.linspace(0., 0.99, 4, endpoint=True))
+        colos = cmap(np.linspace(0., cmapmax, 4, endpoint=True))
     except:
         nocmap=True
         
@@ -2338,6 +2348,10 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     # histogram arguments, which we will want to replicate across the
     # corner histograns, the lnprob histogram, and also the legends
     lhistargs = []
+
+    # Create zorders for plot
+    if len(zorders) < len(FSS):
+        zorders = list(10 - np.arange(len(FSS)))
     
     # start with the zeroth case only while debugging
     for iset in range(len(FSS)):
@@ -2373,20 +2387,22 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
         lw = linewidths[iline]
         ls = linestyles[iline]
         contour_kwargs = {'linewidths':lw, 'linestyles':ls, \
-                          'zorder':10-iset}
+                          'zorder':zorders[iset]}
 
         # try sending the fill and edge colors including the
         # transparency
         color_edge = colorConverter.to_rgba(colos[iset], alpha=1.)
         color_fill = colorConverter.to_rgba(colos[iset], alpha=alpha_fill)
 
+        # label_kwargs={'fontsize':8}
+        
         # Construct the histogram arguments and keep them so we can
         # use them later
         hist_kwargs = {'linewidth':lw, 'linestyle':ls, \
                        'histtype':'stepfilled', \
                        'edgecolor':color_edge, \
                        'color':color_fill, \
-                       'zorder':10-iset}
+                       'zorder':zorders[iset]}
 
         lhistargs.append(hist_kwargs)
         
@@ -2408,6 +2424,10 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                                       edgecolor=hist_kwargs['edgecolor'], \
                                       linewidth=hist_kwargs['linewidth'], \
                                       linestyle=hist_kwargs['linestyle'] ))
+
+    # Update the tick fontsize using the same trick as showcorner above
+    for ax in figc.get_axes():
+        ax.tick_params(axis='both', labelsize=ticklabelsize)
         
     # activate the legends for the legends axis
     axleg = figc.axes[2]
