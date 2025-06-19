@@ -2225,7 +2225,8 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                 alpha_fill=0.15, \
                 scmap='', cmapmax=0.9, \
                 zorders=[], \
-                ticklabelsize=6):
+                ticklabelsize=6, \
+                rescale=False, round3=False):
 
     """Exoerimental method - show two sets of corner plots.
 
@@ -2277,6 +2278,10 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     zorders = list of vertical orders for plots
 
     ticklabelsize = fontsize for corner tick labels
+
+    rescale = rescale the points for tidy plotting?
+
+    round3 = if rescaling, group powers of ten by 3 (e.g. 1e-6, 1e-3, etc.)
 
     OUTPUTS 
 
@@ -2348,7 +2353,14 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     # histogram arguments, which we will want to replicate across the
     # corner histograns, the lnprob histogram, and also the legends
     lhistargs = []
-
+    
+    # If we are going to do the rescaling and shifting, we need to
+    # initialize those arguments (which will be determined for the
+    # first pass through, then kept for the remaining passes. So:
+    midpts=np.array([])
+    scales=np.array([])
+    labelpad=0.7
+    
     # Create zorders for plot
     if len(zorders) < len(FSS):
         zorders = list(10 - np.arange(len(FSS)))
@@ -2362,7 +2374,7 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
         truths = None
         if iset < 1:
             truths = FSS[iset].showargs['corner']['truths'][inds_abc]
-
+            
         # Convert 6term to linear?
         if convert_linear:
             samplsall, labelsall, truthsall = \
@@ -2375,10 +2387,47 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
             labels = np.array(labelsall)[inds_abc]
             if iset < 1:
                 truths = np.array(truthsall)[inds_abc]
-            
+
+
+        # If we are rescaling, our "midpoints" should be initialized
+        # to the truths, however they were processed above.
+        if iset < 1:
+            midpts = np.copy(truths)
+                
         # reweight for the histograms
         wts = np.ones(FSS[iset].nsamples)/FSS[iset].nsamples
 
+        # rescale the points so that matplotlib's autoscaling doesn't
+        # put text all over the axes
+        if rescale:
+            sampls, midpts, scales = \
+                scaleforcorner(sampls, midpts, scales, 1., \
+                               round3=round3)
+
+            # Update the plot labels. We have to actually rebuild the
+            # labels because the np.array trick above imposes a
+            # uniform length. There is a difference between "" and ''
+            # here, so we use the join trick below to enforce the kind
+            # of string we want.
+            labelsnew = []
+            for ilabel in range(len(labels)):                
+                powten = int(np.log10(scales[ilabel]))
+                slab = r"$\Delta$%s" % (str(labels[ilabel]))
+                spow = r"$\times 10^{%i}$" % (powten)
+                slabel = '\n'.join([slab, spow])
+
+                labelsnew.append(slabel)
+
+            # hack to keep access to the original labels
+            labels_orig = labels[:]
+            labels = labelsnew[:]
+            labelpad = 0.25
+            
+            # Ensure the truths are offset once
+            if iset < 1:
+                truths = truths - midpts
+            
+                
         print("examine2d.multicorner INFO - plotting set %i: %i..." \
               % (iset, FSS[iset].nsamples))
 
@@ -2410,7 +2459,8 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                               weights=wts, \
                               truth_color='0.4', \
                               fig=figc, \
-                              labelpad=0.7, use_math_text=True, \
+                              labelpad=labelpad, \
+                              use_math_text=True, \
                               plot_datapoints=False, color=colos[iset], \
                               alpha=alpha, \
                               contour_kwargs=contour_kwargs, \
@@ -2425,6 +2475,23 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                                       linewidth=hist_kwargs['linewidth'], \
                                       linestyle=hist_kwargs['linestyle'] ))
 
+        # If we rescaled, then show the midpoints on the plot
+        if rescale:
+            npar = midpts.size
+            axes = np.array(figc.axes).reshape((npar, npar))
+
+            # loop through the model dimensions
+            for jpar in range(npar):
+                axh = axes[jpar, jpar]
+
+                # I don't see a way to use matplotlib's useMathText
+                # for the title, so we put in a few special cases
+                # here.
+                stitl='%s: %s' % (labels_orig[jpar], \
+                                  scalarstring(midpts[jpar]) )
+                axh.set_title(stitl, fontsize=8)
+                
+        
     # Update the tick fontsize using the same trick as showcorner above
     for ax in figc.get_axes():
         ax.tick_params(axis='both', labelsize=ticklabelsize)
@@ -2466,3 +2533,120 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     # Save the figure to disk
     if len(pathfig) > 3:
         figc.savefig(pathfig)
+
+def scaleforcorner(samples=np.array([]), middles=np.array([]), \
+                   sfacs=np.array([]), \
+                   logquant=1., telldebug=False, round3=False):
+
+    """Returns samples as scaled deltas from supplied (or calculated)
+middle values, and the scale factors. This duplicates some of the
+functionality of matplotlib's auto scaling of labels, but gives us
+full control of the placement etc. of the results.
+
+    INPUTS
+
+    samples = [nsamples, ndim] array of flat samples
+
+    middles = [ndim] array of anchor values for the deltas. If not
+    supplied, the median along the samples is calculated.
+
+    sfacs = [ndim] array of scale factors. Determined if not supplied.
+
+    logquant = quantile used when evaluating the range of powers of
+    ten of the (abs) deltas. Set 1.00 for max.
+
+    round3 = round to the next power of 3 down? (Like engineering
+    notation)
+
+    telldebug = print debug messages to screen
+
+    OUTPUTS
+
+    deltas = [nsamples, ndim] scaled samples
+
+    midpts = [ndim] midpoints for the deltas
+
+    scales = [ndim] scale factors (to be reported in the plotting)
+
+    """
+
+    # initialize return values (in case bad)
+    deltas = np.array([])
+    midpts = np.array([])
+    scales = np.array([])
+
+    if np.size(samples) < 1 or np.ndim(samples) < 2:
+        return deltas, midpts, scales
+    nsamples, npars = samples.shape
+
+    # the midpoints (copy rather than ref to allow changing in-place)
+    if middles.size != npars:
+        midpts = np.median(samples, axis=0)
+    else:
+        midpts = np.copy(middles)
+
+    # Subtract off the midpoints
+    deltas_raw = samples - midpts[None,:]
+
+    # allow passing in of the scale factors
+    if np.size(sfacs) == npars:
+        scales = np.copy(sfacs)
+    else:
+        # now find the indicator powers of ten for the deltas, go to
+        # the next power of ten down (so that the max will go to about
+        # ten in those units)
+        pow10 = np.quantile(np.log10(np.abs(deltas_raw)), logquant, axis=0)
+        pow10floor = np.floor(pow10)
+        if round3:
+            pow10floor = 3.*np.floor(pow10/3)
+        
+        scales = 10.0**(pow10floor)
+    
+    # Now convert the deltas into multiples of 10**(these powers)
+    deltas = deltas_raw  /scales[None, :]
+
+    if telldebug:
+        print(samples.shape)
+        print(midpts.shape)
+        print(deltas.shape)
+        print(pow10)
+        print(pow10floor)
+        print(deltas_raw[0])
+        print(deltas[0])
+
+    return deltas, midpts, scales
+
+def scalarstring(valu=0.):
+
+    """Returns literal string of float for plotting
+
+    INPUT
+
+    valu = value to return
+
+    RETURNS
+
+    svalu = string version of value, nicely formatted for printing."""
+
+    pow10 = np.log10(np.abs(valu))
+
+    # we make a few decisions here about what kind of output we
+    # want. There must be a more flexible way to o this, but for the
+    # moment let's just hand-implement them...
+    if pow10 > -2:
+        if pow10 < -1:
+            return r'%.4f' % (valu)
+        if pow10 < 0:
+            return r'%.3f' % (valu)
+        if pow10 < 3:
+            return r'%.2f' % (valu)
+
+    # if here, then we're in the regime in which we do want scientific
+    # notation. So:
+    
+    ssci = '%.3e' % (valu)
+    arg, expon = ssci.split('e')
+    expon = '%s%s' % (expon[0], expon[1::].strip('0'))
+           
+    return r'$%s\times 10^{%s}$' % (arg, expon)
+        
