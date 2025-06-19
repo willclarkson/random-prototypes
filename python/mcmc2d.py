@@ -43,6 +43,7 @@ multiprocessing.
                  nboots=10000,\
                  lsq_uncty_trick=True,\
                  boots_ignoreweights=False,\
+                 npoints_sim=None, \
                  Verbose=True):
 
         # Control variables
@@ -74,6 +75,10 @@ multiprocessing.
         self.sim = None
         self.guess = None
 
+        # If simulating, use this number of stars in preference to the
+        # contents o the parameter file
+        self.npoints_sim = npoints_sim
+        
         # Does the transformation have the tangent plane as its first
         # two entries?
         self.classeswithtp = ['xy2equ', 'Equ2tan', 'Tan2equ']
@@ -149,6 +154,12 @@ dataset"""
         self.sim = sim2d.Simdata()
         self.sim.loadconfig(self.parfile_sim)
 
+        # allow override of npoints with supplied input
+        if self.npoints_sim is not None:
+            self.sim.npts = self.npoints_sim
+        else:
+            self.npoints_sim = self.sim.npts
+        
     def runsim(self):
 
         """Generates the simulated dataset"""
@@ -974,7 +985,8 @@ def setupmcmc(pathsim='test_sim_mixmod.ini', \
               nboots=10000,\
               lsq_uncty_trick=True,\
               boots_ignoreweights=False,\
-              pathboots='test_boots.npy'):
+              pathboots='test_boots.npy', \
+              npoints_arg=None):
 
     """Sets up for mcmc simulations. 
 
@@ -1003,6 +1015,10 @@ Inputs:
 
     pathboots = path for output non-parameteric bootstrap trials
 
+    npoints_arg = None - number of objects to simulate,
+    overriding the choice in the simulation parameter file. Default is
+    not to override.
+
 Returns:
 
     esargs = dictionary of arguments for the ensemble sampler
@@ -1023,7 +1039,8 @@ Returns:
                  pathjitter=pathjitter, ignoretruth=ignoretruth, \
                  doboots_poly=doboots_poly, nboots=nboots, \
                  lsq_uncty_trick=lsq_uncty_trick, \
-                 boots_ignoreweights=boots_ignoreweights)
+                 boots_ignoreweights=boots_ignoreweights, \
+                 npoints_sim=npoints_arg)
     mc.dosim()
     mc.doguess(norun=debug)
     

@@ -709,7 +709,8 @@ def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
               pathfig='test_guess_deltas.png', \
               pathfignoise='test_guess_noise.png', \
               showargs={}, \
-              usetruths=False, showquiver=True):
+              usetruths=False, showquiver=True, \
+              sqrtx=False):
 
     """Plots up the guess transformation, noise, etc., before running mcmc.
 
@@ -733,6 +734,9 @@ Inputs:
     usetruths [T/F] - use truth parameters for plots if we have them
     
     showquiver [T/F] - plot quiver plot showing residuals
+
+    sqrtx = in the source/meas uncertainty, show sqrt(Vxx) since this
+    is easier to visualize
 
     """
 
@@ -798,7 +802,15 @@ Inputs:
 
     labelvxxtran = r'$V_{%s%s}$' % (labelxtran.replace('$',''), \
                                     labelxtran.replace('$',''))
-    
+
+    # in case we need them, sqrt(vxx)
+    labelsxxsrc = r'$\sqrt{V_{%s%s}}$' % (labelxsrc.replace('$',''), \
+                                          labelxsrc.replace('$',''))
+
+    labelsxxtran = r'$\sqrt{V_{%s%s}}$' % (labelxtran.replace('$',''), \
+                                    labelxtran.replace('$',''))
+
+                                          
     # Positions transformed using the guess parameters: their deltas
     dxytran = transf.xytran - xytarg
 
@@ -931,7 +943,11 @@ Inputs:
     # ... now do the vs magnitude plots. Little bit of a fudge to
     # duplicate the target plot in two axes
     laxmag = [ax32, ax33, ax30]
-    lquan = [covobs[:,0,0], covtarg[:,0,0], covtarg[:,0,0] ]
+    if sqrtx:
+        lquan = [covobs[:,0,0]**0.5, covtarg[:,0,0], covtarg[:,0,0]**0.5 ]
+    else:
+        lquan = [covobs[:,0,0], covtarg[:,0,0], covtarg[:,0,0] ]
+        
     llabl = ['assumed (src)', 'assumed (target)', 'target']
     lcolo = ['#702082','#00274C', '#00274C']
     for ax, quan, label, color in zip(laxmag, lquan, llabl, lcolo):
@@ -1015,15 +1031,22 @@ Inputs:
     bpos = covobs[:,0,0] > 0.
     if np.sum(bpos) > 2:
         ax32.set_yscale('log')
-    ax32.set_ylabel(labelvxxsrc)
 
+    ax32.set_ylabel(labelvxxsrc)
+        
     btarg = covtarg[:,0,0] > 0.
     for ax in [ax33, ax30]:
 
         if np.sum(btarg) > 0:
             ax.set_yscale('log')
+    
         ax.set_ylabel(labelvxxtran)
 
+    # replace the vertical label for sqrt(vxx) if needed
+    if sqrtx:
+        ax32.set_ylabel(labelsxxsrc)
+        ax30.set_ylabel(labelsxxtran)
+        
     leg = ax33.legend(fontsize=8)
 
     ax32.set_title('Source frame measurement uncertainty', fontsize=fontsz)
@@ -1047,16 +1070,16 @@ Inputs:
 
     fig3 = plt.figure(fignum+2, figsize=(8., 6.))
     fig3.clf()
-    ax31 = fig3.add_subplot(223)
+    axquiv = fig3.add_subplot(223)
 
     # Ranges for quiver plot
     # mmin = np.min(mags)
     # mmax = np.max(mags)
     
-    quiv_fg = ax31.quiver(xytarg[bfg, 0], xytarg[bfg, 1], \
+    quiv_fg = axquiv.quiver(xytarg[bfg, 0], xytarg[bfg, 1], \
                           dxytran[bfg,0], dxytran[bfg,1], \
                           mags[bfg], cmap='viridis_r')
-    cbar1 = fig3.colorbar(quiv_fg, ax=ax31)
+    cbar1 = fig3.colorbar(quiv_fg, ax=axquiv)
 
     # Show a marginal plot for the foreground objects
     ax33 = fig3.add_subplot(221)
@@ -1083,16 +1106,20 @@ Inputs:
     cbar4 = fig3.colorbar(blah34, ax=ax34)
     
     if np.sum(bbg) > 0:
-        ax32 = fig3.add_subplot(224, sharex=ax31, sharey=ax31)
+        ax32 = fig3.add_subplot(224, sharex=axquiv, sharey=axquiv)
 
         quiv_bg = ax32.quiver(xytarg[bbg, 0], xytarg[bbg, 1], \
                               dxytran[bbg,0], dxytran[bbg,1], \
                               mags[bbg], cmap='viridis_r')
         cbar2 = fig3.colorbar(quiv_bg, ax=ax32)
 
-    for ax in [ax31, ax32]:
-        ax.set_xlabel(labelxtran)
-        ax.set_ylabel(labelytran)
+        ax32.set_xlabel(labelxtran)
+        ax32.set_ylabel(labelytran)
+
+    # This repurposing of axis handler is problematic. For the moment,
+    # split into the pieces.
+    axquiv.set_xlabel(labelxtran)
+    axquiv.set_ylabel(labelytran)
 
     ax33.set_xlabel(labelxtran)
     #ax33.set_ylabel(labeldxtran)
@@ -1105,14 +1132,15 @@ Inputs:
     ax34.set_ylabel(labelysrc)
 
     # plot labels
-    ax31.set_title('foreground')
+    axquiv.set_title('foreground')
     ax33.set_title('fg, target')    
     #ax34.set_title('fg, transformed') # 2025-06-06
     ax34.set_title('fg, source')
     
-    #for ax in [ax31, ax33, ax34]:
+    #for ax in [axquiv, ax33, ax34]:
     #    ax.set_title('foreground')
-    ax32.set_title('outliers')
+    if np.sum(bbg) > 0:
+        ax32.set_title('outliers')
         
     fig3.subplots_adjust(left=0.18, bottom=0.17, hspace=0.4, wspace=0.49)
     
