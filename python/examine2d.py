@@ -2254,7 +2254,8 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                 scmap='', cmapmax=0.9, \
                 zorders=[], \
                 ticklabelsize=6, \
-                rescale=False, round3=False):
+                rescale=False, round3=False, \
+                deg2arcsec=False):
 
     """Exoerimental method - show two sets of corner plots.
 
@@ -2286,7 +2287,9 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     linewidths = linewidths for color plots
 
     levels = levels for contours. The defaults [0.393, 0.864]
-    correspond to 1, 2 sigma in a 2D gaussian
+    correspond to 1, 2 sigma in a 2D gaussian. For 0.5, 1, 2 sigma use
+    [0.118, 0.393, 0.864]. (The calculation is 1.0-np.exp(-0.5*n**2)
+    where n is the number of "sigma".)
 
     annotate_levels = annotate the contour levels on the plot
 
@@ -2310,6 +2313,9 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     rescale = rescale the points for tidy plotting?
 
     round3 = if rescaling, group powers of ten by 3 (e.g. 1e-6, 1e-3, etc.)
+
+    deg2arcsec = if convert to linear AND rescaling, also convert
+    deltas in degrees to deltas in arcsec.
 
     OUTPUTS 
 
@@ -2381,6 +2387,11 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     # histogram arguments, which we will want to replicate across the
     # corner histograns, the lnprob histogram, and also the legends
     lhistargs = []
+
+    # Initialize a few things so that conditionals later on won't
+    # break if the user asks for pieces that may or may not require
+    # each other
+    gangl=np.array([])  # which (if any) columns are angles
     
     # If we are going to do the rescaling and shifting, we need to
     # initialize those arguments (which will be determined for the
@@ -2421,7 +2432,12 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
         # to the truths, however they were processed above.
         if iset < 1:
             midpts = np.copy(truths)
-                
+
+            # The version of the labels for the title and for the axis
+            # label may end up differing, so we split off a copy here.
+            labelstitl=labels[:]
+
+            
         # reweight for the histograms
         wts = np.ones(FSS[iset].nsamples)/FSS[iset].nsamples
 
@@ -2432,6 +2448,19 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                 scaleforcorner(sampls, midpts, scales, 1., \
                                round3=round3)
 
+            if deg2arcsec:
+
+                # Hack to determine which labels contain theta or beta
+                btheta = np.array([blah.find('theta') > -1 for blah in labels])
+                bbeta  = np.array([blah.find('beta') > -1 for blah in labels])
+                isangl = btheta + bbeta
+                gangl = np.asarray(np.where(isangl), 'int').squeeze()
+
+                # now rescale the deltas for the impacted columns
+                if np.sum(isangl) > 0:
+                    sampls[:,gangl] *= 3600.*scales[gangl]
+                    scales[gangl] = 1.
+                    
             # Update the plot labels. We have to actually rebuild the
             # labels because the np.array trick above imposes a
             # uniform length. There is a difference between "" and ''
@@ -2441,9 +2470,19 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
             for ilabel in range(len(labels)):                
                 powten = int(np.log10(scales[ilabel]))
                 slab = r"$\Delta$%s" % (str(labels[ilabel]))
-                spow = r"$\times 10^{%i}$" % (powten)
-                slabel = '\n'.join([slab, spow])
 
+                # Hack to add the units to the axis label
+                if deg2arcsec:
+                    if isangl[ilabel]:
+                        slab = r'%s (")' % (slab)
+
+                # hack to avoid 10^0
+                if np.abs(powten) > 0:
+                    spow = r"$\times 10^{%i}$" % (powten)
+                    slabel = '\n'.join([slab, spow])
+                else:
+                    slabel = slab[:]
+                    
                 labelsnew.append(slabel)
 
             # hack to keep access to the original labels
@@ -2508,6 +2547,8 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
             npar = midpts.size
             axes = np.array(figc.axes).reshape((npar, npar))
 
+            print("INFO2 - labelstitl:", labelstitl)
+            
             # loop through the model dimensions
             for jpar in range(npar):
                 axh = axes[jpar, jpar]
@@ -2515,8 +2556,14 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                 # I don't see a way to use matplotlib's useMathText
                 # for the title, so we put in a few special cases
                 # here.
-                stitl='%s: %s' % (labels_orig[jpar], \
+                stitl='%s: %s' % (labelstitl[jpar], \
                                   scalarstring(midpts[jpar]) )
+
+                # hack for degrees
+                if deg2arcsec:
+                    if jpar in gangl:
+                        stitl=r'%s$^o$' % (stitl)
+                
                 axh.set_title(stitl, fontsize=8)
                 
         
@@ -2564,7 +2611,8 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
 
 def scaleforcorner(samples=np.array([]), middles=np.array([]), \
                    sfacs=np.array([]), \
-                   logquant=1., telldebug=False, round3=False):
+                   logquant=1., telldebug=False, \
+                   round3=False, log10noscale=[-2,1] ):
 
     """Returns samples as scaled deltas from supplied (or calculated)
 middle values, and the scale factors. This duplicates some of the
@@ -2587,6 +2635,10 @@ full control of the placement etc. of the results.
     notation)
 
     telldebug = print debug messages to screen
+
+    log10noscale = [-2,1] = don't do any rescaling if log10(quant) is
+    between these values (useful if the values are already in a
+    human-sensible range)
 
     OUTPUTS
 
@@ -2627,9 +2679,20 @@ full control of the placement etc. of the results.
         pow10floor = np.floor(pow10)
         if round3:
             pow10floor = 3.*np.floor(pow10/3)
+
+        # set pow10floor to zero for cases within log10noscale
+        bnoscale = (pow10floor > log10noscale[0]) & \
+            (pow10floor < log10noscale[-1])
+
+        #print("RESCALE INFO:")
+        #print(pow10floor)
+        #print(bnoscale)
+        
+        pow10floor[bnoscale]=0.
         
         scales = 10.0**(pow10floor)
-    
+
+        
     # Now convert the deltas into multiples of 10**(these powers)
     deltas = deltas_raw  /scales[None, :]
 
