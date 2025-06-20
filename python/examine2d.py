@@ -2250,12 +2250,13 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                 annotate_levels = True, \
                 fill_contours=False, \
                 lnprob_log=True, \
-                alpha_fill=0.15, \
+                alpha_fill=0.25, \
                 scmap='', cmapmax=0.9, \
                 zorders=[], \
                 ticklabelsize=6, \
                 rescale=False, round3=False, \
-                deg2arcsec=False):
+                deg2arcsec=False, \
+                arcsecperpix=True):
 
     """Exoerimental method - show two sets of corner plots.
 
@@ -2316,6 +2317,9 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
 
     deg2arcsec = if convert to linear AND rescaling, also convert
     deltas in degrees to deltas in arcsec.
+
+    arcsecperpix = scale factors sx, sy in arcsec per pixel (assumes
+    target frame in degrees, source frame in pixels)
 
     OUTPUTS 
 
@@ -2392,6 +2396,7 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     # break if the user asks for pieces that may or may not require
     # each other
     gangl=np.array([])  # which (if any) columns are angles
+    gscale=np.array([]) # which (if any) are s_x or s_y
     
     # If we are going to do the rescaling and shifting, we need to
     # initialize those arguments (which will be determined for the
@@ -2424,9 +2429,20 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
 
             sampls = samplsall[:,inds_abc]
             labels = np.array(labelsall)[inds_abc]
+
+            if arcsecperpix:
+                
+                # do our hack for the string matching
+                isscale=stringsmatch(labels, ['s_x','s_y'])
+                gscale = np.array(np.where(isscale),'int').squeeze()
+                sampls[:,gscale] *= 3600. # arcsec per degree
+                                                
+            # switch across to the truths
             if iset < 1:
                 truths = np.array(truthsall)[inds_abc]
 
+                if arcsecperpix:
+                    truths[gscale] *= 3600. #arcsec per degree
 
         # If we are rescaling, our "midpoints" should be initialized
         # to the truths, however they were processed above.
@@ -2451,9 +2467,7 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
             if deg2arcsec:
 
                 # Hack to determine which labels contain theta or beta
-                btheta = np.array([blah.find('theta') > -1 for blah in labels])
-                bbeta  = np.array([blah.find('beta') > -1 for blah in labels])
-                isangl = btheta + bbeta
+                isangl = stringsmatch(labels, ['theta','beta'])
                 gangl = np.asarray(np.where(isangl), 'int').squeeze()
 
                 # now rescale the deltas for the impacted columns
@@ -2547,7 +2561,7 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
             npar = midpts.size
             axes = np.array(figc.axes).reshape((npar, npar))
 
-            print("INFO2 - labelstitl:", labelstitl)
+            # print("INFO2 - labelstitl:", labelstitl)
             
             # loop through the model dimensions
             for jpar in range(npar):
@@ -2563,7 +2577,12 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                 if deg2arcsec:
                     if jpar in gangl:
                         stitl=r'%s$^o$' % (stitl)
-                
+
+                # hack for arcsec per pix:
+                if arcsecperpix:
+                    if jpar in gscale:
+                        stitl=r'%s "/pix' % (stitl)
+                        
                 axh.set_title(stitl, fontsize=8)
                 
         
@@ -2741,3 +2760,31 @@ def scalarstring(valu=0.):
            
     return r'$%s\times 10^{%s}$' % (arg, expon)
         
+def stringsmatch(src=[], targ=[]):
+
+    """Returns boolean array for list entries missing any of the input
+strings
+
+    INPUTS
+
+    src = [] list of source terms
+
+    targ = [] list of search terms
+
+    OUTPUTS 
+
+    bmatch = boolean giving whether any of the src terms contain any
+    of the srch terms
+
+"""
+
+    bany = np.repeat(False,len(src))
+
+    if len(src) < 1 or len(targ) < 1:
+        return bany
+
+    for sstr in targ:
+        bthis = [sthis.find(sstr) > -1 for sthis in src]
+        bany = bany + bthis
+
+    return bany
