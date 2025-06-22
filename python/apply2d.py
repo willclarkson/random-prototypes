@@ -44,6 +44,7 @@ class Evalset(object):
                  pathpset='test_parset_guess.txt', \
                  pathflat='test_flat_fitPoly_500_order1fit1_noprior_run2.npy', \
                  pathobs='', \
+                 pathlnprobs='', \
                  neval=100, \
                  transf=None):
 
@@ -51,12 +52,16 @@ class Evalset(object):
         self.pathpset = pathpset[:]
         self.pathflat = pathflat[:]
         self.pathobs = pathobs[:]
+        self.pathlnprobs = pathlnprobs[:]
         
         # The transformation object, flat samples
         self.transf = transf # allow passing input
         self.parsamples = None
         self.pset = None
         self.obset = None
+
+        # evaluations of ln(prob)
+        self.lnprob = np.array([])
         
         # The non-nuisance parameters
         self.modelsamples = np.array([])
@@ -71,6 +76,9 @@ class Evalset(object):
         # routines)
         self.keepxysamples = False
         self.initsamples_xy()
+
+        # We might be tracking a third dimension (e.g. logprob) to plot
+        self.initsamples_z()
         
         # datapoints for evaluation
         self.xy = None
@@ -113,6 +121,21 @@ class Evalset(object):
         # which flat samples are model parameters?
         self.lmodel = self.pset.lmodel
 
+    def getlnprobs(self):
+
+        """Loads ln(prob) evaluations for the flat samples"""
+
+        if len(self.pathlnprobs) < 3:
+            return
+        
+        if not os.access(self.pathlnprobs, os.R_OK):
+            return
+
+        self.lnprob = np.load(self.pathlnprobs)
+        
+        # Might want to do some sanity checking on whether the lnprobs
+        # match the number of evaluations?
+        
     def getobs(self):
 
         """Loads observations from disk"""
@@ -328,6 +351,18 @@ transformation"""
 
         return np.zeros((self.neval, ndata)), np.zeros((self.neval, ndata))
 
+    def initsamples_z(self):
+
+        """Initializes (scalar) z samples"""
+
+        self.samples_z = np.array([])
+        
+    def setupsamples_z(self):
+
+        """Sets up scalar z array for samples"""
+
+        self.samples_z, _ = self.blanksamples()
+        
     def runsamples_uncty(self):
 
         """Runs samples under the uncertainty distribution"""
@@ -352,11 +387,15 @@ transformation"""
     def runsamples_pars(self):
 
         """Runs the parameter samples"""
-
+        
         self.setdata()
         for iset in range(self.neval):
             self.updatetransf(iset)
             self.applytransf(iset)
+
+            # map the lnprob across (could port into an applylnprob)
+            if self.lnprob.size > 0:
+                self.samples_z[iset] = self.lnprob[None, iset]
             
     def setdata(self, xy=np.array([]) ):
 
@@ -872,6 +911,7 @@ Inputs:
     print("sample_uncty INFO - starting %.2e flat samples..." \
           % (ES.neval))
     ES.setupsamples_xieta()
+
     ES.runsamples_pars()
     ES.samples_stats()
     print("sample_uncty INFO - ... done in %.2e seconds" \
@@ -1447,7 +1487,8 @@ Inputs:
         
 def traceplot(neval=10, \
               pathpset='test_parset_guess_poly_deg2_n100.txt', \
-              pathflat='test_flat_fitPoly_100_order2fit2_noprior_run1.npy'):
+              pathflat='test_flat_fitPoly_100_order2fit2_noprior_run1.npy', \
+              pathlnprobs=''):
 
     """Evaluates the flat samples on a grid of coords"""
 
@@ -1458,10 +1499,15 @@ def traceplot(neval=10, \
     
     ES = Evalset(pathpset=pathpset, \
                  pathflat=pathflat, \
-                 neval=neval)
+                 neval=neval, \
+                 pathlnprobs=pathlnprobs)
     ES.getsamples()
+    ES.getlnprobs()
 
     print(ES.pset.lmodel)
+    print("traceplot DBG:", ES.parsamples.shape, ES.lnprob.shape)
+    print(ES.pathflat)
+    print(ES.pathlnprobs)
     
     # Set up evaluation coords
     ES.gengrid()
@@ -1473,7 +1519,17 @@ def traceplot(neval=10, \
     # Set up and run the evaluations
     ES.checkneval()
     ES.setupsamples_xieta()
+    if ES.lnprob.size > 0:
+        ES.setupsamples_z()
+
+    print("samples_z DEBUG:", ES.samples_z.shape, ES.lnprob.shape)
+        
+    # run the samples
     ES.runsamples_pars()
+
+    print(ES.samples_z.size)
+    print(ES.samples_z.shape)
+    #, ES.samples_z[:,-1])
     
     #print(ES.xy.shape)
     #print(ES.parsamples.shape)
@@ -1496,6 +1552,9 @@ def traceplot(neval=10, \
     # capability that might make this faster. For the moment we do
     # things in a simpler way:
 
+    # 2025-06-22 - COME BACK TO THIS with the plot color computed from
+    # the lnprobs.
+    
     line_ids = np.unique(ES.grid_whichline)
     for lineid in line_ids:
         bthisline = ES.grid_whichline == lineid
