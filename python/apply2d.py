@@ -12,6 +12,7 @@ from scipy import stats
 import time
 
 import matplotlib.pylab as plt
+from matplotlib.collections import LineCollection
 plt.ion()
 
 # While developing, import the parent modules for the transformations
@@ -1492,6 +1493,11 @@ def traceplot(neval=10, \
 
     """Evaluates the flat samples on a grid of coords"""
 
+    # Comment: also shades by auxiliary (per-sample) quantity. Here
+    # it's hardcoded to lnprobs, but we could imagine generalzing that
+    # if needed. Samples_z is actually implemented in EvaluateSet, but
+    # we drop back to ES.lnprob when actually plotting.
+    
     if not paths_ok([pathpset, pathflat]):
         print("traceplot WARN - not all paths readable: ", \
               [pathpset, pathflat])
@@ -1548,18 +1554,10 @@ def traceplot(neval=10, \
     ax1.set_ylabel(r'$\eta$')
     fig1.suptitle('traceplot (%i samples)' % (neval))
     
-    # now we use line plots. matplotlib has a linecollection
-    # capability that might make this faster. For the moment we do
-    # things in a simpler way:
-
-    # 2025-06-22 - COME BACK TO THIS with the plot color computed from
-    # the lnprobs.
-    cmap = plt.get_cmap(scmap)
-    zscal = np.array([])
-    if np.size(ES.lnprob) > 0:
-        zscal=ES.lnprob - np.min(ES.lnprob)
-        zscal /= (np.max(ES.lnprob) - np.min(ES.lnprob))
-    
+    # Line collection coordinates and aux values
+    linecoos = []
+    zvals = []
+        
     line_ids = np.unique(ES.grid_whichline)
     for lineid in line_ids:
         bthisline = ES.grid_whichline == lineid
@@ -1568,21 +1566,34 @@ def traceplot(neval=10, \
             xthis = ES.samples_xi[isho][bthisline]
             ythis = ES.samples_eta[isho][bthisline]
 
+            # We plot the very first one in black
             if isho < 1:
                 color = 'k'
                 zorder=10
                 alpha=0.5
-            else:
-                if np.size(zscal) > 0:
-                    color = cmap(zscal[isho])
-                else:
-                    color='b'
-                zorder=1
-                alpha=0.02
-            
-            dum = ax1.plot(xthis, ythis, \
+
+                # Ensure we plot the "black" example
+                dum = ax1.plot(xthis, ythis, \
                            color=color, zorder=zorder, \
                            alpha=alpha)
+            else:
+                linecoos.append(np.column_stack((xthis, ythis)))
+                if np.size(ES.lnprob) > 0:
+                    #color = cmap(zscal[isho])
+                    zvals.append(ES.lnprob[isho])
+                    color=None
+                else:
+                    color='b'
+            
+    # try the line collection
+    linecoll = LineCollection(linecoos, array=np.array(zvals), \
+                              cmap=scmap, alpha=0.02, zorder=1, \
+                              color=color)
+    ax1.add_collection(linecoll)
+
+    if np.size(ES.lnprob) > 0:
+        cbar = fig1.colorbar(linecoll, label="lnprob")
+        cbar.solids.set(alpha=1.0)
     
     #for isho in range(neval):
         #dum2 = ax1.scatter(ES.samples_xi[isho], ES.samples_eta[isho], s=.5, \
