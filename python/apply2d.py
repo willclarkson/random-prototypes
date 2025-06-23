@@ -1488,7 +1488,7 @@ Inputs:
 def traceplot(neval=10, \
               pathpset='test_parset_guess_poly_deg2_n100.txt', \
               pathflat='test_flat_fitPoly_100_order2fit2_noprior_run1.npy', \
-              pathlnprobs=''):
+              pathlnprobs='', scmap='RdBu'):
 
     """Evaluates the flat samples on a grid of coords"""
 
@@ -1554,6 +1554,11 @@ def traceplot(neval=10, \
 
     # 2025-06-22 - COME BACK TO THIS with the plot color computed from
     # the lnprobs.
+    cmap = plt.get_cmap(scmap)
+    zscal = np.array([])
+    if np.size(ES.lnprob) > 0:
+        zscal=ES.lnprob - np.min(ES.lnprob)
+        zscal /= (np.max(ES.lnprob) - np.min(ES.lnprob))
     
     line_ids = np.unique(ES.grid_whichline)
     for lineid in line_ids:
@@ -1568,7 +1573,10 @@ def traceplot(neval=10, \
                 zorder=10
                 alpha=0.5
             else:
-                color='b'
+                if np.size(zscal) > 0:
+                    color = cmap(zscal[isho])
+                else:
+                    color='b'
                 zorder=1
                 alpha=0.02
             
