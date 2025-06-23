@@ -857,6 +857,127 @@ Returns:
 
 ##### test routines follow
 
+def sample_transf(neval=250, \
+                  pathpset='test_parset_guess_poly_deg2_n100.txt', \
+                  pathflat='test_flat_fitPoly_100_order2fit2_noprior_run1.npy',\
+                  pathobs='test_obs_src.dat', \
+                  pathtarg='test_obs_targ.dat', \
+                  pathlnprobs='', scmap='rainbow_r', \
+                  alpha=0.5):
+
+    """Maps (selected) observed points onto the target frame, using
+samples from the MCMC as transformation parameters
+
+    """
+
+    # Need to think about this a little more, because observational
+    # uncertainty can also be large... We probably want to compare to
+    # the transformed src observations under the truth transformation,
+    # rather than the observed transformations (since the latter has
+    # also been perturbed by measurement uncertainty)
+
+    lpaths = [pathpset, pathflat, pathobs]
+    if not paths_ok(lpaths):
+        print("sample_transf WARN - not all paths readable:", lpaths)
+        return
+
+    # evaluation set
+    ES = Evalset(pathpset=pathpset, \
+                 pathflat=pathflat, pathobs=pathobs, \
+                 pathlnprobs=pathlnprobs, neval=neval)
+    ES.getobs()
+    ES.getsamples()
+    ES.getlnprobs()
+
+    # Pass the observed data to the object (this might need one more
+    # instance-level method):
+    ES.xy = np.copy(ES.obset.xy)
+
+    # Apply the truth transformation to the source positions
+    ES.setdata()
+    ES.transf.tranpos()
+    truth_xi = np.copy(ES.transf.xtran)
+    truth_eta = np.copy(ES.transf.ytran)
+    
+    ES.setupsamples_xieta()
+    ES.setupsamples_z()
+    
+    print("sample_transf INFO - running samples...")
+    ES.runsamples_pars()
+    print("sample_transf INFO - ... done.")
+
+    ## Load some "observed" objects to see how predicted and actual
+    ## positions compare...
+    obstar = None
+    if os.access(pathtarg, os.R_OK):
+        obstar = obset2d.Obset()
+        obstar.readobs(pathtarg, strictlimits=False)
+
+    #print("OBSTARG:", obstar.xy.shape)
+    
+    # Now we pick a few objects
+    lsho = np.arange(4)
+    
+    # Find a background object
+    if np.size(ES.obset.isfg) > 0:
+        gbg = np.where(ES.obset.isfg < 1)[0]
+        lsho[2] = gbg[0]
+
+    # minmax for uniform color range for all plots
+    vmin = np.min(ES.samples_z)
+    vmax = np.max(ES.samples_z)
+        
+    figscatt = plt.figure(3, figsize=(10,10))
+    lax = []
+    scatts=[]
+    for isho in range(len(lsho)):
+        ax = figscatt.add_subplot(2,2,isho+1)
+        jobj = lsho[isho]
+        thisx = ES.samples_xi[:,jobj]
+        thisy = ES.samples_eta[:,jobj]
+        thisz = ES.samples_z[:,jobj]
+
+        dumscatt = ax.scatter(thisx, thisy, c=thisz, vmin=vmin, vmax=vmax, \
+                              cmap=scmap, s=9, alpha=alpha, \
+                              label='Samples', zorder=15)
+
+        # Show the target object
+        truthx = truth_xi[jobj]
+        truthy = truth_eta[jobj]
+        dumtruth = ax.scatter(truthx, truthy, marker='x', color='g', \
+                              zorder=1, s=81, label='Transformed "truth"')
+
+        if hasattr(obstar, 'xy'):
+            targx = obstar.xy[jobj,0]
+            targy = obstar.xy[jobj,1]
+
+            dumtar = ax.scatter(targx, targy, marker='+', color='b', \
+                              zorder=1, \
+                                s=64, label='Observed')
+
+        
+        # Show the isfg
+        ax.set_title('is foreground: %i' % (ES.obset.isfg[jobj]))
+
+        leg = ax.legend()
+        
+        # axis handles so we can access them later
+        lax.append(ax)
+        scatts.append(dumscatt)
+
+    cbar = figscatt.colorbar(scatts[-1], ax=lax[-1])
+    cbar.solids.set(alpha=1.0)
+
+    print(lsho, ES.obset.isfg[lsho])
+
+    for i in range(2,4):
+        lax[i].set_xlabel(r'$\xi$')
+
+    lax[0].set_ylabel(r'$\eta$')
+    lax[2].set_ylabel(r'$\eta$')
+
+    figscatt.subplots_adjust(hspace=0.3, wspace=0.3)
+    
 def eval_uncty(neval=250, \
                pathpset='test_parset_guess_poly_deg2_n100.txt', \
                pathflat='test_flat_fitPoly_100_order2fit2_noprior_run1.npy', \
