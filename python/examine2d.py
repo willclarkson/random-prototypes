@@ -30,6 +30,9 @@ import corner
 from scipy.special import expit
 from sklearn.linear_model import LogisticRegression
 
+# For identifying rogue burn-in chains
+from sklearn.cluster import DBSCAN
+
 # For serializing the parameters and their covariances
 import pickle
 
@@ -704,7 +707,55 @@ and background"""
         # now serialize this to disk
         with open(outpath, 'wb') as wobj:
             pickle.dump(parset, wobj)
-        
+
+def splitclusters(logprob=np.array([]), eps=0.3):
+
+    """
+    Clusters by ln(prob).
+
+    Inputs:
+
+    logprob = [N] - array on which to cluster
+
+    eps = minimum separation parameter for sklearn's DBSCAN
+
+    Returns:
+
+    labels - [N] array of cluster labels
+
+    medns - median logprob for each cluster
+
+    lens - number of members of each cluster
+
+    """
+
+    # ... or we could just return the cluster itself?
+
+    if np.size(logprob) < 1:
+        return np.array([]), np.array([])
+
+    dbs = DBSCAN(eps=eps)
+
+    # Get input into the right shape
+    if np.ndim(logprob) < 2:
+        arr2d = logprob.reshape(-1,1)
+    else:
+        arr2d = logprob
+
+    # fit the dbscan to the data
+    dbs.fit(arr2d)
+
+    # now set the labels and find the medians
+    medians = []
+    sizes = []
+    ulabs = np.unique(dbs.labels_)
+    for lab in ulabs:
+        bthis = dbs.labels_ == lab
+        medians.append(np.median(logprob[bthis]))
+        sizes.append(np.sum(bthis))
+
+    return dbs.labels_, np.array(medians), np.array(sizes)
+    
 def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
               pathfig='test_guess_deltas.png', \
               pathfignoise='test_guess_noise.png', \
