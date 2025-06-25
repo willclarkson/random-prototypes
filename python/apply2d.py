@@ -944,15 +944,15 @@ samples from the MCMC as transformation parameters
         # Show the target object
         truthx = truth_xi[jobj]
         truthy = truth_eta[jobj]
-        dumtruth = ax.scatter(truthx, truthy, marker='x', color='g', \
-                              zorder=1, s=81, label='Transformed "truth"')
+        dumtruth = ax.scatter(truthx, truthy, marker='x', color='k', \
+                              zorder=25, s=81, label='Transformed "truth"')
 
         if hasattr(obstar, 'xy'):
             targx = obstar.xy[jobj,0]
             targy = obstar.xy[jobj,1]
 
-            dumtar = ax.scatter(targx, targy, marker='+', color='b', \
-                              zorder=1, \
+            dumtar = ax.scatter(targx, targy, marker='+', color='k', \
+                              zorder=25, \
                                 s=64, label='Observed')
 
         
