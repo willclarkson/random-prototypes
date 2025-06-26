@@ -26,6 +26,8 @@ import sixterm2d
 # For serializing sim info to disk
 import configparser
 
+# for handling observations
+from obset2d import Obset
 
 class MCMCrun(object):
 
@@ -44,15 +46,28 @@ multiprocessing.
                  lsq_uncty_trick=True,\
                  boots_ignoreweights=False,\
                  npoints_sim=None, \
+                 path_obs='', path_targ='', \
+                 simulating=True, \
                  Verbose=True):
 
         # Control variables
         self.Verbose = Verbose
 
+        # Are we trying to simulate or to use data?
+        self.simulating = simulating 
+        
         # If simulating, ignore the truth values when setting up the
         # guess?
         self.ignoretruth = ignoretruth
 
+        # if NOT simulating, we need data! These are the paths to the
+        # observation-frame and target-frame datafiles, and the
+        # instance-level observation objects populated from them.
+        self.path_obs = path_obs[:]
+        self.path_targ = path_targ[:]
+        self.Obssrc = Obset()
+        self.Obstarg = Obset()
+        
         # Do non-parametric bootstrapping on polynomial? If so, ignore
         # weights?
         self.doboots_poly = doboots_poly
@@ -170,7 +185,17 @@ dataset"""
 
         """Sets up the guess object"""
 
-        self.guess = Guess(self.sim.Obssrc, self.sim.Obstarg)
+        # Although awkward, this probably is the right place to make
+        # this distinction. We can imagine that we might want to
+        # control the option to use the simulated or actual data in a
+        # run.
+        
+        if self.simulating:
+            self.guess = Guess(self.sim.Obssrc, self.sim.Obstarg)
+        else:
+            self.guess = Guess(self.Obssrc, self.Obstarg)
+            
+            
         self.guess.loadconfig(self.parfile_guess)
 
         
@@ -861,7 +886,18 @@ this something we can input into an mcmc run on actual data"""
                   jitters[idum], \
                   jitters[idum]/np.abs(centers[idum]) )
         print("-------------------------------------------------")
-            
+
+    def readdata(self):
+
+        """Reads source/target data if we already have any"""
+
+        if not os.access(self.path_obs, os.R_OK) or \
+           not os.access(self.path_targ, os.R_OK):
+            return
+
+        self.Obssrc.readobs(self.path_obs)
+        self.Obstarg.readobs(self.path_targ)
+        
     def doguess(self, norun=False):
 
         """Wrapper - sets up and performs initial fit to the data to serve as
@@ -986,7 +1022,8 @@ def setupmcmc(pathsim='test_sim_mixmod.ini', \
               lsq_uncty_trick=True,\
               boots_ignoreweights=False,\
               pathboots='test_boots.npy', \
-              npoints_arg=None):
+              npoints_arg=None, \
+              pathobs='', pathtarg='', pathtruth=''):
 
     """Sets up for mcmc simulations. 
 
@@ -1019,6 +1056,13 @@ Inputs:
     overriding the choice in the simulation parameter file. Default is
     not to override.
 
+    pathobs = path to canned observation set
+
+    pathtarg = path to canned target set
+
+    pathtruth = path to truth parameters that were used to generate
+    the canned observations.
+
 Returns:
 
     esargs = dictionary of arguments for the ensemble sampler
@@ -1030,26 +1074,52 @@ Returns:
     """
 
     # par files must exist!
+    simulating = False  # we could use a more sophisticated test
+                       # later...
+                       
     if not parspaths_exist(pathfit, pathsim):
-        return None, None, None
-    print("mcmc2d.setupmcmc INFO - found sim, guess files %s, %s" \
-          % (pathsim, pathfit))
-    
+        if not parspaths_exist(pathobs, pathtarg):
+            return None, None, None
+        else:
+            print("mcmc2d.setupMCMC INFO - found obs files %s, %s" \
+                  % (pathobs, pathtarg))
+    else:
+        simulating = True
+        print("mcmc2d.setupmcmc INFO - found sim, guess files %s, %s" \
+              % (pathsim, pathfit))
+        
     mc = MCMCrun(pathsim, pathfit, chainlen, pathprior, \
                  pathjitter=pathjitter, ignoretruth=ignoretruth, \
                  doboots_poly=doboots_poly, nboots=nboots, \
                  lsq_uncty_trick=lsq_uncty_trick, \
                  boots_ignoreweights=boots_ignoreweights, \
-                 npoints_sim=npoints_arg)
-    mc.dosim()
+                 npoints_sim=npoints_arg, \
+                 path_obs=pathobs, path_targ=pathtarg, \
+                 simulating=simulating)
+
+    # read canned data if we have any
+    mc.readdata()
+
+    if mc.simulating:
+        mc.dosim()
+    else:
+        # Create the "sim" object to hold the truth parameters - if we
+        # know them!!
+        mc.sim = sim2d.Simdata()
+        mc.sim.Parset.readparset(pathtruth)
+
+        print("Imported truthset INFO:", mc.sim.Parset.pars)
+
     mc.doguess(norun=debug)
-    
+
     print("MC debug:")
+    print("==========")
     print(mc.sim.Parset.model)
     print(mc.guess.Parset.model)
     if mc.guess_parset is not None:
-        print(mc.guess_parset.model)
+        print("MC INFO - guess parset:", mc.guess_parset.model)
 
+        
     print("MCMC prior debug:")
     print(mc.lnprior.withgauss)
     print(mc.lnprior.gaussprior.lpars)
@@ -1062,6 +1132,7 @@ Returns:
     mc.setupwalkers()
     mc.setargs_emcee()
 
+   
     #print("setupMCMC INFO - fracdiff:", mc.fracdiff.pars)
     #print("setupMCMC INFO - scaleguess:", mc.scaleguess)
     
