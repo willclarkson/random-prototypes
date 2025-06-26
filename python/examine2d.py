@@ -141,6 +141,17 @@ Inputs:
         self.lstsq_covars = np.array([])
         self.labels_transf = None
 
+        # Clusters by likelihood values (sometimes rogue burn-in
+        # chains can slip in). Default is that all objects belong to
+        # the main cluster. We retain the labels (rather than creating
+        # a new instance per cluster) because we might be interested
+        # in the comparison, and retaining the labels allows this at
+        # the cost of more instance attributes.
+        self.clusterid = np.array([])
+        self.clustermeds = np.array([])
+        self.ismain = np.array([])
+        self.initclusters()                                
+                                   
         # Statistics on projected deltas, binned by magnitude
         self.binstats_fg = None
         self.binstats_bg = None
@@ -158,6 +169,9 @@ Inputs:
         self.countdata()
         self.getsimisfg()
         self.unpacktruths()
+
+        # Classify by lnprob cluster
+        self.clusterbylogprob()
         
         # Compute the parameter medians and covariances among the flat
         # samples
@@ -316,6 +330,38 @@ them"""
         # Set instance attribute for the xy observations projected
         # onto the target frame using these truth parameters
         self.setobjontruth()
+
+    def initclusters(self):
+
+        """Initializes the cluster IDs"""
+
+        if self.nsamples < 1:
+            self.clusterid = np.array([])
+            self.clustermeds = np.array([])
+            self.ismain = np.array([])
+            return
+
+        self.clusterid = np.zeros(self.nsamples)
+        self.ismain = np.repeat(True, self.nsamples)
+        self.clustermeds = np.array([0.])
+        
+    def clusterbylogprob(self):
+
+        """Identifies clusters by lnprob"""
+
+        if self.nsamples < 2:
+            return
+
+        if np.size(self.log_probs) < 2:
+            return
+
+        # Find the clusters
+        self.clusterid, self.clustermeds, ulabs = \
+            splitclusters(self.log_probs)
+
+        # which has the maximum median lnprob
+        imax = np.argmax(self.clustermeds)
+        self.ismain = self.clusterid == ulabs[imax]
         
     def computeresps(self, samplesize=-1, keepmaster=True, \
                      ireport=1000, Verbose=True, \
@@ -725,7 +771,7 @@ def splitclusters(logprob=np.array([]), eps=0.3):
 
     medns - median logprob for each cluster
 
-    lens - number of members of each cluster
+    ulabs - unique labels in the same order as medns
 
     """
 
@@ -754,7 +800,38 @@ def splitclusters(logprob=np.array([]), eps=0.3):
         medians.append(np.median(logprob[bthis]))
         sizes.append(np.sum(bthis))
 
-    return dbs.labels_, np.array(medians), np.array(sizes)
+    return dbs.labels_, np.array(medians), ulabs
+
+def ismaincluster(logprobs=np.array([]), eps=2.):
+
+    """Returns boolean for objects that lie within the main cluster of
+lnprobs. 
+
+    Inputs:
+
+    logprobs = [N] - element array that will be split into clusters
+
+    eps = minimum-distance parameter for the dbscan cluster
+
+    Returns:
+
+    bmain = [N] - element boolean array: whether the object is part of
+    the cluster with the largest median logprob (NOT necessarily the
+    largest cluster)?
+
+    """
+
+    # Written as a method here because I'm still not sure if this is
+    # best encapsulated into FlatSamples instances...
+
+    if np.size(logprobs) < 1:
+        return np.array([])
+
+    labels, medns, ulabs = splitclusters(logprobs, eps)
+    imax = np.argmax(medns)
+    
+    return labels == ulabs[imax]
+    
     
 def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
               pathfig='test_guess_deltas.png', \
