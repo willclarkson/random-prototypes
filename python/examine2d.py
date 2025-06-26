@@ -2455,6 +2455,9 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
 
     """
 
+    # 2025-06-25: this needs a way to use the FlatSamples.ismain
+    # attribute if it's present (or ignore it if we so choose).
+    
     # This will probably duplicate some of the functionality of
     # showcorner() above, since we want to do something fairly
     # specific here. Go for readability now, the two could perhaps be
