@@ -754,7 +754,7 @@ and background"""
         with open(outpath, 'wb') as wobj:
             pickle.dump(parset, wobj)
 
-def splitclusters(logprob=np.array([]), eps=0.3):
+def splitclusters(logprob=np.array([]), eps=1.):
 
     """
     Clusters by ln(prob).
@@ -831,8 +831,8 @@ lnprobs.
     imax = np.argmax(medns)
     
     return labels == ulabs[imax]
-    
-    
+
+
 def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
               pathfig='test_guess_deltas.png', \
               pathfignoise='test_guess_noise.png', \
@@ -2384,7 +2384,9 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                 ticklabelsize=6, \
                 rescale=False, round3=False, \
                 deg2arcsec=False, \
-                arcsecperpix=True):
+                arcsecperpix=True, \
+                usemaincluster=False, \
+                redoclusters=False):
 
     """Exoerimental method - show two sets of corner plots.
 
@@ -2449,15 +2451,19 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     arcsecperpix = scale factors sx, sy in arcsec per pixel (assumes
     target frame in degrees, source frame in pixels)
 
+    usemaincluster = if present, use the samples present in the "main"
+    cluster by likelihood (this is for the case where some very small
+    number of rogue burn-in samples have slipped in).
+
+    redoclusters = find the lnprob clusters if not already present in
+    the flatsamples object
+
     OUTPUTS 
 
     None - figure is drawn
 
     """
 
-    # 2025-06-25: this needs a way to use the FlatSamples.ismain
-    # attribute if it's present (or ignore it if we so choose).
-    
     # This will probably duplicate some of the functionality of
     # showcorner() above, since we want to do something fairly
     # specific here. Go for readability now, the two could perhaps be
@@ -2498,7 +2504,43 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
         if not 'inds_abc' in FSS[iset].showargs['corner'].keys():
             print("multicorner WARN - inds_abc not in showargs keys for FS %i")
             return
-            
+
+        # because we have read these in as files, the flat_samples,
+        # log_probs and nsamples are all attributes of the local
+        # instance, which are not currently returned or used by
+        # anything else. So we can safely modify them in-place. So -
+        # here we cut out the rogue burn-ins if asked.
+        if not usemaincluster:
+            continue
+
+        sstart="" # For reporting status to screen later on
+        if not hasattr(FSS[iset],'ismain'):
+            if not redoclusters:
+                continue
+            else:
+                print("examine2d.multicorner INFO - isolating main logprob cluster for set %i (%s)..." % (iset, llabels[iset] ), end="")
+                FSS[iset].clusterbylogprob()
+        else:
+
+            # what to put at the start of the status line
+            sstart="examine2d.multicorner INFO - trimmed set %i (%s):" \
+                % (iset, llabels[iset])
+                
+        ismain = FSS[iset].ismain
+        if np.size(ismain) != FSS[iset].nsamples:
+            continue
+
+        if np.sum(~ismain) < 1:
+            continue
+        
+        # ok now we can trim!
+        print("%s %i of %i" \
+              % (sstart, np.sum(ismain), np.size(ismain) ))
+        FSS[iset].flat_samples = FSS[iset].flat_samples[ismain,:]
+        FSS[iset].log_probs = FSS[iset].log_probs[ismain]
+        FSS[iset].countsamples()
+        
+        
     # now we can proceed! Set up the figure:
     figc = plt.figure(fignum, figsize=(8,7))
     figc.clf()
