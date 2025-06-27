@@ -2371,7 +2371,7 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                 alpha=0.75, \
                 lFS = [], \
                 pathfig='test_multicorner.png', \
-                convert_linear=False, \
+                convert_linear=True, \
                 linestyles=['solid', 'dashed', 'dashdot', 'dotted'], \
                 linewidths=[1, 1., 1., 1.], \
                 levels=[0.393, 0.864], \
@@ -2382,11 +2382,12 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
                 scmap='', cmapmax=0.9, \
                 zorders=[], \
                 ticklabelsize=6, \
-                rescale=False, round3=False, \
-                deg2arcsec=False, \
+                rescale=True, round3=False, \
+                deg2arcsec=True, \
                 arcsecperpix=True, \
-                usemaincluster=False, \
-                redoclusters=False):
+                usemaincluster=True, \
+                redoclusters=True, \
+                pathlis=''):
 
     """Exoerimental method - show two sets of corner plots.
 
@@ -2458,6 +2459,9 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     redoclusters = find the lnprob clusters if not already present in
     the flatsamples object
 
+    pathlis = path to list of flat samples and labels (can be quicker
+    to edit a parameter file than to use the cursor on the terminal)
+
     OUTPUTS 
 
     None - figure is drawn
@@ -2478,6 +2482,18 @@ def multicorner(lsamples=['eg10_mix_twoframe_flatsamples_n100_noobs.npy', \
     # possible.
     FSS = []
 
+    # Allow list of samples and labels to be passed in from parameter
+    # file
+    lFS_in, llabels_in = loadsampleslist(pathlis, checkpaths=True)
+
+    if len(lFS_in) > 0:
+        lFS = lFS_in[:]
+        llabels = llabels_in[:]
+
+        print("examine2d.multicorner INFO - loading flatsamples from paths:")
+        for path in lFS:
+            print("examine2d.multicorner INFO - %s" % (path))
+        
     # If a list of flatsamples pickles was passed, use that in
     # preference to the piece-by-piece
     if len(lFS) > 1:
@@ -2961,3 +2977,72 @@ strings
         bany = bany + bthis
 
     return bany
+
+def loadsampleslist(pathlist='', checkpaths=True):
+
+    """Loads list of flat samples for multicorner.
+
+    INPUT:
+
+    pathlist = ascii file containing the paths and labels for the flat
+    samples to go into multicorner. 
+
+    checkpaths = only include paths that are readable
+
+    The path list must have the following format:
+
+           ./path/to/samples.pickle
+           label
+
+    i.e. the path and label are on alternating lines (to make the
+    files easier to edit from the command line). Lines beginning with
+    "#" are ignored.
+
+    Output:
+
+    lpaths = list of paths to flat samples
+
+    labels = list of labels for plot
+
+    """
+
+    # Written because it's faster to manipulate parameter files than
+    # it is to drag the cursor back and forth on the ipython command
+    # line.
+    
+    if not os.access(pathlist, os.R_OK):
+        return [], []
+
+    paths = []
+    labels = []
+    
+    with open(pathlist, 'r') as robj:
+        count = 0
+        for line in robj:
+
+            # ignore comments and blank lines
+            if line[0].find('#') > -1 or len(line.strip()) < 1:
+                continue
+
+            line = line.strip()
+            
+            if count % 2 == 0:
+                paths.append(line)
+            else:
+                labels.append(line)
+
+            count = count + 1
+
+    if checkpaths:
+        pout = []
+        lout = []
+
+        for ipath in range(len(paths)):
+            if os.access(paths[ipath], os.R_OK):
+                pout.append(paths[ipath])
+                lout.append(labels[ipath])
+
+        return pout, lout
+
+    # If we are NOT checking readability, just return what we read in
+    return paths, labels
