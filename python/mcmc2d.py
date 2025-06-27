@@ -11,6 +11,7 @@ import os, time
 import numpy as np
 
 import pickle
+import copy
 
 from scipy.optimize import minimize
 
@@ -118,6 +119,13 @@ multiprocessing.
         self.minimizer_options = {'maxiter':5000}
         self.guess_parset = None
 
+        # For resampling the data when trying to estimate scatter
+        self.resample_seed = None
+        self.resample_scalefac = 0.1 # rescale from resample to jitter
+        self.resample_fsample = 0.9 # fraction to draw resample
+        self.resample_solns = np.array([])
+        self.resample_jitter = np.array([])
+        
         # Comparison between the guess and the 'truth' parameters
         # (useful for scaling the jitter ball)
         self.fracdiff = None
@@ -271,6 +279,131 @@ the target frame, update, and re-weight"""
 
         self.argspost = (self.guess.PGuess, self.guess.obstarg, \
                          self.guess.Parset, self.lnprior, self.lnlike)
+
+    def getargspost_subset(self, fsampl=0.8):
+
+        """Assembles minimizer arguments for a subsample of the datapoints.
+
+        INPUTS
+
+        fsampl = fraction of data sample to draw (note this will be
+        random integers with replacement)
+
+        RETURNS
+
+        argspost = tuple of arguments to feed to the minimizer
+
+        COMMENTS
+
+        Attribute self.argspost needs to be set.
+
+        """
+
+        if len(self.argspost) < 5:
+            return ()
+
+        ndata = self.argspost[0].x.size
+
+        # Generate sample indices
+        nsim = int(ndata * fsampl)
+        rng = np.random.default_rng(self.resample_seed)
+        lsam = rng.integers(0,ndata,nsim)
+
+        # OK now we (re)construct the pieces with these samples.
+        pguess = copy.deepcopy(self.argspost[0])
+        pguess.updatedata(pguess.x[lsam], \
+                          pguess.y[lsam], \
+                          pguess.covxy[lsam])
+        pguess.initxytran()
+        
+        obstarg = copy.deepcopy(self.argspost[1])
+        for attr in ['xy','covxy','mags','isfg']:
+            setattr(obstarg, attr, getattr(obstarg,attr)[lsam])
+        obstarg.countpoints()
+
+        # We have to trim the pset object too...
+        pset = copy.deepcopy(self.argspost[2])
+
+        lnprior = self.argspost[3]
+        
+        # Construct a new lnlike object rather than modifying in place
+        lnlike = Like(pset, pguess, obstarg)
+
+        # Retain these debug comments for the moment...
+        #print("getargspost INFO")
+        #print("0:",self.argspost[0].x.size)
+        #print("0':",pguess.x.size)
+        #print("1:", self.argspost[1].xy.shape)
+        #print("1':", obstarg.xy.shape)
+                    
+        #print("4:", self.argspost[4].transf.x.shape)
+        #print("4:", self.argspost[4].xytarg.shape)
+
+        #print("4':", lnlike.transf.x.shape)
+        #print("4':", lnlike.xytarg.shape)
+
+        return (pguess, obstarg, pset, lnprior, lnlike)
+    
+    def minimize_on_subset(self, fsampl=0.8, Verbose=True):
+
+        """Draws random sample with replacement and runs the minimizer on
+it."""
+
+        if len(self.argspost) < 1:
+            print("minimize_on_subset WARN - main argspost not yet set.")
+            return
+        
+        # Draw the subset and get the arguments for the minimizer
+        argssub = self.getargspost_subset(fsampl)
+        ufunc = lambda *args: 0.-self.methpost(*args)
+
+        if Verbose:
+            print("minimize_on_subset INFO - starting on subset...", \
+                  end="")
+            t0 = time.time()
+            
+        soln = minimize(ufunc, \
+                        self.guess1d, \
+                        args = argssub, \
+                        method = self.minimizer_method, \
+                        options = self.minimizer_options)
+
+        if Verbose:
+            print(" done in %.2e seconds" % (time.time() - t0))
+
+        if np.size(self.resample_solns) < 1:
+            self.resample_solns = np.copy(soln.x)
+        else:
+            self.resample_solns = np.vstack(( self.resample_solns, soln.x ))
+
+    def estjitter_from_resamples(self, fsample = -1.):
+
+        """Estimates the jitter by re-fitting to resamples from the data.
+        
+        INPUTS
+
+        fsample = fraction of the data that will be resampled. Set <0
+        to accept the already-set attribute
+
+        OUTPUTS
+
+        none - updates attributes.
+
+        """
+
+        # Update the attribute with argument if in the right range.
+        if 0 < fsample <= 1.:
+            self.resample_fsample = fsample
+            
+        
+        self.resample_solns = np.array([])
+        for iset in range(2):
+            self.minimize_on_subset(self.resample_fsample)
+
+        diffs = np.abs(self.resample_solns[1] - self.resample_solns[0])
+
+        # just send up the diffs
+        self.resample_jitter = diffs * self.resample_scalefac
         
     def setuplnprior(self):
 
@@ -560,6 +693,13 @@ walker positions"""
         self.setjitterscale()
         self.jitterfromguess()
 
+        # This probably needs a bit of refactoring... We probably
+        # don't want to be switching in the "empirical" jitter here.
+        if np.size(self.resample_jitter) == np.size(self.walkers_jitters):
+            print("setupwalkers INFO - switching in resampling-based jitters")
+            self.jitters_old = np.copy(self.walkers_jitters)
+            self.walkers_jitters = np.copy(self.resample_jitter)
+            
         # Override jitter with estimate from file
         if len(self.pathjitter) > 3:
             print("setupwalkers INFO - attempting to read jitters from %s" \
@@ -1023,7 +1163,8 @@ def setupmcmc(pathsim='test_sim_mixmod.ini', \
               boots_ignoreweights=False,\
               pathboots='test_boots.npy', \
               npoints_arg=None, \
-              pathobs='', pathtarg='', pathtruth=''):
+              pathobs='', pathtarg='', pathtruth='', \
+              jitterfromsamples=False):
 
     """Sets up for mcmc simulations. 
 
@@ -1062,6 +1203,9 @@ Inputs:
 
     pathtruth = path to truth parameters that were used to generate
     the canned observations.
+
+    jitterfromsamples = attempt to estimate the jitter by using the
+    minimizer on two samples of the dataset.
 
 Returns:
 
@@ -1129,10 +1273,22 @@ Returns:
     if debug:
         return 
 
+    if jitterfromsamples:
+        mc.estjitter_from_resamples(0.9)
+        
     mc.setupwalkers()
     mc.setargs_emcee()
 
-   
+    # Print the jitters
+    if hasattr(mc, 'jitters_old'):
+        
+        print("Jitter comparison:")
+        print("==================")
+        print("Resampling:")
+        print(mc.resample_jitter)
+        print("Current method:")
+        print(mc.jitters_old)
+        
     #print("setupMCMC INFO - fracdiff:", mc.fracdiff.pars)
     #print("setupMCMC INFO - scaleguess:", mc.scaleguess)
     
