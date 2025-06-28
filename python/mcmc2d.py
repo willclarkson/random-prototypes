@@ -404,6 +404,35 @@ it."""
 
         # just send up the diffs
         self.resample_jitter = diffs * self.resample_scalefac
+
+    def bootstrap_jitter(self, nboots=1000, fsample=1., \
+                         pathboots='test_nonparam_full.npy'):
+
+        """Uses the machinery of jitter to perform a kind of nonparametric
+bootstrap with the full minimizer"""
+
+        # do nothing if we don't want to actually do this...
+        if nboots < 1:
+            return
+        
+        self.resample_solns = np.array([])
+
+        t0 = time.time()
+        for iset in range(nboots):
+            self.minimize_on_subset(fsample, Verbose=False)
+
+            if iset % 10 == 1:
+                print("bootstrap_jitter INFO: on set %i after %.2e sec" \
+                      % (iset, time.time()-t0), end="\r")
+
+                np.save(pathboots, self.resample_solns)
+
+        # Clear the newline
+        print("")
+                
+        # since we're still developing, write this to disk now
+        np.save(pathboots, self.resample_solns)
+        
         
     def setuplnprior(self):
 
@@ -1164,7 +1193,8 @@ def setupmcmc(pathsim='test_sim_mixmod.ini', \
               pathboots='test_boots.npy', \
               npoints_arg=None, \
               pathobs='', pathtarg='', pathtruth='', \
-              jitterfromsamples=False):
+              jitterfromsamples=False, \
+              nonparam_minimizer=0):
 
     """Sets up for mcmc simulations. 
 
@@ -1206,6 +1236,9 @@ Inputs:
 
     jitterfromsamples = attempt to estimate the jitter by using the
     minimizer on two samples of the dataset.
+
+    nonparam_minimizer = number of bootstraps to try with the
+    minimizer [under development]
 
 Returns:
 
@@ -1275,7 +1308,15 @@ Returns:
 
     if jitterfromsamples:
         mc.estjitter_from_resamples(0.9)
-        
+
+    # 2025-06-27: try launching nonparamtric bootstraps now.
+    mc.bootstrap_jitter(nboots = nonparam_minimizer, \
+                        fsample = 1)
+
+    if nonparam_minimizer > 1:
+        print("Now check nonparametric bootstrap output")
+        return None, None, None
+    
     mc.setupwalkers()
     mc.setargs_emcee()
 
