@@ -422,7 +422,7 @@ bootstrap with the full minimizer"""
             self.minimize_on_subset(fsample, Verbose=False)
 
             if iset % 10 == 1:
-                print("bootstrap_jitter INFO: on set %i of %i after %.2e sec" \
+                print("bootstrap_jitter INFO: set %i of %i after %.2e sec..." \
                       % (iset, nboots, time.time()-t0), end="\r")
 
                 np.save(pathboots, self.resample_solns)
