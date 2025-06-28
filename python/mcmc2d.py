@@ -124,6 +124,7 @@ multiprocessing.
         self.resample_scalefac = 0.1 # rescale from resample to jitter
         self.resample_fsample = 0.9 # fraction to draw resample
         self.resample_solns = np.array([])
+        self.resample_lnprobs = np.array([])
         self.resample_jitter = np.array([])
         
         # Comparison between the guess and the 'truth' parameters
@@ -344,7 +345,8 @@ the target frame, update, and re-weight"""
 
         return (pguess, obstarg, pset, lnprior, lnlike)
     
-    def minimize_on_subset(self, fsampl=0.8, Verbose=True):
+    def minimize_on_subset(self, fsampl=0.8, Verbose=True, \
+                           dolnprob=False):
 
         """Draws random sample with replacement and runs the minimizer on
 it."""
@@ -371,11 +373,18 @@ it."""
         if Verbose:
             print(" done in %.2e seconds" % (time.time() - t0))
 
-        if np.size(self.resample_solns) < 1:
+        # Because the objective function *is* lnprob (or more
+        # properly, ln(like) if doing non-paramtric bootstraps), we
+        # get it for free:
+            
+        if self.resample_solns.size < 1:
             self.resample_solns = np.copy(soln.x)
+            self.resample_lnprobs = np.array([soln.fun])
         else:
             self.resample_solns = np.vstack(( self.resample_solns, soln.x ))
-
+            self.resample_lnprobs = np.hstack(( self.resample_lnprobs, \
+                                                soln.fun ))
+            
     def estjitter_from_resamples(self, fsample = -1.):
 
         """Estimates the jitter by re-fitting to resamples from the data.
@@ -406,7 +415,8 @@ it."""
         self.resample_jitter = diffs * self.resample_scalefac
 
     def bootstrap_jitter(self, nboots=1000, fsample=1., \
-                         pathboots='test_nonparam_full.npy'):
+                         pathboots='test_nonparam_full.npy', \
+                         pathprobs='test_nonparam_lnprobs.npy'):
 
         """Uses the machinery of jitter to perform a kind of nonparametric
 bootstrap with the full minimizer"""
@@ -419,19 +429,26 @@ bootstrap with the full minimizer"""
 
         t0 = time.time()
         for iset in range(nboots):
-            self.minimize_on_subset(fsample, Verbose=False)
+            self.minimize_on_subset(fsample, Verbose=False, dolnprob=True)
 
             if iset % 10 == 1:
-                print("bootstrap_jitter INFO: set %i of %i after %.2e sec..." \
-                      % (iset, nboots, time.time()-t0), end="\r")
+
+                tsofar = time.time()-t0
+                secperit = tsofar / (1.0*iset)
+                tremain = (nboots - iset)*secperit
+                
+                print("bootstrap_jitter INFO: set %i of %i after %.2e sec, est %.2e sec remain..." \
+                      % (iset, nboots, tsofar, tremain), end="\r")
 
                 np.save(pathboots, self.resample_solns)
+                np.save(pathprobs, self.resample_lnprobs)
 
         # Clear the newline
         print("")
                 
         # since we're still developing, write this to disk now
         np.save(pathboots, self.resample_solns)
+        np.save(pathprobs, self.resample_lnprobs)
         
         
     def setuplnprior(self):
@@ -1313,9 +1330,9 @@ Returns:
     mc.bootstrap_jitter(nboots = nonparam_minimizer, \
                         fsample = 1)
 
-    if nonparam_minimizer > 1:
-        print("Now check nonparametric bootstrap output")
-        return None, None, None
+    #if nonparam_minimizer > 1:
+    #    print("Now check nonparametric bootstrap output")
+    #    return None, None, None
     
     mc.setupwalkers()
     mc.setargs_emcee()
