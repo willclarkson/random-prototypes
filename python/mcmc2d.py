@@ -86,15 +86,15 @@ multiprocessing.
 
         # Path to informative prior, if any
         self.pathprior = parfile_prior[:]
+
+        # If simulating, use this number of stars in preference to the
+        # contents o the parameter file
+        self.npoints_sim = npoints_sim      
         
         # Simulation and guess objects
         self.sim = None
         self.guess = None
 
-        # If simulating, use this number of stars in preference to the
-        # contents o the parameter file
-        self.npoints_sim = npoints_sim
-        
         # Does the transformation have the tangent plane as its first
         # two entries?
         self.classeswithtp = ['xy2equ', 'Equ2tan', 'Tan2equ']
@@ -179,7 +179,7 @@ dataset"""
         self.sim.loadconfig(self.parfile_sim)
 
         # allow override of npoints with supplied input
-        if self.npoints_sim is not None:
+        if self.npoints_sim is not None:  # Consider >= 0 rather than None
             self.sim.npts = self.npoints_sim
         else:
             self.npoints_sim = self.sim.npts
