@@ -48,9 +48,31 @@ multiprocessing.
                  boots_ignoreweights=False,\
                  npoints_sim=None, \
                  path_obs='', path_targ='', \
+                 path_truth = '', \
                  simulating=True, \
-                 Verbose=True):
+                 Verbose=True, \
+                 path_config=''):
 
+        # list of object attributes that can be I/O with config
+        # file. These will be sections in the config file, and they
+        # are strings, booleans, and integers, respectively (config
+        # parser needs to know what type of variable it is reading in).
+        self.config_attr_strings = ['parfile_sim', 'parfile_guess', \
+                                    'pathprior', 'pathjitter', \
+                                    'path_obs', 'path_targ', 'path_truth']
+        self.config_attr_bools = ['ignoretruth', 'doboots_poly', \
+                                    'boots_ignoreweights',\
+                                    'lsq_uncty_trick', 'simulating', \
+                                    'Verbose']
+        self.config_attr_integers = ['chainlen', 'npoints_sim', \
+                                     'nboots', 'minimizer_maxiter']
+
+        self.config_attr_floats = []
+
+        # Path to mcmc configuration file itself (useful to keep track
+        # of this so we can query it from elsewhere)
+        self.path_config = path_config[:]
+        
         # Control variables
         self.Verbose = Verbose
 
@@ -68,6 +90,10 @@ multiprocessing.
         self.path_targ = path_targ[:]
         self.Obssrc = Obset()
         self.Obstarg = Obset()
+
+        # truth parameters if we are reading them in (will want to
+        # think about outputting these too)
+        self.path_truth = path_truth[:]
         
         # Do non-parametric bootstrapping on polynomial? If so, ignore
         # weights?
@@ -116,7 +142,8 @@ multiprocessing.
         # The minimizer output, and some settings
         self.minimizer_soln = None
         self.minimizer_method = 'Nelder-Mead'
-        self.minimizer_options = {'maxiter':5000}
+        self.minimizer_maxiter = 5000 # so we can I/O this parameter
+        self.minimizer_options = {'maxiter':self.minimizer_maxiter}
         self.guess_parset = None
 
         # For resampling the data when trying to estimate scatter
@@ -162,6 +189,11 @@ multiprocessing.
         # destination for the arguments, so, e.g. corner plot
         # arguments would go in self.args_show['corner'], etc.
         self.args_show = {}
+
+        # Finally, if the configuration file was supplied, get the
+        # attribute values from that file.
+        if os.access(self.path_config, os.R_OK):
+            self.loadconfig(self.path_config, strict=True)
         
     def dosim(self):
 
@@ -170,7 +202,7 @@ dataset"""
 
         self.setupsim()
         self.runsim()
-        
+
     def setupsim(self):
 
         """Sets up the simulation object"""
@@ -593,6 +625,8 @@ samples from that prior for the initial-guess for the minimizer."""
 
         """Runs scipy.optimize.minimize on the simulated dataset"""
 
+        print("Minimizer debug:", self.minimizer_options)
+        
         if Verbose:
             print("mcmc2d.runminimizer INFO - starting minimizer...")
         t0 = time.time()
@@ -667,7 +701,7 @@ for convenient comparison with the truth parameters"""
         print("Fractional difference:")
         print(self.fracdiff.pars)
         print("==============================")
-        
+
     def settruthsarray(self):
 
         """Utility - populates the 'truths' array for future plots, matched to
@@ -714,7 +748,7 @@ walker positions"""
 
         self.walkers_centers = np.copy(self.guess1d_refined)
         self.walkers_jitters = np.copy(self.scaleguess)
-        
+
     def initwalkers(self):
 
         """Sets up walker initial conditions"""
@@ -1083,6 +1117,144 @@ this something we can input into an mcmc run on actual data"""
 
         self.Obssrc.readobs(self.path_obs)
         self.Obstarg.readobs(self.path_targ)
+
+    def loadconfig(self, pathconfig='', strict=True):
+
+        """Loads configuration parameters for MCMC run. Overrides any choices that may have been set elsewhere (e.g. by command line). 
+
+        INPUTS
+
+        pathconfig = path to configuration file
+
+        strict = only set attributes already initialized (don't
+        arbitrary attributes). If set to False, any new attribtue can
+        be sent in via the parameter file.
+
+        OUTPUTS
+
+        none - updates instance attributes.
+
+        """
+
+        # redundant but defensive
+        if not os.access(pathconfig, os.R_OK):
+            print("MCMCrun.loadconfig WARN - cannot read config path: %s" \
+                  % (pathconfig))
+            return
+        
+        config = configparser.ConfigParser()
+        try:
+            config.read(pathconfig)
+        except:
+            print("MCMCrun.loadconfig WARN - config parser problem with %s" \
+                  % (pathconfig))
+            return
+
+        # Set the instance attribute with the argument we supplied
+        self.path_config = pathconfig[:]
+        
+        print("MCMCrun.loadconfig INFO - reading configuration from %s" \
+              % (pathconfig))
+        
+        # now we set attributes from the configuration
+        # object. Currently we don't need to split the parameters by
+        # different sections (though we might decide later to do so) -
+        # for the moment, we just read in everything.
+        for section in config:
+            thisconf = config[section]
+
+            # let's loop through the attributes actually found,
+            # classifying them by membership in the list of strings,
+            # booleans, etc.
+            for attr in thisconf.keys():
+
+                # if asked, only proceed if the attribute already has
+                # been initialized in the object (to prevent arbitrary
+                # attributes from slipping in)
+                if not hasattr(self, attr) and strict:
+                    continue
+
+                # now we use the parse convenience tools. I think the
+                # easiest way is to set the method by whether the
+                # attribute is in our list of ints, floats, or
+                # booleans, defaulting to string if not already caught
+                # by the other types. This could be done even more
+                # parsimoniously using a dictionary with the method as
+                # the key, but I think this way below is easier to
+                # trouble-shoot. So:
+                methget = None
+                
+                if attr in self.config_attr_integers:
+                    methget = thisconf.getint
+                    
+                if attr in self.config_attr_bools:
+                    methget = thisconf.getboolean
+                    
+                if attr in self.config_attr_floats:
+                    methget = thisconf.getfloat
+
+                if methget is None:
+                    methget = thisconf.get
+
+                thisval = methget(attr)
+
+                # Could put in some special cases here...
+                if attr.find('minimizer_maxiter') > -1:
+                    self.minimizer_options['maxiter'] = thisval
+                
+                setattr(self, attr, thisval)
+
+    def writeconfig(self, pathout='test_mcmcrun_parsused.ini', \
+                    secname='MCMCrun'):
+
+        """Writes the configuration parameters actually used to disk
+
+        INPUTS
+
+        pathout = path to write the parameters
+
+        secname = section name for output parameter file
+
+        """
+
+        if len(pathout) < 3:
+            return
+
+        config = configparser.ConfigParser()
+        config[secname] = {}
+
+        # We might want to impose an order in the output keys. For the
+        # moment, just abut the lists together.
+        keys = self.config_attr_strings + \
+            self.config_attr_bools + \
+            self.config_attr_integers + \
+            self.config_attr_floats
+
+        # populate the configuration object with teh attributes we
+        # want
+        for key in keys:
+            if not hasattr(self, key):
+                continue
+
+            config[secname][key] = str(getattr(self, key))
+
+        # now write the configuration object to disk
+        with open(pathout, 'w') as wobj:
+            config.write(wobj)
+            
+    def loadtruths(self):
+
+        """Loads truth parameters into 'simulation' object"""
+
+        # Nothing to do if the input path is not readable
+        if not os.access(self.path_truth, os.R_OK):
+            print("MCMCrun.loadtruths WARN - truths path not readable: %s" \
+                  % (self.path_truth))
+            return
+        
+        if self.sim is None:
+            self.sim = sim2d.Simdata()
+        self.sim.Parset.readparset(self.path_truth)
         
     def doguess(self, norun=False):
 
@@ -1211,7 +1383,8 @@ def setupmcmc(pathsim='test_sim_mixmod.ini', \
               npoints_arg=None, \
               pathobs='', pathtarg='', pathtruth='', \
               jitterfromsamples=False, \
-              nonparam_minimizer=0):
+              nonparam_minimizer=0, \
+              pathconfig=''):
 
     """Sets up for mcmc simulations. 
 
@@ -1257,6 +1430,9 @@ Inputs:
     nonparam_minimizer = number of bootstraps to try with the
     minimizer [under development]
 
+    pathconfig = path to mcmc run configuration file (which overrides
+    any of the previous arguments)
+    
 Returns:
 
     esargs = dictionary of arguments for the ensemble sampler
@@ -1269,18 +1445,21 @@ Returns:
 
     # par files must exist!
     simulating = False  # we could use a more sophisticated test
-                       # later...
-                       
-    if not parspaths_exist(pathfit, pathsim):
-        if not parspaths_exist(pathobs, pathtarg):
-            return None, None, None
+                       # later... This is now superseded by the
+                       # parameter file IF IT EXISTS...
+
+    # defer the decision to the config path if it exists
+    if not os.access(pathconfig, os.R_OK):                       
+        if not parspaths_exist(pathfit, pathsim):
+            if not parspaths_exist(pathobs, pathtarg):
+                return None, None, None
+            else:
+                print("mcmc2d.setupMCMC INFO - found obs files %s, %s" \
+                      % (pathobs, pathtarg))
         else:
-            print("mcmc2d.setupMCMC INFO - found obs files %s, %s" \
-                  % (pathobs, pathtarg))
-    else:
-        simulating = True
-        print("mcmc2d.setupmcmc INFO - found sim, guess files %s, %s" \
-              % (pathsim, pathfit))
+            simulating = True
+            print("mcmc2d.setupmcmc INFO - found sim, guess files %s, %s" \
+                  % (pathsim, pathfit))
         
     mc = MCMCrun(pathsim, pathfit, chainlen, pathprior, \
                  pathjitter=pathjitter, ignoretruth=ignoretruth, \
@@ -1289,21 +1468,36 @@ Returns:
                  boots_ignoreweights=boots_ignoreweights, \
                  npoints_sim=npoints_arg, \
                  path_obs=pathobs, path_targ=pathtarg, \
-                 simulating=simulating)
+                 path_truth=pathtruth, \
+                 simulating=simulating, \
+                 path_config=pathconfig)
 
+    # whatever we do, a guess file must be present (it controls the
+    # way the simulation works). Exit gracefully if not present.
+    if not os.access(mc.parfile_guess, os.R_OK):
+        print("setupMCMC WARN - guess paramfile not readable: %s" \
+              % (mc.parfile_guess))
+        return None, None, None
+    
     # read canned data if we have any
     mc.readdata()
 
+    # write the configuration parameters used
+    mc.writeconfig()
+    
     if mc.simulating:
         mc.dosim()
     else:
-        # Create the "sim" object to hold the truth parameters - if we
-        # know them!!
-        mc.sim = sim2d.Simdata()
-        mc.sim.Parset.readparset(pathtruth)
+        mc.loadtruths()
 
+        if mc.sim is None:
+            print("WARN - sim is none...")
+            return None, None, None
+        
         print("Imported truthset INFO:", mc.sim.Parset.pars)
 
+
+    print("here:", mc.parfile_guess)
     mc.doguess(norun=debug)
 
     print("MC debug:")
