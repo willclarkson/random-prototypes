@@ -1,0 +1,46 @@
+[config]
+transfname = Poly
+polyname = Chebyshev
+xmin = 0.0
+xmax = 100.0
+ymin = 0.0
+ymax = 100.0
+mag0 = 18.0
+islog10_mix_frac = True
+islog10_mix_vxx = True
+islog10_noise_c = False
+nmodel = 6
+nnoise = 3
+nshape = 2
+nmix = 2
+
+[model]
+a_0 = -0.5453279550656607
+a_1 = -0.011589220174960235
+a_2 = 0.01880704285258117
+a_3 = 0.3525093415019491
+a_4 = -0.00688683671074557
+a_5 = -0.010573775619988627
+noise_log10a = -6.5
+noise_log10b = -6.0
+noise_c = 3.16
+symm_yx = 0.7
+symm_rhoxy = 0.2
+mix_log10fbg = -1.0
+mix_log10vbg = -8.5
+
+[indices]
+a_0 = 0
+a_1 = 1
+a_2 = 2
+a_3 = 3
+a_4 = 4
+a_5 = 5
+noise_log10a = 6
+noise_log10b = 7
+noise_c = 8
+symm_yx = 9
+symm_rhoxy = 10
+mix_log10fbg = 11
+mix_log10vbg = 12
+

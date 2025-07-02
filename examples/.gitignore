@@ -1,0 +1,8 @@
+# mostly file formats that could host very large files
+
+# data formats for large intermediate files
+.fits*
+.npy*
+
+# Jupyter Notebook
+.ipynb_checkpoints
