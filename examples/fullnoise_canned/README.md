@@ -5,7 +5,7 @@ controlling the MCMC options and the options for the model used in the guess and
 particular:
 
 *three-parameter noise model included for semimajor axis (mag)
-* (the "c" parameter is NOT specified as log10(c) )
+*(the "c" parameter is NOT specified as log10(c) )
 *astrometric uncertainy has major, minor axes and position angle
 *additional uncertainty included over the assumed measurement uncertainties in source and target frames
 *mixture model fit to include outliers
