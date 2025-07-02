@@ -425,7 +425,7 @@ def testpriorpars(dindices={}, nsamples=1):
         
         return
         
-    if np.ndim(GG.covar) is 2:
+    if np.ndim(GG.covar) == 2:
         #parsran = np.random.multivariate_normal(GG.center, GG.covar)
         w, v = np.linalg.eig(GG.covar)
         print("testpriorpars INFO - GG.cov eig:")
