@@ -11,6 +11,9 @@ import numpy as np
 import copy
 import configparser
 
+# our methods for converting {abcdef} <--> {a,d,sx,sy,theta, beta}
+import sixterm2d
+
 class Pars1d(object):
 
     """Parameters for transformation and any other 'model' parameters
@@ -1138,3 +1141,15 @@ def testblank(transfname='Poly', deg=1, pathwrite='test_blankpars.txt', \
     
     PP.writeparset(pathwrite)
     
+def testconvert(pathin='test_parset_truths.txt', \
+                pathout='test_conv.pars'):
+
+    """Tests loading in a parameter set in one form, outputting into the
+other
+
+"""
+
+    # load the input parameters...
+    parsin = loadparset(pathin)
+
+    print(parsin.pars)

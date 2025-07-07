@@ -744,6 +744,14 @@ object"""
                              ymin=self.ymin, ymax=self.ymax, \
                              transfname=self.transf.__name__)
 
+    def packagedata(self):
+
+        """Wrapper - packages source/obs and target data into Obset objects
+
+        """
+
+        self.packagesourcedata()
+        self.packagetargetdata()
         
     def packagesourcedata(self):
 
@@ -764,18 +772,19 @@ of arguments to the minimizer"""
 
         self.Obstarg = Obset(self.xytarg, self.covtran, \
                              self.mags, ~self.isoutly)
-        
-    def generatedata(self):
 
-        """Wrapper - generates fake data"""
+    def gendata_source(self):
 
-        
-        # Baseline x, y, covars in source frame
+        """Generates data in the source frame, including apparent magnitudes
+and outliers
+
+        """
+
+        # Generate "truth" points and magnitudes in the source frame
         self.makefakexy()
         self.makefakemags()
 
-
-        # Allow noise to be optional
+        # Use the magnitudes to create and apply noise
         if np.size(self.pars_noise) < 1:
             covs = np.zeros(( self.npts, 2, 2))
             self.Cxy = CovarsNx2x2(covs)
@@ -784,11 +793,22 @@ of arguments to the minimizer"""
                 self.makemagcovars()
             else:
                 self.makeunifcovars()
+
+        # assign outliers
         self.assignoutliers()
-        
-        # Define the transformed frame and propagate to it
-        self.makepars()
-        self.setuptransftruth()
+
+    def gendata_targ(self):
+
+        """Generates target-frame data, using the transformation parameters
+
+        """
+
+        # The self.PTruth (a transf object) needs to be populated
+        if self.PTruth is None:
+            return
+
+        # Propagate source positions into target frame, set up the
+        # noise and nudges
         self.setupxytran()
         self.initnudges()
 
@@ -803,17 +823,124 @@ of arguments to the minimizer"""
         self.makeoutliers()
         self.makeextracovars()
 
+    def applyposuncertainties(self):
+
+        """Applies positional uncertainties to generated data, in both the
+source/obs and target frames.
+
+        """
+        
         # Apply the above to produce x, y nudges
         self.initnudges()
         self.makenudges()
         self.applynudges()
 
-        # Package the fit parameters into a 1d array. See self.Parset
+    def genpars(self, clobber=True):
+
+        """Generates model parameters using simulation hyperparameters
+
+        """
+
+        # Allow refusal to overwrite if already set
+        if self.PTruth is not None and not clobber:
+            return
+        
+        self.makepars()
+        self.setuptransftruth()
         self.packagemodelpars()
         
-        # Package the target data into object expected by the fitter
-        self.packagesourcedata()
-        self.packagetargetdata()
+    def generatedata(self, clobber_model = False):
+
+        """Wrapper - generates fake data. Model parameters can also be
+generated if not set elsewhere (or forced to re-generate using
+clobber_model).
+
+        INPUTS
+
+        clobber_model = force regeneration of model parameters, even
+        if set elsewhere??
+
+        OUTPUTS
+
+        No outputs - updates instance attributes.
+
+        """
+
+        # Somewhat simplified by the refactoring of the actual
+        # generating methods into other methods...
+
+        if self.npts < 1:
+            print("Simdata.gendata WARN - simulation npts set to %i" \
+                  % (self.npts))
+            return
+        
+        # Source-frame data, magnitudes, outliers
+        self.gendata_source()
+
+        # If we are generating params, they need the data
+        # characteristics. If we already read them in, don't overwrite
+        # them with new parameters:
+        self.genpars(clobber = clobber_model)
+
+        # Generate the target data
+        self.gendata_targ()
+        
+        # Apply the positional uncertainties in both frames
+        self.applyposuncertainties()
+
+        # Package the source/obs and targ data into forms needed
+        # elsewhere
+        self.packagedata()
+        
+        ## Baseline x, y, covars in source frame
+        #self.makefakexy()
+        #self.makefakemags()
+
+
+        ## Allow noise to be optional
+        #if np.size(self.pars_noise) < 1:
+        #    covs = np.zeros(( self.npts, 2, 2))
+        #    self.Cxy = CovarsNx2x2(covs)
+        #else:
+        #    if self.gen_noise_model:
+        #        self.makemagcovars()
+        #    else:
+        #        self.makeunifcovars()
+        #self.assignoutliers()
+        
+        ## Define the transformed frame and propagate to it
+        #self.makepars()
+        #self.setuptransftruth()
+
+        # Our refactored target-frame data generator
+        ## self.gendata_targ()
+        
+        # To refactor
+        ## self.setupxytran()
+        ## self.initnudges()
+
+        ## If separate noise parameters were provided for the noise in
+        ## the target frame, generate the noise using those parameters
+        ## and replace the covariance in the transformed frame with
+        ## those covariances. This method will do nothing if
+        ## self.gen_noise_targ is False.
+        #self.maketargcovars()
+        
+        ## set up any outliers and/or extra unmodeled covariances
+        #self.makeoutliers()
+        #self.makeextracovars()
+
+        ## Apply the above to produce x, y nudges
+        #self.initnudges()
+        #self.makenudges()
+        #self.applynudges()
+
+        ## Package the fit parameters into a 1d array. See self.Parset
+        ## self.packagemodelpars()
+        
+        ## Package the target data into object expected by the fitter
+        #self.packagesourcedata()
+        #self.packagetargetdata()
         
 ### SHORT test routines come here.
 

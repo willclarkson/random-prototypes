@@ -1484,19 +1484,30 @@ Returns:
 
     # write the configuration parameters used
     mc.writeconfig()
+
+    # If the mc object has a truth path set, read it in here. The mc
+    # object will handle the case where no path is set. If simulating,
+    # these parameters will be used to simulate the data. If using
+    # pre-built data, these parameters will be used in plots against
+    # the posteriod distribution.
+    mc.loadtruths()
     
     if mc.simulating:
         mc.dosim()
-    else:
-        mc.loadtruths()
+    #else:
+    #    mc.loadtruths()
 
-        if mc.sim is None:
-            print("WARN - sim is none...")
-            return None, None, None
+    if mc.sim is None:
+        print("WARN - sim is none...")
+        return None, None, None
         
-        print("Imported truthset INFO:", mc.sim.Parset.pars)
+    #print("Imported truthset INFO:", mc.sim.Parset.pars)
 
-
+    # Condition-trap
+    if mc.sim.xy.size < 1:
+        print("setupmcmc WARN - simulated data zero size. Check your input parameters.")
+        return None, None, None
+        
     print("here:", mc.parfile_guess)
     mc.doguess(norun=debug)
 
