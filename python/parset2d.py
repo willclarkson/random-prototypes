@@ -982,8 +982,6 @@ Returns:
             print("parset2d.loadparset INFO - converting 6-term geometric to {abcdef} on input")
             
             pset = convert_linear(pset, fromabc=False)
-
-            print("parset2d.loadparset INFO: post-conversion:", pset.pars)
             
     return pset
 
