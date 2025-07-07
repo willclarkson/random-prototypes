@@ -950,7 +950,7 @@ Returns:
 
         return Pdiv
 
-def loadparset(pathpars=''):
+def loadparset(pathpars='', parse6term=True):
 
     """One-liner to return parset object from disk.
 
@@ -958,6 +958,10 @@ def loadparset(pathpars=''):
 Inputs:
 
     pathpars = path to paramset
+
+    parse6term = if True, looks for the parameter "theta" and, if
+    present, converts the 6-term {a,d,sx, sy, theta, beta} into
+    {a,b,c,d,e,f} before returning the pset.
 
 Returns:
 
@@ -970,9 +974,100 @@ Returns:
     try:
         pset.readparset(pathpars)
     except:
-        badread = True
+        return pset
+        
+        
+    if parse6term:
+        if 'theta' in pset.dindices.keys():
+            print("parset2d.loadparset INFO - converting 6-term geometric to {abcdef} on input")
+            
+            pset = convert_linear(pset, fromabc=False)
+
+            print("parset2d.loadparset INFO: post-conversion:", pset.pars)
+            
     return pset
 
+def convert_linear(pset=None, fromabc=False):
+
+    """Utility - converts the linear part of a parameter set from {abcdef}
+to {a,d,sx,sy,theta, beta} or vice versa. No parsing is done on the
+input here, the user is expected to know what parameters they are
+sending in.
+
+    INPUTS
+
+    pset = input parameter set object
+
+    fromabc = assumed convention for input [a,b,c,d,e,f]. If False,
+    {a,d,sx,sy,theta, beta} is assumed.
+
+    OUTPUTS
+
+    pout = pset object with the linear parameters converted. (Note:
+    updated in-place)
+
+    """
+
+    # some defensive programming
+    if pset is None:
+        return pset
+
+    if len(pset.pars) < 6:
+        return pset
+
+    # convenience view of model indices
+    l6 = np.arange(6)
+    lmod = pset.lmodel[l6]
+
+    # For the output, if we are converting [abcdef] then the output
+    # will be reordered into [a,d,sx,sy,theta,beta], so we need to do
+    # a little bit of index carpentry. Set that out here
+    
+    labels_out = ['xi_0', 'eta_0','s_x','s_y','theta','beta']
+    methconv = sixterm2d.getpars
+    if not fromabc:
+        labels_out = ['a_%i' % (i) for i in range(6)]
+        methconv = sixterm2d.abcfromgeom
+
+    # OK now do the conversion. Note the expected input order. If
+    # going from abc, then [a,b,c,d,e,f] is expected. If going from
+    # geometric parameters, then the order [a_0, a_3, sx, sy, theta,
+    # beta] is expected.
+    parsconv = methconv(pset.pars[lmod])
+    
+    #print("CONVERSION DEBUG:", pset.pars[lmod])
+    #print("CONVERSION DEBUG:", parsconv[l6])
+    
+    pset.pars[lmod] = parsconv[l6]
+
+    # note we also need to ensure the model parameters are
+    # appropriately populated.
+    pset.partitionmodel()
+
+    # ... and set the output indices. Because Pars1d uses the variable
+    # name as the key (which I thought was a good idea at the time...)
+    # that means re-building the indices dictionary.
+    inds_old = copy.copy(pset.dindices)
+    inds_new = {}
+
+    for key in inds_old.keys():
+        ikey = inds_old[key]
+    
+        # if not one of the model parameters, use the old key
+        if not ikey in lmod:
+            newkey = key[:]
+        else:
+            newkey = labels_out[ikey]
+
+        # set the index value
+        inds_new[newkey] = ikey
+
+    # copy across...
+    pset.dindices = inds_new
+
+    # ... and return
+    return pset
+    
 ## SHORT test routines come here
 
 def testsplit(nnoise=3, nshape=2, nmix=2):
@@ -1142,14 +1237,56 @@ def testblank(transfname='Poly', deg=1, pathwrite='test_blankpars.txt', \
     PP.writeparset(pathwrite)
     
 def testconvert(pathin='test_parset_truths.txt', \
-                pathout='test_conv.pars'):
+                pathout='test_conv.pars', fromabc=True):
 
     """Tests loading in a parameter set in one form, outputting into the
-other
+other.
+
+    INPUTS
+
+    pathin = parfile to read in
+
+    pathout = converted parfile
+
+    fromabc = converting FROM {abcdef}?
 
 """
 
-    # load the input parameters...
-    parsin = loadparset(pathin)
+    # To test abc --> geom:
+    #
+    # parsetd.testconvert('test_parset_truths.txt','test_conv.pars')
 
-    print(parsin.pars)
+    # To test geom --> abc:
+    #
+    # parset.testconvert('test_6pars_geom.txt','test_6pars_abc.txt', False)
+    
+    # My original solution to this was too dependent on sixterm2d
+    # plumbing. We know what the parameters and their orderings are
+    # going to be, so keep it simple here.
+    
+    # Load, convert, write:
+    parsin = loadparset(pathin)
+    parsin = convert_linear(parsin, fromabc)
+    parsin.writeparset(pathout)
+
+    return
+    
+def testloadandparse(pathpars='test_parset_truths.txt', \
+                     pathout='test_parsed_truths.txt'):
+
+    """Tests loading and parsing of parameter set that may include
+{a,d,sx,sy,theta, beta} rather than {a,b,c,d,e,f}
+
+    INPUTS
+
+    pathpars = path to input parameters
+
+    OUTPUTS
+
+    pathout = path to possibly-converted parset file
+
+    """
+
+    pset = loadparset(pathpars, parse6term=True)
+    pset.writeparset(pathout)
+    

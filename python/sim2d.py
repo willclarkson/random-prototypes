@@ -744,6 +744,29 @@ object"""
                              ymin=self.ymin, ymax=self.ymax, \
                              transfname=self.transf.__name__)
 
+    def unpackmodelpars(self):
+
+        """Populates model parameters FROM self.Parset"""
+
+        # In the case where parset was read straight from disk
+        if self.Parset is None:
+            return
+        
+        # we write it out for now...
+        self.pars_transf = self.Parset.model
+        self.pars_extra_noise = self.Parset.noise
+        self.pars_extra_asymm = self.Parset.symm
+        self.pars_mix = self.Parset.mix
+        self.mag0 = self.Parset.mag0
+        self.islog10_noise_c = self.Parset.islog10_noise_c
+        self.islog10_mix_frac = self.Parset.islog10_mix_frac
+        self.islog10_mix_vxx  = self.Parset.islog10_mix_vxx
+        self.xmin = self.Parset.xmin
+        self.xmax = self.Parset.xmax
+        self.ymin = self.Parset.ymin
+        self.ymax = self.Parset.ymax
+        
+        
     def packagedata(self):
 
         """Wrapper - packages source/obs and target data into Obset objects
@@ -835,17 +858,23 @@ source/obs and target frames.
         self.makenudges()
         self.applynudges()
 
-    def genpars(self, clobber=True):
+    def genpars(self, clobber=False):
 
         """Generates model parameters using simulation hyperparameters
 
         """
 
         # Allow refusal to overwrite if already set
-        if self.PTruth is not None and not clobber:
-            return
-        
-        self.makepars()
+        if self.Parset is not None and not clobber:
+            print("genpars INFO - self.Parset already set and clobber=False")
+            print("genpars INFO - upacking parameters from supplied Parset")
+            
+            self.unpackmodelpars()
+        else:
+            self.makepars()
+
+        # The rest of this is packaging / refactoring for internal
+        # needs
         self.setuptransftruth()
         self.packagemodelpars()
         

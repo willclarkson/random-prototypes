@@ -16,7 +16,7 @@ import copy
 from scipy.optimize import minimize
 
 import sim2d
-from parset2d import Pars1d, Pairset
+from parset2d import Pars1d, Pairset, loadparset
 from fit2d import Guess
 import lnprobs2d
 from lnprobs2d import Prior, Like
@@ -203,11 +203,13 @@ dataset"""
         self.setupsim()
         self.runsim()
 
-    def setupsim(self):
+    def setupsim(self, clobber=False):
 
         """Sets up the simulation object"""
 
-        self.sim = sim2d.Simdata()
+        if self.sim is None or clobber:
+            self.sim = sim2d.Simdata()
+            
         self.sim.loadconfig(self.parfile_sim)
 
         # allow override of npoints with supplied input
@@ -1254,7 +1256,11 @@ this something we can input into an mcmc run on actual data"""
         
         if self.sim is None:
             self.sim = sim2d.Simdata()
-        self.sim.Parset.readparset(self.path_truth)
+
+        #self.sim.Parset.readparset(self.path_truth)
+
+        # Now include parsing
+        self.sim.Parset = loadparset(self.path_truth)
         
     def doguess(self, norun=False):
 
@@ -1490,15 +1496,17 @@ Returns:
     # these parameters will be used to simulate the data. If using
     # pre-built data, these parameters will be used in plots against
     # the posteriod distribution.
+    print("Reading truth parset from %s" % (mc.path_truth))    
     mc.loadtruths()
-    
+
+    # print("mc sim object parset model:", mc.sim.Parset.model)
+
+    # Generate synthetic data if asked
     if mc.simulating:
         mc.dosim()
-    #else:
-    #    mc.loadtruths()
 
     if mc.sim is None:
-        print("WARN - sim is none...")
+        print("WARN - sim is none. Check input arguments.")
         return None, None, None
         
     #print("Imported truthset INFO:", mc.sim.Parset.pars)
@@ -1508,7 +1516,7 @@ Returns:
         print("setupmcmc WARN - simulated data zero size. Check your input parameters.")
         return None, None, None
         
-    print("here:", mc.parfile_guess)
+    print("setupmcmc INFO - MC parfile_guess:", mc.parfile_guess)
     mc.doguess(norun=debug)
 
     print("MC debug:")
@@ -1520,10 +1528,10 @@ Returns:
 
         
     print("MCMC prior debug:")
-    print(mc.lnprior.withgauss)
-    print(mc.lnprior.gaussprior.lpars)
-    print(mc.lnprior.gaussprior.center)
-    print(mc.lnprior.gaussprior.covar)
+    print("mc.lnprior.withgauss:", mc.lnprior.withgauss)
+    print("mc.lnprior.gaussprior.lpars:", mc.lnprior.gaussprior.lpars)
+    print("mc.lnprior.gaussprior.center:", mc.lnprior.gaussprior.center)
+    print("mc.lnprior.gaussprior.covar:", mc.lnprior.gaussprior.covar)
 
     if debug:
         return 
