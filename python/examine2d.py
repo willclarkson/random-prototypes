@@ -60,12 +60,14 @@ Inputs:
     showargs = {} = dictionary of arguments that show routines may
     need (not strict yet)
 
+    cluster_eps = cluster bandwidth for partitioning
+
     """
 
     def __init__(self, flat_samples=np.array([]), path_samples='NA', \
                  esargs={}, ptruths=None, log_probs=np.array([]), \
                  path_log_probs='NA', showargs={}, path_showargs='',\
-                 path_esargs=''):
+                 path_esargs='', cluster_eps=0.3):
 
         self.flat_samples = np.copy(flat_samples)
         self.path_samples = path_samples[:]
@@ -147,11 +149,12 @@ Inputs:
         # a new instance per cluster) because we might be interested
         # in the comparison, and retaining the labels allows this at
         # the cost of more instance attributes.
+        self.cluster_eps = cluster_eps # clustering bandwidth
         self.clusterid = np.array([])
         self.clustermeds = np.array([])
         self.ismain = np.array([])
-        self.initclusters()                                
-                                   
+        self.initclusters()                                        
+        
         # Statistics on projected deltas, binned by magnitude
         self.binstats_fg = None
         self.binstats_bg = None
@@ -357,7 +360,7 @@ them"""
 
         # Find the clusters
         self.clusterid, self.clustermeds, ulabs = \
-            splitclusters(self.log_probs)
+            splitclusters(self.log_probs, self.cluster_eps)
 
         # which has the maximum median lnprob
         imax = np.argmax(self.clustermeds)
