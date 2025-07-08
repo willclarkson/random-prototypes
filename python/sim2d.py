@@ -865,7 +865,7 @@ source/obs and target frames.
         """
 
         # Allow refusal to overwrite if already set
-        if self.Parset is not None and not clobber:
+        if self.Parset.model.size > 1 and not clobber:
             print("genpars INFO - self.Parset already set and clobber=False")
             print("genpars INFO - upacking parameters from supplied Parset")
             
