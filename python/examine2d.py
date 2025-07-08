@@ -1507,7 +1507,8 @@ def showunctysamples(flatsamples=None, fignum=7):
 def showparsamples(flatsamples=None, fignum=8, cmap='inferno', \
                    alpha=0.5, pathfig='test_parsamples.png', \
                    showpointing=True, onlyfinite=True, \
-                   histlog=False, shownuisance=False):
+                   histlog=False, shownuisance=False, \
+                   mainclust=False, minsample=-1):
 
     """Shows the parameter flat-samples, color-coded by lnprob
 
@@ -1531,6 +1532,11 @@ Inputs:
 
     shownuisance = plot nuisance parameters instead of model
     parameters
+
+    mainclust = show only the "main" cluster (using the FS.ismain
+    attribute if present)
+
+    minsample = minimum sample number to show (negative for all)
 
     """
 
@@ -1608,7 +1614,18 @@ Inputs:
 
         if onlyfinite:
             bok = (bok) & (np.isfinite(flatsamples.log_probs))
-        
+
+    if mainclust:
+        if hasattr(flatsamples,'ismain'):
+            print("showparsamples INFO - showing flatsamples.ismain=True")
+            bok = (bok) & (flatsamples.ismain)
+
+    # trim off first minsample samples
+    if minsample > 0:
+        print("showparsamples INFO - showing samples > %i" \
+              % (minsample))
+        bok[0:minsample] = False
+            
     # Now set up the figure panels
     npars = np.size(lpars)
     ncols = 2
@@ -1682,7 +1699,9 @@ Inputs:
     if np.size(logprobs) > 0:
         c = logprobs
 
-    dum = ax1.scatter(pars[:,0], pars[:,1], c=c, s=sz, cmap=cmap, \
+    # UPDATE - show bok only
+        
+    dum = ax1.scatter(pars[bok,0], pars[bok,1], c=c[bok], s=sz, cmap=cmap, \
                       alpha=alpha)
     ax1.set_xlabel(labels_pars[0])
     ax1.set_ylabel(labels_pars[1])
@@ -1692,7 +1711,7 @@ Inputs:
         cbar.solids.set(alpha=1)
         
         ax2 = fig11.add_subplot(122)
-        dum, _, _ = ax2.hist(logprobs, bins=100, log=histlog)
+        dum, _, _ = ax2.hist(logprobs[bok], bins=100, log=histlog)
         ax2.set_xlabel('logprob')
 
     fig11.subplots_adjust(hspace=0.4, wspace=0.6, left=0.2, bottom=0.2)
@@ -1709,7 +1728,8 @@ def shownoisesamples(flatsamples=None, nshow=100, fignum=9, \
                      alpha=0.1, \
                      showlogprobs=True, \
                      pathfig='test_noisemags.png', \
-                     closeaftersave=False):
+                     closeaftersave=False, \
+                     mainclust=False, minsample=-1):
 
     """Shows the covariances corresponding to the noise model samples.
 
@@ -1734,6 +1754,12 @@ Inputs:
     showlogprobs = color-code flat samples plot by log probability
 
     closeaftersave = Close the figure after saving
+
+    mainclust = plot the "main" cluster only? (uses flatsamples.bmain
+    attribute. Use this ONLY if you are sure the outliers really are
+    rogue burn-in samples.)
+
+    minsample = minimum sample to show (negative for all samples)
 
 Example call:
 
@@ -1784,7 +1810,7 @@ Example call:
     # Magnitude ranges
     mags = flatsamples.inp_lnlike.obstarg.mags
     mshow = np.linspace(mags.min(), mags.max(), 100, endpoint=True)
-        
+
     # Try computing the stdx, stdy, corrxy components from the
     # flatsamples.
     parsnoise = flatsamples.flat_samples[:,lnoise]
@@ -1803,10 +1829,27 @@ Example call:
                                                     mag0=mag0, returnarrays=True, \
                                                     islog10_c=islog10_c)
 
-    
+
     # pick a random sample to show
-    ldum = np.argsort(np.random.uniform(size=parsnoise.shape[0]))
-    lsho = ldum[0:nshow]
+    bok = np.isfinite(parsnoise[:,0])
+    if mainclust:
+        if hasattr(flatsamples, 'ismain'):
+            print("shownoisesamples INFO - showing flatsamples.ismain=True")
+            bok = np.copy(flatsamples.ismain)
+
+            # update nshow if needed
+            nshow = np.min([nshow, np.sum(bok)])
+
+    lok = np.where(bok)[0]
+
+    # trim for first sample
+    if minsample > -1:
+        print("shownoisesamples INFO - showing samples > %i" % (minsample))
+    lok = lok[lok > minsample]
+    
+    # ldum = np.argsort(np.random.uniform(size=parsnoise.shape[0]))
+    ldum = np.argsort(np.random.uniform(size=np.size(lok) ))
+    lsho = lok[ldum[0:nshow]]
     
     # now, finally, plot the figure
     fig9=plt.figure(fignum)
@@ -1881,6 +1924,14 @@ Example call:
     # Now show the flat samples.
     lsam = np.arange(parsnoise.shape[0], dtype='int')
 
+    # only show those in the main cluster?
+    if mainclust:
+        if hasattr(flatsamples,'ismain'):
+            lsam = np.where(flatsamples.ismain)[0]
+
+    # enforce minimum sample number
+    lsam = lsam[lsam > minsample]
+            
     # Colors to use
     caux = parsnoise[lsam, jaux]
     vmin = zmin
