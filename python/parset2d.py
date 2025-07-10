@@ -1012,11 +1012,15 @@ sending in.
 
     if len(pset.pars) < 6:
         return pset
-
+    
     # convenience view of model indices
-    l6 = np.arange(6)
-    lmod = pset.lmodel[l6]
+    l6 = np.arange(6)  # we do use this later on
+    #lmod = pset.lmodel[l6]
 
+    # Get the indices corresponding to the {a,b,c,d,e,f} from our
+    # model parameters
+    lmod = sixterm2d.labcfrompars(pset.lmodel.size)
+    
     # For the output, if we are converting [abcdef] then the output
     # will be reordered into [a,d,sx,sy,theta,beta], so we need to do
     # a little bit of index carpentry. Set that out here
@@ -1024,44 +1028,32 @@ sending in.
     labels_out = ['xi_0', 'eta_0','s_x','s_y','theta','beta']
     methconv = sixterm2d.getpars
     if not fromabc:
-        labels_out = ['a_%i' % (i) for i in range(6)]
+        labels_out = ['a_%i' % (i) for i in lmod]
         methconv = sixterm2d.abcfromgeom
 
-    # OK now do the conversion. Note the expected input order. If
-    # going from abc, then [a,b,c,d,e,f] is expected. If going from
-    # geometric parameters, then the order [a_0, a_3, sx, sy, theta,
-    # beta] is expected.
+    # I think the least error-prone way to implement this is to
+    # maintain side-by-side lists of dictionary keys, like so:
+    keys_new = list(pset.dindices.keys() )
+    for ireplace in l6:
+        jrep = lmod[ireplace]
+        keys_new[jrep] = labels_out[ireplace]
+
+    # ... and now we can rebuild the indices dictionary:
+    inds_new = {}
+    for ikey in range(len(keys_new)):
+        inds_new[keys_new[ikey]] = ikey
+
+    pset.dindices = inds_new
+
+    # ... ok now that we have the indices rebuilt, actually do the
+    # conversion.
     parsconv = methconv(pset.pars[lmod])
-    
-    #print("CONVERSION DEBUG:", pset.pars[lmod])
-    #print("CONVERSION DEBUG:", parsconv[l6])
     
     pset.pars[lmod] = parsconv[l6]
 
     # note we also need to ensure the model parameters are
     # appropriately populated.
     pset.partitionmodel()
-
-    # ... and set the output indices. Because Pars1d uses the variable
-    # name as the key (which I thought was a good idea at the time...)
-    # that means re-building the indices dictionary.
-    inds_old = copy.copy(pset.dindices)
-    inds_new = {}
-
-    for key in inds_old.keys():
-        ikey = inds_old[key]
-    
-        # if not one of the model parameters, use the old key
-        if not ikey in lmod:
-            newkey = key[:]
-        else:
-            newkey = labels_out[ikey]
-
-        # set the index value
-        inds_new[newkey] = ikey
-
-    # copy across...
-    pset.dindices = inds_new
 
     # ... and return
     return pset
@@ -1263,7 +1255,7 @@ other.
     # going to be, so keep it simple here.
     
     # Load, convert, write:
-    parsin = loadparset(pathin)
+    parsin = loadparset(pathin, parse6term=False)
     parsin = convert_linear(parsin, fromabc)
     parsin.writeparset(pathout)
 

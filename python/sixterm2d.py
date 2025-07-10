@@ -302,3 +302,65 @@ Returns:
     ST.trimoutput()
 
     return ST.parsout[hasprior]
+
+def labcfrompars(m=0):
+
+    """Given polynomial coefficients (in x and y), returns the indices
+corresponding to the {a,b,c,d,e,f} terms in a polynomial.
+
+    INPUTS
+
+    m = number of parameters (in 2d, so would be 6 for linear, 20 for degree 3, etc.)
+
+    OUTPUTS
+
+    labc = array of indices for the [a,b,c,d,e,f] coefficients. Defaults to [] if none set
+
+    """
+
+    labc = np.array([])
+
+    degr = degfrompars(m)
+
+    # if degree is less than 1, the abcdef have no meaning.
+    if degr < 1:
+        return labc
+
+    # Probably a clever one-line way to do this...
+    labc = np.tile( np.arange(3), 2 )
+    labc[3::] += int(m/2)
+
+    return labc
+    
+    
+    
+def degfrompars(m=0):
+
+    """
+    Utility - given a polynomial of length m, return its
+degree. Similar to untytwod.Polycoeffs.degfromcoeffs() but for 2D
+polynomial (so a linear model would have six terms, etc.).
+
+
+    INPUTS
+
+    m = number of coefficients. Polynomial only (no nuisance
+    parameters).
+
+    OUTPUTS
+
+    deg = polynomial degree, as integer. If the number of coefficients
+    does not correspond to a degree, returns -1.
+
+    """
+
+    deg = (-3. + np.sqrt(9.0 + 8.*(m/2-1.) ))/2.
+
+    if deg == int(deg):
+        return int(deg)
+
+    return -1
+        
+
+
+
