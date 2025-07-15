@@ -236,6 +236,11 @@ dataset"""
         if self.simulating:
             self.guess = Guess(self.sim.Obssrc, self.sim.Obstarg)
         else:
+
+            if np.size(self.Obssrc.xy) < 1 or np.size(self.Obstarg.xy) < 1:
+                print("setupguess WARN: observations not fully populated.")
+                return
+            
             self.guess = Guess(self.Obssrc, self.Obstarg)
             
             
@@ -1113,8 +1118,18 @@ this something we can input into an mcmc run on actual data"""
 
         """Reads source/target data if we already have any"""
 
-        if not os.access(self.path_obs, os.R_OK) or \
-           not os.access(self.path_targ, os.R_OK):
+        # Made this slightly more informative:
+        
+        if not os.access(self.path_obs, os.R_OK):
+            if len(self.path_obs) > 3:
+                print("MCMCrun.readdata WARN - cannot load path %s" \
+                      % (self.path_obs))
+            return
+
+        if not os.access(self.path_targ, os.R_OK):
+            if len(self.path_targ) > 3:
+                print("MCMCrun.readdata WARN - cannot load path %s" \
+                      % (self.path_targ))
             return
 
         self.Obssrc.readobs(self.path_obs)
@@ -1280,6 +1295,11 @@ Inputs:
         # Sets up the guess object
         self.setupguess()
 
+        # IF that failed, we can't continue
+        if self.guess is None:
+            print("doguess WARN - guess cannot be set up. Returning.")
+            return
+        
         print("mcmc2d.doguess DEBUG: guess transf:", self.guess.guess_transf)
         
         # We populate this with default values before doing any of the
@@ -1505,20 +1525,25 @@ Returns:
     if mc.simulating:
         mc.dosim()
 
+        if mc.sim.xy.size < 1:
+            print("setupmcmc WARN - simulated data zero size. Check your input parameters.")
+            return None, None, None
+
+        
     if mc.sim is None:
         print("WARN - sim is none. Check input arguments.")
         return None, None, None
         
     #print("Imported truthset INFO:", mc.sim.Parset.pars)
 
-    # Condition-trap
-    if mc.sim.xy.size < 1:
-        print("setupmcmc WARN - simulated data zero size. Check your input parameters.")
-        return None, None, None
-        
     print("setupmcmc INFO - MC parfile_guess:", mc.parfile_guess)
     mc.doguess(norun=debug)
 
+    # condition trap
+    if mc.guess is None:
+        print("setupmcmc WARN - guess is None. Returning.")
+        return None, None, None
+    
     print("MC debug:")
     print("==========")
     print(mc.sim.Parset.model)
