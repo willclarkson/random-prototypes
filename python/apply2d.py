@@ -820,7 +820,8 @@ Returns:
 
     # Load the parameter set and parse its transformation names
     pset = parset2d.loadparset(pathpset)
-    print(pathpset, pset.transfname)
+    print("loadparsamples INFO: pathpset %s, transfname:%s" \
+          % (pathpset, pset.transfname))
     if not transfnamesok(pset):
         return None, np.array([]), np.array([])
 
