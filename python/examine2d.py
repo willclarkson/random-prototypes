@@ -2026,9 +2026,9 @@ Example call:
 
     if np.size(flat_samples) < 1:
         return
-
+    
     # convert {b,c,e,f} to {sx, sy, theta, beta} and reorder?
-    if convert_linear and np.size(inds_abc) > 5:
+    if convert_linear and np.size(inds_abc) > 5:        
         flat_samples, labels, truths = \
             sixterm2d.flatpars(flat_samples, inds_abc, labels, truths)
 
@@ -2053,7 +2053,7 @@ Example call:
                    quants[0,ipar]-quants[1,ipar], \
                    quants[2,ipar]-quants[0,ipar])
             struth = ''
-            if np.size(truths) > 0:
+            if np.size(truths) > 0 and truths is not None:
                 struth = r" - Truth: %.6e" % (truths[ipar])
 
             # (Using very high precision because some of these

@@ -216,9 +216,10 @@ sy, theta, beta, including reordering and labeling"""
     ST = sixterm(flatsamples, inds, labels)
     samples_out, labels_out = ST.getoutput()
 
-    # try this on the truths array
+    # try this on the truths array. Allow blank truths to be supplied
+    # as np.array([]) or None.
     truths_out=None # same default as examine2d.showcorner() 
-    if np.size(truths) > 0:
+    if np.size(truths) > 0 and truths is not None:
         TT = sixterm(truths, inds, labels)
         truths_out, _ = TT.getoutput()
 
