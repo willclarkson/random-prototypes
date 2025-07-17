@@ -714,6 +714,13 @@ for convenient comparison with the truth parameters"""
         """Utility - populates the 'truths' array for future plots, matched to
 the guess array that will be plotted."""
 
+        # Nothing to do if there is no sim.Parset (usually this means
+        # we don't actually know the truths. Note that
+        # self.ignoretruths=True does NOT mean we don't necessarily
+        # know the truths...
+        if not hasattr(self, 'Parset'):
+            return
+        
         PP = Pairset(self.sim.Parset, self.guess_parset)
         self.truths = np.asarray(PP.set1on2.pars, 'float64')
         
@@ -1265,14 +1272,16 @@ this something we can input into an mcmc run on actual data"""
 
         # Nothing to do if the input path is not readable
         if not os.access(self.path_truth, os.R_OK):
-            print("MCMCrun.loadtruths WARN - truths path not readable: %s" \
+            self.ignoretruth = True
+            print("MCMCrun.loadtruths WARN - truth path not readable: %s" \
                   % (self.path_truth))
+            print("MCMCrun.loadtruths WARN - setting self.ignoretruth to True")
             return
-        
+
+        # Sets up the sim object to transfer truth parameters across
+        # to
         if self.sim is None:
             self.sim = sim2d.Simdata()
-
-        #self.sim.Parset.readparset(self.path_truth)
 
         # Now include parsing
         self.sim.Parset = loadparset(self.path_truth)
@@ -1336,20 +1345,25 @@ Inputs:
             self.initguessfromtruth()
                         
         else:
+
+            # 2025-07-17 WIC - I think this self.ignoretruth is a bug:
+            # we always want to be trying a guess this way if we're
+            # using the polynomial model! Testing this now...
+            
             # Do a linear leastsq fit to the data to serve as the
             # initial guess for the minimizer
-            if not self.ignoretruth:
-                self.guessfromlstsq()
+            ## # if not self.ignoretruth:
+            self.guessfromlstsq()
 
-                # 2024-11-25 - try nonparametric bootstrapping? (Note:
-                # not sure this should be in this ignoretruth
-                # conditional, since we might want to try this anyway)
-                if self.doboots_poly:
-                    self.guess.boots_ignoreweights = \
-                        self.boots_ignoreweights
-                    self.guess.nboots = self.nboots
+            # 2024-11-25 - try nonparametric bootstrapping? (Note:
+            # not sure this should be in this ignoretruth
+            # conditional, since we might want to try this anyway)
+            if self.doboots_poly:
+                self.guess.boots_ignoreweights = \
+                    self.boots_ignoreweights
+                self.guess.nboots = self.nboots
                     
-                    self.guess.bootstraplsq()
+                self.guess.bootstraplsq()
 
         # By this point we should have the parameter set. Check that
         # we do.
@@ -1516,7 +1530,7 @@ Returns:
     # these parameters will be used to simulate the data. If using
     # pre-built data, these parameters will be used in plots against
     # the posteriod distribution.
-    print("Reading truth parset from %s" % (mc.path_truth))    
+    print("Reading truth parset from %s" % (mc.path_truth))
     mc.loadtruths()
 
     # print("mc sim object parset model:", mc.sim.Parset.model)
@@ -1529,10 +1543,12 @@ Returns:
             print("setupmcmc WARN - simulated data zero size. Check your input parameters.")
             return None, None, None
 
-        
-    if mc.sim is None:
-        print("WARN - sim is none. Check input arguments.")
-        return None, None, None
+
+        # This is now only important if we are simulating. Shunt it
+        # across.
+        if mc.sim is None:
+            print("WARN - sim is none. Check input arguments.")
+            return None, None, None
         
     #print("Imported truthset INFO:", mc.sim.Parset.pars)
 
@@ -1546,8 +1562,10 @@ Returns:
     
     print("MC debug:")
     print("==========")
-    print(mc.sim.Parset.model)
-    print(mc.guess.Parset.model)
+    if mc.sim is not None:
+        print("mc.sim.Parset.model:", mc.sim.Parset.model)
+        
+    print("mc.guess.Parset.model", mc.guess.Parset.model)
     if mc.guess_parset is not None:
         print("MC INFO - guess parset:", mc.guess_parset.model)
 
@@ -1596,7 +1614,8 @@ Returns:
 
     # Write the guess and truth parsets to disk
     mc.guess.Parset.writeparset("test_parset_guess.txt")
-    mc.sim.Parset.writeparset("test_parset_truth.txt")
+    if hasattr(mc.sim,'Parset'):
+        mc.sim.Parset.writeparset("test_parset_truth.txt")
 
     # Now write the data to disk
     if writedata:
