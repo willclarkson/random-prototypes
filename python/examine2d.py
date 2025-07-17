@@ -726,7 +726,7 @@ and background"""
                                         minperbin)
             
 
-    def writeparset(self, outpath='test_parset_found.pickle'):
+    def saveparset(self, outpath='test_parset_found.pickle'):
 
         """Writes the parameters summary to disk as a Parset1d object"""
 
