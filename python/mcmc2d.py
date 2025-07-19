@@ -1272,10 +1272,13 @@ this something we can input into an mcmc run on actual data"""
 
         # Nothing to do if the input path is not readable
         if not os.access(self.path_truth, os.R_OK):
-            self.ignoretruth = True
             print("MCMCrun.loadtruths WARN - truth path not readable: %s" \
                   % (self.path_truth))
-            print("MCMCrun.loadtruths WARN - setting self.ignoretruth to True")
+
+            if not self.simulating:
+                self.ignoretruth = True
+                print("MCMCrun.loadtruths WARN - setting self.ignoretruth to True")
+            
             return
 
         # Sets up the sim object to transfer truth parameters across
