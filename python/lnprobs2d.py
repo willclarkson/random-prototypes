@@ -658,9 +658,9 @@ Returns:
     # WATCHOUT - lnlike.sumlnlike is a sum over the datapoints (taking
     # into account the model components including the mixture
     # fraction), while lnprior.sumlnprior is a sum over the model
-    # components. If not zero or infinite, it needs to be multiplied
-    # by the number of datapoints. Do that here.
-    term_lnprior = lnprior.sumlnprior * obstarg.npts
+    # components.
+    # term_lnprior = lnprior.sumlnprior * obstarg.npts ## NO!!!
+    term_lnprior = lnprior.sumlnprior
     term_lnlike = lnlike.sumlnlike
     
     # OK if we got here, then both the sum of ln(prior) and ln(like)
