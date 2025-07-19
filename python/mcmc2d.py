@@ -718,7 +718,7 @@ the guess array that will be plotted."""
         # we don't actually know the truths. Note that
         # self.ignoretruths=True does NOT mean we don't necessarily
         # know the truths...
-        if not hasattr(self, 'Parset'):
+        if not hasattr(self.sim, 'Parset'):
             return
         
         PP = Pairset(self.sim.Parset, self.guess_parset)
@@ -1552,6 +1552,10 @@ Returns:
         if mc.sim is None:
             print("WARN - sim is none. Check input arguments.")
             return None, None, None
+
+    if mc.simulating:
+        print("setupMCMC INFO: simulating and ignoretruth is " , \
+              mc.ignoretruth)
         
     #print("Imported truthset INFO:", mc.sim.Parset.pars)
 
@@ -1596,6 +1600,8 @@ Returns:
     mc.setupwalkers()
     mc.setargs_emcee()
 
+    #print("INFO:", self.)
+    
     # Print the jitters
     if hasattr(mc, 'jitters_old'):
         
@@ -1633,7 +1639,8 @@ Returns:
         stdboots = np.std(mc.guess.boots_pars, axis=0)
         print("setupmcmc INFO - stddev of nonparametric bootstraps:")
         print(stdboots)
-        
+
+    print("setupmcmc INFO: truths", mc.truths)
         
     # Let's see if reading this back in works...
     # mc.readjitterball(debug=True)
