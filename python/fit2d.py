@@ -480,18 +480,32 @@ supplied as None"""
         self.preventfittingempty()
         
         # The noise model
-        if self.guess_noise_loga is not None and self.fit_noise_model:
+        if self.guess_noise_loga is not None:
             self.guess_noise_model = np.array([self.guess_noise_loga])
+
+        # 2025-07-21: removed requirement that loga be set, so that we
+        # can fit an extra-noise model consisting of just [b,c]. (But
+        # both b and c must be set if either is set.)
+        if self.guess_noise_logb is not None and \
+           self.guess_noise_c is not None:
+
+            self.guess_noise_model \
+                = np.hstack(( self.guess_noise_model, \
+                              self.guess_noise_logb, \
+                              self.guess_noise_c ))
+        
+        #if self.guess_noise_loga is not None and self.fit_noise_model:
+        #    self.guess_noise_model = np.array([self.guess_noise_loga])
 
             # This indent is deliberate. It only makes sense to fit
             # logb and c if all three noise model parameters are
             # present.
-            if self.guess_noise_logb is not None and \
-               self.guess_noise_c is not None:
-                self.guess_noise_model \
-                    = np.hstack(( self.guess_noise_model, \
-                                  self.guess_noise_logb, \
-                                  self.guess_noise_c ))
+            #if self.guess_noise_logb is not None and \
+            #   self.guess_noise_c is not None:
+            #    self.guess_noise_model \
+            #        = np.hstack(( self.guess_noise_model, \
+            #                      self.guess_noise_logb, \
+            #                      self.guess_noise_c ))
 
         # The noise asymmetry model
         if self.guess_asymm_ryx is not None and self.fit_noise_asymm:

@@ -836,12 +836,12 @@ walker positions"""
 
         # 1d labels
         self.labels = self.guess_parset.getlabels()
-
+        
         # 2024-08-39 uncomment this to get the labels from the
         # transformation object.
         labelsxy = self.guess.PGuess.getlabels()
         self.labels[0:len(labelsxy)] = labelsxy
-        
+
         ## Refine the plot labels using the patternmatrix object in
         ## the guess transformation
         #pmatrix = self.guess.PGuess.pars2x
@@ -982,9 +982,12 @@ interpreter"""
         """Serializes the arguments for emcee to disk"""
 
         if len(self.args_show.keys()) > 0:
-            with open('%s_showargs.pickle' % (stemargs), 'wb') as f:
-                pickle.dump(self.args_show, f)
-
+            try:
+                with open('%s_showargs.pickle' % (stemargs), 'wb') as f:
+                    pickle.dump(self.args_show, f)
+            except:
+                print("writeargs_emcee WARN - problem pickling args_show")
+                    
         if len(self.args_run.keys()) > 0:
             with open('%s_runargs.pickle' % (stemargs), 'wb') as f:
                 pickle.dump(self.args_run, f)           
@@ -1600,7 +1603,7 @@ Returns:
     mc.setupwalkers()
     mc.setargs_emcee()
 
-    #print("INFO:", self.)
+    
     
     # Print the jitters
     if hasattr(mc, 'jitters_old'):

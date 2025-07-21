@@ -1826,10 +1826,11 @@ Example call:
             print("examine2d.shownoisesamples INFO - parsnoise 1D. Nothing to show:", parsnoise.shape, parssymm.shape)
             return
     
-    
+        
     stdxs, stdys, corrxys = noisemodel2d.mags2noise(parsnoise.T, parssymm.T, \
                                                     mshow[:,None], \
-                                                    mag0=mag0, returnarrays=True, \
+                                                    mag0=mag0, \
+                                                    returnarrays=True, \
                                                     islog10_c=islog10_c)
 
 
@@ -1873,6 +1874,9 @@ Example call:
     if showvar:
         powr = 2.
 
+    # condition-trap
+    jaux = np.min([jaux, parsnoise.shape[-1]-1 ])
+        
     # Color-code our plots by auxiliary quantity
     zmin = np.min(parsnoise[:,jaux])
     zmax = np.max(parsnoise[:,jaux])
@@ -1953,6 +1957,9 @@ Example call:
             print("shownoisesamples WARN - logprobs the wrong shape or not provided. Not showing.")
             
     for ax, j in zip([axf0, axf1, axf2], [0,1,2]):
+        if j > parsnoise.shape[-1]-1:
+            continue
+        
         dumflat = ax.scatter(lsam, parsnoise[lsam, j], \
                              c=caux, \
                              alpha=0.25, \

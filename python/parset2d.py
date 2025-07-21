@@ -457,10 +457,11 @@ whether the quantities are being used as log_10"""
         if self.islog10_mix_vxx:
             self.labels_mix[1] = r'$log_{10}(V_{bg})$'
             self.parnames_mix[1] = 'mix_log10vbg'
-            
+
+        # 2025-07-21 allow for length-2 noise
         if self.islog10_noise_c:
-            self.labels_noise[2] = r'$log_{10}(c)$'
-            self.parnames_noise[2] = 'noise_log10c'
+            self.labels_noise[-1] = r'$log_{10}(c)$'
+            self.parnames_noise[-1] = 'noise_log10c'
             
     def getlabels(self):
 
@@ -470,7 +471,15 @@ whether the quantities are being used as log_10"""
         labels_model = [r'$%s_{%i}$' % (self.labelstem_transf, i) \
                         for i in range(np.size(self.model)) ]
 
-        labels_model += self.labels_noise[0:self.nnoise]
+        # Hack for two-element noise model again (whence we count from
+        # 1 and not 0 since we're using [b,c] and not [a,b,c]).
+        ioffset_noise = 0
+        if self.nnoise == 2:
+            ioffset_noise = 1
+        
+        labels_model += self.labels_noise[ioffset_noise:self.nnoise+ioffset_noise]
+
+
         labels_model += self.labels_asymm[0:self.nshape]
         labels_model += self.labels_mix[0:self.nmix]
 
@@ -498,9 +507,19 @@ in by a parameter file"""
             skey = labls[imodl].replace('$','').replace('{','').replace('}','')
             self.dindices[skey] = imodl
         
-        # Now for the nuisance parameters
+        # Now for the nuisance parameters. There needs to be a slight
+        # hack for the noise model, since if size==2 then we are
+        # fitting [b,c] instead of [a,b,c] or [a]. One way is just to
+        # start counting from 1 in the list of labels. (Another might
+        # just be to cut down the instance-level list of parameter
+        # names and labels.)
+        inoise_offset = 0
+        if np.size(self.lnoise) == 2:
+            inoise_offset = 1
+            
         for inoise in range(np.size(self.lnoise)):
-            self.dindices[self.parnames_noise[inoise]] = self.lnoise[inoise]
+            self.dindices[self.parnames_noise[inoise + inoise_offset]] \
+                = self.lnoise[inoise]
 
         for isymm in range(np.size(self.lsymm)):
             self.dindices[self.parnames_asymm[isymm]] = self.lsymm[isymm]

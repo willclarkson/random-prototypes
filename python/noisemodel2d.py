@@ -14,14 +14,24 @@ def noisescale(noisepars=np.array([]), mags=np.array([]), \
                default_log10a = -20., mag0=0., islog10_c=False):
 
     """Magnitude-dependent scaling for noise. Returns a 1d array of noise
-scale factors with same length as the input apparent magnitudes mags[N]. 
+scale factors with same length as the input apparent magnitudes
+mags[N]. The noise model is
+
+    noise = A + B.((flux/flux_0)**-C) 
+
+          = A + B.exp(+0.921(m-m_0)c)
+
+There is some parsing of the parameters: noisepars is expected to be
+one of [a,b,c], or [b,c], or [a], or a. The "c" can be supplied as log10(c). 
+
+mag0 is the "zeropoint" for the noise model. It should not make any
+difference physically what values is used, but it might make a
+difference numerically. Usually good for this to be something roughly
+in the middle of the expected magnitude distribution.
 
 Inputs: 
 
     noisepars = [log10(A), log10(B), C] 
-                describing noise model A + B.((flux/flux_0)**-C) 
-
-               = A + B.exp(+0.921(m-m_0)c)
 
     mags = N-element array of apparent magnitudes
 
@@ -52,32 +62,49 @@ Returns:
     loga = default_log10a * log10toln
     logb = -np.inf
     c = 0.
+
+    # Ensure noisepars are treated as an array. Don't modify the
+    # inputs in-place.
+    npars = np.atleast_1d(noisepars)
+
+    # Parse based on length. Python 3.10 (mid-2021) has the "match"
+    # syntax similar to switch/case, but not all my systems are
+    # updated yet. There's something of a special case anyway: if
+    # input pars have length 2 then they are [b,c]. Otherwise they are
+    # a or [a] or [a,b,c].
+
+    # This needs to work for 2D [ncols, nsamples] as well as 1D
+    # [ncols] input. Since we're now also looking for special cases
+    # (like 2-column input), we bite the bullet and explicitly look
+    # for columns, rather than just using the array size and trusting
+    # in my understanding of array broadcasting. "npars" is the
+    # array-like version of noisepars anyway, so we know it will have
+    # at least shape [1] (though that might mean [None]). So:
     
-    # Parse the model parameters
-    if np.isscalar(noisepars):
-        #a = 10.0**(noisepars)
-        loga = noisepars * log10toln
-        
+    ncols = np.shape(npars)[0]        
+    if ncols < 1:
+        return mags*0. # + 1.
+
+    # condition-trap for None supplied.
+    if npars[0] is None:
+        return mags*0.
+    
+    # Slope only
+    if ncols == 2:
+        logb = npars[0] * log10toln
+        c = npars[1] # rather than [-1] to support possible future
+                     # extension to more complicated models
     else:
-        sz = np.size(noisepars)
-        if sz < 1:
-            return mags*0. # + 1.
-
-        if sz > 0:
-            # a = 10.0**(noisepars[0])
-            loga = noisepars[0] * log10toln
-        if sz > 1:
-            # b = 10.0**(noisepars[1])
-            logb = noisepars[1] * log10toln
-        if sz > 2:
-            if islog10_c:
-                c = 10.0**noisepars[2]
-            else:
-                c = noisepars[2]
-
-    # return b * np.exp(mags*c) + a
-
+        loga = npars[0] * log10toln
+        if ncols > 1:
+            # b = 10.0**(npars[1])
+            logb = npars[1] * log10toln
+            c=npars[2]
             
+    # if a c value was supplied as log10(c), convert it to c.
+    if islog10_c and ncols > 1:
+        c = 10.0**c
+
     # OK now we have the a, b, c for our model. Apply it
     logsum = np.logaddexp(c*(mags-mag0)*fluxtomag + logb, loga)
 
