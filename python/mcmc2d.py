@@ -129,6 +129,7 @@ multiprocessing.
         # Method that will be used for ln(posterior), its arguments
         self.methpost = lnprobs2d.lnprob
         self.argspost = ()
+        self.argspost_minimizer = ()
         self.lnlike = None
         self.lnprior = None
         self.guess1d = np.array([])
@@ -317,9 +318,18 @@ the target frame, update, and re-weight"""
 
         """Assembles expected arguments for minimizer and/or emcee"""
 
+        # return_blob set to True for lnprob as will be called by
+        # emcee...
         self.argspost = (self.guess.PGuess, self.guess.obstarg, \
-                         self.guess.Parset, self.lnprior, self.lnlike)
+                         self.guess.Parset, self.lnprior, self.lnlike, \
+                         True)
 
+        # ... but the minimizer expects a scalar return, so
+        # return_blob=False
+        ldum = list(self.argspost)
+        ldum[-1] = False
+        self.argspost_minimizer = tuple(ldum)
+        
     def getargspost_subset(self, fsampl=0.8):
 
         """Assembles minimizer arguments for a subsample of the datapoints.
@@ -335,14 +345,14 @@ the target frame, update, and re-weight"""
 
         COMMENTS
 
-        Attribute self.argspost needs to be set.
+        Attribute self.argspost_minimizer needs to be set.
 
         """
 
-        if len(self.argspost) < 5:
+        if len(self.argspost_minimizer) < 5:
             return ()
 
-        ndata = self.argspost[0].x.size
+        ndata = self.argspost_minimizer[0].x.size
 
         # Generate sample indices
         nsim = int(ndata * fsampl)
@@ -350,34 +360,34 @@ the target frame, update, and re-weight"""
         lsam = rng.integers(0,ndata,nsim)
 
         # OK now we (re)construct the pieces with these samples.
-        pguess = copy.deepcopy(self.argspost[0])
+        pguess = copy.deepcopy(self.argspost_minimizer[0])
         pguess.updatedata(pguess.x[lsam], \
                           pguess.y[lsam], \
                           pguess.covxy[lsam])
         pguess.initxytran()
         
-        obstarg = copy.deepcopy(self.argspost[1])
+        obstarg = copy.deepcopy(self.argspost_minimizer[1])
         for attr in ['xy','covxy','mags','isfg']:
             setattr(obstarg, attr, getattr(obstarg,attr)[lsam])
         obstarg.countpoints()
 
         # We have to trim the pset object too...
-        pset = copy.deepcopy(self.argspost[2])
+        pset = copy.deepcopy(self.argspost_minimizer[2])
 
-        lnprior = self.argspost[3]
+        lnprior = self.argspost_minimizer[3]
         
         # Construct a new lnlike object rather than modifying in place
         lnlike = Like(pset, pguess, obstarg)
 
         # Retain these debug comments for the moment...
-        #print("getargspost INFO")
-        #print("0:",self.argspost[0].x.size)
+        #print("getargspost_minimizer INFO")
+        #print("0:",self.argspost_minimizer[0].x.size)
         #print("0':",pguess.x.size)
-        #print("1:", self.argspost[1].xy.shape)
+        #print("1:", self.argspost_minimizer[1].xy.shape)
         #print("1':", obstarg.xy.shape)
                     
-        #print("4:", self.argspost[4].transf.x.shape)
-        #print("4:", self.argspost[4].xytarg.shape)
+        #print("4:", self.argspost_minimizer[4].transf.x.shape)
+        #print("4:", self.argspost_minimizer[4].xytarg.shape)
 
         #print("4':", lnlike.transf.x.shape)
         #print("4':", lnlike.xytarg.shape)
@@ -390,8 +400,8 @@ the target frame, update, and re-weight"""
         """Draws random sample with replacement and runs the minimizer on
 it."""
 
-        if len(self.argspost) < 1:
-            print("minimize_on_subset WARN - main argspost not yet set.")
+        if len(self.argspost_minimizer) < 1:
+            print("minimize_on_subset WARN - main argspost_minimizer not yet set.")
             return
         
         # Draw the subset and get the arguments for the minimizer
@@ -640,7 +650,7 @@ samples from that prior for the initial-guess for the minimizer."""
         ufunc = lambda *args: 0.-self.methpost(*args)
 
         self.minimizer_soln = minimize(ufunc, self.guess1d, \
-                                       args=self.argspost, \
+                                       args=self.argspost_minimizer, \
                                        method=self.minimizer_method, \
                                        options=self.minimizer_options)
         t1 = time.time()

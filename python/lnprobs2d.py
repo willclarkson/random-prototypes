@@ -599,7 +599,7 @@ ln-likelihood with the new parameters"""
         self.calclnlike()
         
 def lnprob(pars, transf, obstarg, parset=None, \
-           lnprior=None, lnlike=None):
+           lnprior=None, lnlike=None, return_blob=False):
 
     """ln(prob) for MCMC and minimizer.
 
@@ -624,6 +624,9 @@ Inputs:
     lnlike = Likelihood object. Created if None, otherwise updated
     in-place.
 
+    return_blob = in addition to the lnposterior, returns lnlike and
+    lnprior (as per emcee "blob" functionality). 
+
 Returns:
 
     lnprob = ln(posterior probability)
@@ -644,8 +647,11 @@ Returns:
         lnprior.updatepriors(parset)
 
     if not np.isfinite(lnprior.sumlnprior):
-        return -np.inf
-
+        if return_blob:
+            return -np.inf, -np.inf, -np.inf
+        else:
+            return -np.inf
+        
     # compute log-likelihood with the parameters.
     if lnlike is None:
         lnlike = Like(parset, transf, obstarg)
@@ -653,7 +659,10 @@ Returns:
         lnlike.updatelnlike(parset)
 
     if not np.isfinite(lnlike.sumlnlike):
-        return -np.inf
+        if return_blob:
+            return -np.inf, -np.inf, -np.inf
+        else:
+            return -np.inf
 
     # WATCHOUT - lnlike.sumlnlike is a sum over the datapoints (taking
     # into account the model components including the mixture
@@ -665,4 +674,8 @@ Returns:
     
     # OK if we got here, then both the sum of ln(prior) and ln(like)
     # should be finite. Return it!
+    if return_blob:
+        return term_lnprior + term_lnlike, term_lnlike, term_lnprior
+
+    # if here then we are not returning the blob.
     return term_lnprior + term_lnlike
