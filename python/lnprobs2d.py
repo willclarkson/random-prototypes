@@ -536,7 +536,9 @@ Returns:
 
     def calclnlike(self):
 
-        """Computes the ln(likelihood) in a mixture-aware way"""
+        """Computes the ln(likelihood) in a mixture-aware way.
+
+        See Equation (17) and nearby discussion in Hogg, Bovy & Lang (2010) https://arxiv.org/abs/1008.4686 """
 
         if self.fbg <= 0:
             lnlike = self.getlnlike(isbg=False)
