@@ -677,7 +677,15 @@ Returns:
     # OK if we got here, then both the sum of ln(prior) and ln(like)
     # should be finite. Return it!
     if return_blob:
-        return term_lnprior + term_lnlike, term_lnlike, term_lnprior
 
+        # 2025-07-23 return the foreground lnlike separately as a
+        # diagnostic
+        return term_lnprior + term_lnlike, term_lnlike, \
+            np.sum(lnlike.lnlike_fg)
+
+        #return term_lnprior + term_lnlike, term_lnlike, term_lnprior
+
+    
+    
     # if here then we are not returning the blob.
     return term_lnprior + term_lnlike
