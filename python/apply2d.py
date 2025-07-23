@@ -820,8 +820,7 @@ Returns:
 
     # Load the parameter set and parse its transformation names
     pset = parset2d.loadparset(pathpset)
-    print("loadparsamples INFO: pathpset %s, transfname:%s" \
-          % (pathpset, pset.transfname))
+    print(pathpset, pset.transfname)
     if not transfnamesok(pset):
         return None, np.array([]), np.array([])
 
@@ -902,7 +901,7 @@ samples from the MCMC as transformation parameters
     
     ES.setupsamples_xieta()
     ES.setupsamples_z()
-    
+
     print("sample_transf INFO - running samples...")
     ES.runsamples_pars()
     print("sample_transf INFO - ... done.")
@@ -1651,6 +1650,10 @@ def traceplot(neval=10, \
         ES.setupsamples_z()
 
     print("samples_z DEBUG:", ES.samples_z.shape, ES.lnprob.shape)
+
+    #Check to see if number of samples matches neval
+    if neval > ES.samples_z.shape[0]:
+        neval = ES.samples_z.shape[0]
         
     # run the samples
     ES.runsamples_pars()
@@ -1720,6 +1723,8 @@ def traceplot(neval=10, \
     #for isho in range(neval):
         #dum2 = ax1.scatter(ES.samples_xi[isho], ES.samples_eta[isho], s=.5, \
         #                   alpha=0.05, color='b')
+
+
 
 ##### A few canned analyses follow
 
