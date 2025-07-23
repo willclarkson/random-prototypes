@@ -376,8 +376,6 @@ transformation"""
         if self.keepxysamples:
             self.setupsamples_xy()
         
-        
-
         for isample in range(self.neval):
             xysample = self.covobj.getsamples() + self.xy
             self.setdata(xysample)
@@ -391,7 +389,6 @@ transformation"""
 
         """Runs the parameter samples"""
         
-
         self.setdata()
         for iset in range(self.neval):
             self.updatetransf(iset)
@@ -418,8 +415,6 @@ object"""
         # Safety valve
         if itransf >= self.samples_xi.size:
             return
-
-        
 
         # update the transformation parameters
         modelpars = self.parsamples[itransf, self.lmodel]
@@ -907,7 +902,6 @@ samples from the MCMC as transformation parameters
     ES.setupsamples_xieta()
     ES.setupsamples_z()
 
-    
     print("sample_transf INFO - running samples...")
     ES.runsamples_pars()
     print("sample_transf INFO - ... done.")
