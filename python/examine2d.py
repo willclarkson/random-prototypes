@@ -1957,6 +1957,8 @@ Example call:
             print("shownoisesamples WARN - logprobs the wrong shape or not provided. Not showing.")
             
     for ax, j in zip([axf0, axf1, axf2], [0,1,2]):
+
+        # condition trap for two-parameter noise 
         if j > parsnoise.shape[-1]-1:
             continue
         
