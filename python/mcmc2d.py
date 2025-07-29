@@ -1486,7 +1486,7 @@ def setupmcmc(pathsim='test_sim_mixmod.ini', \
               pathboots='test_boots.npy', \
               npoints_arg=None, \
               pathobs='', pathtarg='', pathtruth='', \
-              jitterfromsamples=False, \
+              jitterfromsamples=True, \
               nonparam_minimizer=0, \
               pathconfig=''):
 
