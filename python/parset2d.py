@@ -782,8 +782,8 @@ they are padded with self.padval in set 1.
         """
 
         # First the transformation model...
-        modelx = self.pad1to2(self.modelx1, self.modelx2)
-        modely = self.pad1to2(self.modely1, self.modely2)
+        modelx = self.pad1to2(self.modelx1, self.modelx2, padval=self.padval)
+        modely = self.pad1to2(self.modely1, self.modely2, padval=self.padval)
         model = np.hstack(( modelx, modely ))
 
         # ... then the non-transformation model pieces
@@ -791,15 +791,29 @@ they are padded with self.padval in set 1.
         asymm = self.pad1to2(self.set1.symm, self.set2.symm)
         mix = self.pad1to2(self.set1.mix, self.set2.mix)
 
-        # Now construct the padded set out of this
-        set1on2 = Pars1d(model=model, noise=noise, symm=asymm, mix=mix, \
-                         mag0=self.set1.mag0)
+        # Now construct the padded set out of this.
 
+        # If returning a new object, bring across the metadata...
         if retval:
-            return set1on2
+            return Pars1d(model=model, noise=noise, \
+                          symm=asymm, mix=mix, \
+                          mag0=self.set1.mag0, \
+                          islog10_mix_frac = self.set1.islog10_mix_frac, \
+                          islog10_mix_vxx = self.set1.islog10_mix_vxx, \
+                          islog10_noise_c = self.set1.islog10_noise_c, \
+                          xmin = self.set1.xmin, \
+                          xmax = self.set1.xmax, \
+                          ymin = self.set1.ymin, \
+                          ymax = self.set1.ymax, \
+                          transfname = self.set1.transfname, \
+                          polyname = self.set1.polyname)
 
-        self.set1on2 = set1on2
+        # ... otherwise re-gen in place        
+        self.set1on2 = Pars1d(model=model, noise=noise, symm=asymm, mix=mix, \
+                              mag0=self.set1.mag0)
 
+
+        
     def pad1to2(self, arr1=np.array([]), arr2=np.array([]), padval=None):
 
         """Utility - given two 1D arrays, returns a version of the first, cut

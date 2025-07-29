@@ -247,6 +247,54 @@ dataset"""
             
         self.guess.loadconfig(self.parfile_guess)
 
+    def padtruthstoguess(self, Debug=False):
+
+        """If guess degree is larger than truths degree, pads truths array so
+that fit items no in the truths are set to zero in the
+truths. Currently triggers on the model parameters (and not the
+nuisance parameters).
+
+        INPUTS
+
+        Debug = print screen messages
+
+        """
+
+        # Comment: it may be worth giving Pairset the ability to set
+        # different pad values for the nuisance and model parameters.
+        
+        # Both must be set and have the needed attributes. Return
+        # silently if not (we might not be working with known truths).
+        if self.sim is None or self.guess is None:
+            return
+        
+        if not hasattr(self.sim, 'Parset') or \
+           not hasattr(self.guess, 'Parset'):
+            return
+
+        if not hasattr(self.sim.Parset, 'nmodel') or \
+           not hasattr(self.guess.Parset, 'nmodel'):
+            return
+
+        # we only need to do anything if the guess has more model
+        # parameters than the truths
+        if self.sim.Parset.nmodel >= self.guess.Parset.nmodel:
+            return
+
+        # Do the substitution - use 0.0 for pad val and not None.
+        Pair = Pairset(self.sim.Parset, self.guess.Parset, padval=0.)
+        PSub = Pair.padset1toset2(retval=True)
+
+        self.sim.Parset = PSub
+
+        if not Debug:
+            return
+        
+        print("#### PAD TRUTHS INFO:")
+        print("#### Sim model:", self.sim.Parset.model)
+        print('#### Guess model:', self.guess.Parset.model)
+        print('#### psub model:', PSub.model)
+        
         
     def initguessfromtruth(self):
 
@@ -1575,6 +1623,11 @@ Returns:
     print("setupmcmc INFO - MC parfile_guess:", mc.parfile_guess)
     mc.doguess(norun=debug)
 
+    # By this point we have both our guess and (possibly!) our truth
+    # array. If guess fit degree is bigger than the truth degree, it's
+    # useful to pad the truth parameters with zeros.
+    mc.padtruthstoguess()
+    
     # condition trap
     if mc.guess is None:
         print("setupmcmc WARN - guess is None. Returning.")
