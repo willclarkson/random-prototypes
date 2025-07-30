@@ -301,7 +301,7 @@ various things
             # unpack it here.
             if 'lnlike' in self.showargs['truthset'].keys():
                 self.lnlike_truth = self.showargs['truthset']['lnlike']
-                
+                self.lnlike_truth.updatesky(self.lnlike_truth.parset)
                 
     def getsimisfg(self):
 
@@ -325,7 +325,7 @@ them"""
             self.transftruth = copy.deepcopy(self.lnlike_truth.transf)
             self.transftruth.propagate()
             self.setobjontruth()
-            return
+        
             
         # We have to actually have truth parameters for the
         # transformation to do something here.
@@ -909,6 +909,7 @@ Inputs:
 
         if 'lnlike' in showargs['truthset'].keys():
             ltruth = copy.deepcopy(showargs['truthset']['lnlike'])
+            ltruth.updatesky(ltruth.parset)
         else:
             ltruth = copy.deepcopy(llike)        
             ltruth.updatesky(ptruth) # fails if number of params differ
