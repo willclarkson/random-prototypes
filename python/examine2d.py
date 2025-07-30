@@ -116,6 +116,7 @@ Inputs:
 
         # truth parameters, if known
         self.ptruths = ptruths
+        self.lnlike_truth = None  # Like() object
         
         # Now some things we can compute on the samples
         self.ndata = 0.
@@ -295,7 +296,13 @@ various things
         if 'truthset' in self.showargs.keys():
             if 'parset' in self.showargs['truthset'].keys():
                 self.ptruths = self.showargs['truthset']['parset']
-            
+
+            # If we passed in an lnlike object for the truths object,
+            # unpack it here.
+            if 'lnlike' in self.showargs['truthset'].keys():
+                self.lnlike_truth = self.showargs['truthset']['lnlike']
+                
+                
     def getsimisfg(self):
 
         """Gets the foreground/background IDs from the simulation"""
@@ -312,6 +319,14 @@ them"""
         # runs, and swaps in the transformation parameters from the
         # truth parameters.
 
+        # UPDATE - if a transformation object was already passed in,
+        # use it! (This helps account for the case where npars differ)
+        if hasattr(self.lnlike_truth,'transf'):
+            self.transftruth = copy.deepcopy(self.lnlike_truth.transf)
+            self.transftruth.propagate()
+            self.setobjontruth()
+            return
+            
         # We have to actually have truth parameters for the
         # transformation to do something here.
         if not hasattr(self.ptruths, 'model'):
@@ -885,18 +900,25 @@ Inputs:
 
     # it would be very useful to plot the predictions of the truth
     # parameters if we have them, particularly for the vs-mag
-    # graph...
+    # graph... (WATCHOUT - this duplicates some methods farther down.)
     ptruth = None
+    ltruth = None
     if 'truthset' in showargs.keys():
         if 'parset' in showargs['truthset'].keys():
             ptruth = showargs['truthset']['parset']
 
-            # If asked to use the truth parameters, copy them in to
-            # the llike object and update
-            if usetruths:
-                print("showguess INFO - using truth parameters for plots")
-                llike.updatesky(ptruth)
-                transf = llike.transf
+        if 'lnlike' in showargs['truthset'].keys():
+            ltruth = copy.deepcopy(showargs['truthset']['lnlike'])
+        else:
+            ltruth = copy.deepcopy(llike)        
+            ltruth.updatesky(ptruth) # fails if number of params differ
+
+    # If asked to use the truth parameters, copy them in to
+    # the llike object and update
+    if usetruths and ltruth is not None:
+        print("showguess INFO - using truth parameters for plots")
+        llike = ltruth
+        transf = ltruth.transf
 
                 
     # Views of necessary pieces: target frame...
@@ -1017,11 +1039,14 @@ Inputs:
     
     # truth parameters if we have them
     ax36=None
-    magbins_fg_truth = np.array([])                            
-    if ptruth is not None:
+    magbins_fg_truth = np.array([])
+
+    # check for truths now done above.
+
+    # ok by this point we should have our ltruth if the ingredients
+    # were present.
+    if ltruth is not None:
         ax36 = fig2.add_subplot(224)
-        ltruth = copy.deepcopy(llike)
-        ltruth.updatesky(ptruth)
 
         # Note that the binned statistics for the "target" plot are
         # post-fit responsibilities. But if we have truths, then we

@@ -134,6 +134,11 @@ multiprocessing.
         self.lnprior = None
         self.guess1d = np.array([])
 
+        # similar lnlike, lnprior arguments for the "truths" if we
+        # have them
+        self.lnlike_sim = None
+        self.lnprior_sim = None
+        
         # For perturbing the initial guess (1d) for the minimizer
         self.nudgescale_guess1d = 1.0e-2
         self.nudge_guess1d = np.array([])
@@ -571,6 +576,30 @@ bootstrap with the full minimizer"""
         # Magnitude zeropoint for fitting... consider packaging this
         # with obstarg?
         self.lnlike.mag0 = self.guess.mag0
+
+    def setuplnlike_sim(self):
+
+        """Sets up ln(like) object for the simulation, if the needed pieces
+are in place."""
+
+        # do nothing if we don't have the pieces
+        if self.sim is None:
+            return
+
+        if self.sim.Parset is None:
+            return
+
+        if self.sim.PTruth is None:
+            return
+        
+        self.lnlike_sim = Like(self.sim.Parset, self.sim.PTruth, \
+                                 self.guess.obstarg)
+        self.lnlike_sim.mag0 = self.guess.mag0
+
+        # ensure propagation happens (this really ought to happen on
+        # initialization anyway?)
+        self.lnlike_sim.updatesky(self.sim.Parset)
+        
         
     def guessforminimizer(self):
 
@@ -976,6 +1005,11 @@ argument in args_show['truths']"""
         self.args_show['truthset']['xy'] = self.sim.xy
         self.args_show['truthset']['xytran'] = self.sim.xytran
 
+        # For convenience (at the cost of redundancy), also send back
+        # a lnlike object for the "truths" so that it is accessible to
+        # examine2d and other methods that may need it.
+        self.args_show['truthset']['lnlike'] = self.lnlike_sim
+        
     def setargs_guess(self):
 
         """Smuggles information about the guess and scale back to the
@@ -1349,7 +1383,7 @@ this something we can input into an mcmc run on actual data"""
 
         # Now include parsing
         self.sim.Parset = loadparset(self.path_truth)
-        
+
     def doguess(self, norun=False):
 
         """Wrapper - sets up and performs initial fit to the data to serve as
@@ -1623,6 +1657,13 @@ Returns:
     print("setupmcmc INFO - MC parfile_guess:", mc.parfile_guess)
     mc.doguess(norun=debug)
 
+    # some debug screen comments now redundant
+    #print("#### TRUTHSET INFO ####")
+    #print(mc.sim.Parset)
+    #print(mc.sim.PTruth)
+    #print(mc.guess.obstarg)
+
+    
     # By this point we have both our guess and (possibly!) our truth
     # array. If guess fit degree is bigger than the truth degree, it's
     # useful to pad the truth parameters with zeros.
@@ -1632,6 +1673,12 @@ Returns:
     if mc.guess is None:
         print("setupmcmc WARN - guess is None. Returning.")
         return None, None, None
+
+    # Set up a lnlike object for the "truth" parameters if we have
+    # them, to be added to the "showargs" returned. (The lnprior is
+    # going to take a little bit more thought.)
+    mc.setuplnlike_sim()
+    print(mc.lnlike_sim)
     
     print("MC debug:")
     print("==========")
