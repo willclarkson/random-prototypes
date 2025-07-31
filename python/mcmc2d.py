@@ -598,38 +598,9 @@ are in place."""
         # the simulation parameters in needed form
         if self.sim.PTruth is None:
 
-            # 2025-07-31 the updates below still don't work... the
-            # source covariance is not correctly being transformed, so
-            # we stick with return here to preserve prior behavior.
-            return
-
-        
-            
-            # if we are not simulating but we do have truth
-            # parameters, then the transformation object needs
-            # data. Ensure that's linked here.
+            self.sim.unpackmodelpars()
             self.sim.Obssrc = self.Obssrc
-
-            # because of the way sim works, when simulating we do
-            # distinguish between generated x,y and observed. So we
-            # copy elements rather than populating a separate
-            # obssrc. That does mean we need to identify the pieces
-            # here. So:
-            
-            self.sim.xy = self.sim.Obssrc.xy
-            self.sim.Cxy = CovarsNx2x2(self.sim.Obssrc.covxy)
-            self.sim.pars_transf = self.sim.Parset.model
-            
-            print("parset.poly", self.sim.Parset.model)
-            print("sim poly:", self.sim.pars_transf)
-            print("sim polytransf:", self.sim.polytransf)
-            
-            print("sim.Obssrc.xy:", self.sim.Obssrc.xy.shape)
-            print("Obssrc.xy:", self.Obssrc.xy.shape)
-            print("sim.xyobs:", self.sim.xyobs.shape)
-            print("sim.xy:", self.sim.xy.shape)
-            print("sim xmin:", self.sim.xmin)
-            #print("sim.Cxy", self.sim.Cxy)
+            self.sim.unpackobset(intoxy=True, updatelimits=True)
             self.sim.setuptransftruth()
 
             if self.sim.PTruth is None:

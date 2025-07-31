@@ -982,7 +982,7 @@ Inputs:
         if 'lnlike' in showargs['truthset'].keys():
             if showargs['truthset']['lnlike'] is not None:
                 ltruth = copy.deepcopy(showargs['truthset']['lnlike'])
-                ltruth.updatesky(ltruth.parset)
+                # ltruth.updatesky(ltruth.parset)
 
     # If asked to use the truth parameters, copy them in to
     # the llike object and update

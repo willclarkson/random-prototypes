@@ -765,6 +765,46 @@ object"""
         self.xmax = self.Parset.xmax
         self.ymin = self.Parset.ymin
         self.ymax = self.Parset.ymax
+
+    def unpackobset(self, intoxy=True, updatelimits=True, Obset=None):
+
+        """Unpacks a few data items that will be needed for PTruth.
+
+        INPUTS
+
+        intoxy = positions unpacked into self.xy (otherwise, they go
+        into self.xyobs).
+
+        updatelimits = update xmin, xmax, ymin, ymax from the obset
+
+        Obset = Obset() object to unpack. If not given, defaults to self.Obssrc.
+
+
+        """
+
+        if Obset is None:
+            Obset = self.Obssrc
+
+        if Obset is None:
+            return
+
+        print("OBSET:", Obset, Obset is None, Obset.xy.shape)
+
+        
+        if intoxy:
+            self.xy = Obset.xy
+        else:
+            self.xyobs = Obset.xy
+
+        self.Cxy = CovarsNx2x2(Obset.covxy)
+
+        if not updatelimits:
+            return
+
+        self.xmin = Obset.xmin
+        self.xmax = Obset.xmax
+        self.ymin = Obset.ymin
+        self.ymax = Obset.ymax
         
         
     def packagedata(self):
