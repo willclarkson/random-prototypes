@@ -373,7 +373,7 @@ the target frame, update, and re-weight"""
 
         # return_blob set to True for lnprob as will be called by
         # emcee...
-        #
+
         # UPDATE 2025-07-30 - switched off by default (to avoid
         # multi-GB sampler output)
         self.argspost = (self.guess.PGuess, self.guess.obstarg, \
