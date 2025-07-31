@@ -124,6 +124,10 @@ Inputs:
         self.resps_avg = np.array([])
         self.isfg = np.array([])
 
+        # ln(likelihoods), useful for post-hoc summary statistics
+        self.lnlikevec = np.array([])
+        self.sumlnlike = np.array([])
+        
         # transformation object for the truth parameters
         self.transftruth = None
 
@@ -325,7 +329,7 @@ them"""
             self.transftruth = copy.deepcopy(self.lnlike_truth.transf)
             self.transftruth.propagate()
             self.setobjontruth()
-        
+            return
             
         # We have to actually have truth parameters for the
         # transformation to do something here.
@@ -383,9 +387,10 @@ them"""
         
     def computeresps(self, samplesize=-1, keepmaster=True, \
                      ireport=1000, Verbose=True, \
-                     pathresps='test_resps_samples.npy'):
+                     pathresps='test_resps_samples.npy', \
+                     pathlikes='test_likes_samples.npy'):
 
-        """Computes foreground probabilities for every sample.
+        """Computes ln(like) and foreground probabilities for every sample.
 
 Inputs:
 
@@ -399,6 +404,8 @@ Inputs:
 
         pathresps = paths to write master samples responsibilities file
 
+        pathlikes = paths to write [nsamples, ndata] log-likelihood file
+
 Returns: 
 
         nothing
@@ -408,7 +415,7 @@ Example call:
         FS = examine2d.Flatsamples(flat_samples, esargs=esargs)
         FS.computeresps()
 
-"""
+        """
 
         # The lnlike object must be populated
         if self.inp_lnlike is None:
@@ -429,12 +436,15 @@ Example call:
         else:
             imax = samplesize
 
+        # sum statistics
         norm = 0.
         self.resps_avg = np.zeros(self.ndata)
-            
+        self.sumlnlike = np.zeros(self.nsamples)
+        
         if keepmaster:
             self.resps_samples = np.zeros(( imax, self.ndata ))
-
+            self.lnlikevec = np.copy(self.resps_samples)
+            
         # Safety valve - if the model doesn't have a mixture, there's
         # no need to recalculate everything:
         nmix = np.size(self.inp_lnlike.parset.mix)
@@ -443,8 +453,10 @@ Example call:
             if keepmaster:
                 self.resps_samples += 1.
             print("examine2d.computeresps INFO - no mixture, all responsibilities 1.0")
-            return
 
+            # We no longer want to return since we also need the
+            # lnlikes, so we probably should NOT return here.
+            return
             
         t0 = time.time()
         if Verbose:
@@ -457,6 +469,10 @@ Example call:
             lnlike.updatelnlike(lnlike.parset)
             lnlike.calcresps()
 
+            # The log-like object already computes the sum of
+            # lnlikes. Slot it in here.
+            self.sumlnlike[isample] = lnlike.sumlnlike
+            
             # increment the responsibilities and the norm
             norm += 1.
             self.resps_avg += lnlike.resps_fg
@@ -465,6 +481,10 @@ Example call:
             if keepmaster:
                 self.resps_samples[isample] = lnlike.resps_fg
 
+                # populate the lnlike per-datapoint
+                self.lnlikevec[isample] = \
+                    np.logaddexp(lnlike.lnlike_fg, lnlike.lnlike_bg)
+                
             # report out every so often
             if isample % ireport < 1 and isample > 0 and Verbose:
                 telapsed = time.time() - t0
@@ -487,6 +507,7 @@ Example call:
         # Since those loops can take a while, write the
         # responsibilities to disk by default
         self.writeresps(pathresps)
+        self.writelnlikevecs(pathlikes)
         
     def writeresps(self, pathresps='test_resps_samples.npy'):
 
@@ -494,7 +515,7 @@ Example call:
 
 Inputs:
         
-        test_resps_samples.npy  =  path to write to
+        pathresps  =  path to write to
 
 Returns: Nothing
 
@@ -556,6 +577,55 @@ Returns: nothing
         self.clf = LogisticRegression(C=self.creg)
         self.clf.fit(self.resp_post[:, None], self.resp_sim)
 
+    def writelnlikevecs(self, pathlnlikes='test_lnlikes_samples.npy'):
+
+        """Writes [nsamples, ndata] ln-likelihood vectors to .npy format
+
+        Inputs:
+        
+        pathlnlikes =  path to write to
+
+        Returns: Nothing
+
+        """
+
+        if len(pathlnlikes) < 1:
+            return
+
+        if np.size(self.lnlikevec) < 1:
+            return
+
+        print("examine2d.writelnlikevecs INFO - writing log-like vectors:", \
+              self.lnlikevec.shape)
+
+        np.save(pathlnlikes, self.lnlikevec)
+
+
+        
+    def loadlnlikevecs(self, pathlnlikes='test_lnlikes_samples.npy'):
+
+        """Reads log-likelihood evaluations from disk, and computes the sum
+along the dataset for each sample.
+
+        Inputs
+
+        pathlnlikes = path to .npy file holding [nsamples, ndata] log likelihood evaluations
+
+        Outputs
+
+        None. Internal attributes self.lnlikevec and self.sumlnlike are updated.
+
+        """
+
+        if len(pathlnlikes) < 4:
+            return
+
+        self.lnlikevec = np.load(pathlnlikes)
+
+        self.sumlnlike = np.sum(self.lnlikevec, axis=0)
+        
+        
+        
     def setobjontruth(self):
 
         """If the truth parameters are present, extracts the positional differences between the target positions and the observed positions projected onto the target space using the truth parameters."""
