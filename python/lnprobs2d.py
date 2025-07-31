@@ -626,8 +626,8 @@ Inputs:
     lnlike = Likelihood object. Created if None, otherwise updated
     in-place.
 
-    return_blob = in addition to the lnposterior, returns lnlike and
-    lnprior (as per emcee "blob" functionality). 
+    return_blob = in addition to the lnposterior, returns lnlike
+    vector.
 
 Returns:
 
@@ -648,9 +648,12 @@ Returns:
     else:
         lnprior.updatepriors(parset)
 
+    # null vector to return if returning blobs
+    vnull = np.repeat(-np.inf, obstarg.xy.shape[0] )
+        
     if not np.isfinite(lnprior.sumlnprior):
         if return_blob:
-            return -np.inf, -np.inf, -np.inf
+            return -np.inf, vnull
         else:
             return -np.inf
         
@@ -662,7 +665,7 @@ Returns:
 
     if not np.isfinite(lnlike.sumlnlike):
         if return_blob:
-            return -np.inf, -np.inf, -np.inf
+            return -np.inf, vnull
         else:
             return -np.inf
 
@@ -680,9 +683,12 @@ Returns:
 
         # 2025-07-23 return the foreground lnlike separately as a
         # diagnostic
-        return term_lnprior + term_lnlike, term_lnlike, \
-            np.sum(lnlike.lnlike_fg)
-
+        llvec = np.logaddexp(lnlike.lnlike_fg, lnlike.lnlike_bg)
+        return term_lnprior + term_lnlike, llvec
+        
+    #return term_lnprior + term_lnlike, term_lnlike, \
+     #       np.sum(lnlike.lnlike_fg)
+    
         #return term_lnprior + term_lnlike, term_lnlike, term_lnprior
 
     
