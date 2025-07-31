@@ -979,7 +979,8 @@ Inputs:
 
         if 'lnlike' in showargs['truthset'].keys():
             ltruth = copy.deepcopy(showargs['truthset']['lnlike'])
-            ltruth.updatesky(ltruth.parset)
+            if ltruth is not None:
+                ltruth.updatesky(ltruth.parset)
         else:
             ltruth = copy.deepcopy(llike)        
             ltruth.updatesky(ptruth) # fails if number of params differ
