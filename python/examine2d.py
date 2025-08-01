@@ -1081,16 +1081,20 @@ Inputs:
     ptruth = None
     ltruth = None
     if 'truthset' in showargs.keys():
-        if 'parset' in showargs['truthset'].keys():
-            ptruth = showargs['truthset']['parset']
-            ltruth = copy.deepcopy(llike) 
-            ltruth.updatesky(ptruth) # fails if number of params differ
             
         if 'lnlike' in showargs['truthset'].keys():
             if showargs['truthset']['lnlike'] is not None:
                 ltruth = copy.deepcopy(showargs['truthset']['lnlike'])
                 # ltruth.updatesky(ltruth.parset)
 
+        if 'parset' in showargs['truthset'].keys():
+            ptruth = showargs['truthset']['parset']
+            if ltruth is None:
+                ltruth = copy.deepcopy(llike) 
+                ltruth.updatesky(ptruth) # fails if number of params differ
+            
+            
+                
     # If asked to use the truth parameters, copy them in to
     # the llike object and update
     if usetruths and ltruth is not None:
