@@ -842,6 +842,113 @@ and background"""
         with open(outpath, 'wb') as wobj:
             pickle.dump(parset, wobj)
 
+    def prepare_4arviz(self, path4arviz='test_d4arviz.pickle'):
+
+        """Serializes the flat samples and log-likelihoods for inputting to
+arviz.
+
+        INPUTS
+
+        path4arviz = path to the file that will hold the dictionary of arviz inputs
+
+        OUTPUTS 
+
+        None 
+
+        """
+
+        # (Might output a status flag?)
+
+        # Could have an option to reset self.lnlikevec if we're
+        # concerned about memory usage.
+        
+        d4arviz = self.getdict_for_arviz()
+
+        # cannot go further if the dictionary is blank
+        if len(d4arviz['posterior'].keys()) < 1:
+            return
+
+        if len(path4arviz) < 3:
+            return
+
+        with open(path4arviz,'wb') as wobj:
+            pickle.dump(d4arviz, wobj)
+            
+        
+    def getdict_for_arviz(self, Verbose=True, computelnlike=True):
+
+        """Returns sample and lnlike dictionaries for arviz input.
+
+        INPUTS: 
+
+        Verbose: print screen output
+
+        computelnlike = compute the [nsamples, ndata] log-likelihoods
+        if not already present
+
+        RETURNS:
+
+        darviz = {posterior:{}, log_likelihood:{}} dictionary
+
+        """
+
+        # initialize return
+        dpost = {}
+        dlike = {}
+
+        dret = {'posterior':dpost, 'log_likelihood':dlike}
+        
+        # the flat samples themselves
+        if self.flat_samples.size < 1:
+            return dret
+        
+        # log-likelihoods must be present
+        if self.lnlikevec.size < 1:
+
+            # recompute the lnlikevec if it's not present already
+            if computelnlike:
+                if Verbose:
+                    print("getdict_for_arviz INFO - log-likelihoods not present. Attempting to recompute them.")
+                self.computeresps()
+
+        # re-do the test, allowing that the lnlikevec may have been
+        # populated.
+        if self.lnlikevec.size < 1:
+            return dret
+                
+
+        # the variable names
+        if not 'corner' in self.showargs.keys():
+            return dret
+
+        if not 'labels' in self.showargs['corner'].keys():
+            return dret
+
+        varnames = self.showargs['corner']['labels']
+
+        if Verbose:
+            print("getdict_for_arviz INFO:")
+            print(len(varnames))
+            print(self.flat_samples.shape)
+            print(self.lnlikevec.shape)
+        
+        # arviz is perfectly happy to handle multidimensional
+        # variables, but I think it's more transparent to keep them
+        # one-dimensional. (Note that the first index is the chain
+        # number, which in this case is 1 because we already have a
+        # flattened, thinned chain). So:
+        for idim in range(self.flat_samples.shape[-1] ):
+            thissample = self.flat_samples[None,:,idim]
+            dpost[varnames[idim]] = thissample
+
+        dlike = {'lnlike':self.lnlikevec[None,:,:] }
+
+        dret['posterior'] = dpost
+        dret['log_likelihood'] = dlike
+        
+        return dret
+        
+        
 def splitclusters(logprob=np.array([]), eps=1.):
 
     """
@@ -968,9 +1075,9 @@ Inputs:
         print("examine2d.showguess WARN - problem parsing ensemble sampler arguments")
         return
 
-    # it would be very useful to plot the predictions of the truth
-    # parameters if we have them, particularly for the vs-mag
-    # graph... (WATCHOUT - this duplicates some methods farther down.)
+    # unpacks the truth, now from the input likelihood object for the
+    # truth (which decouples the truth and guess, so they can be
+    # different models).
     ptruth = None
     ltruth = None
     if 'truthset' in showargs.keys():
