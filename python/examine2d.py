@@ -1031,6 +1031,7 @@ lnprobs.
 def showguess(esargs={}, fignum=2, npermagbin=36, respfg=0.8, nmagbins=10, \
               pathfig='test_guess_deltas.png', \
               pathfignoise='test_guess_noise.png', \
+              pathfigposns='test_guess_posns.png', \
               showargs={}, \
               usetruths=False, showquiver=True, \
               sqrtx=False):
@@ -1481,6 +1482,9 @@ Inputs:
         ax32.set_title('outliers')
         
     fig3.subplots_adjust(left=0.18, bottom=0.17, hspace=0.4, wspace=0.49)
+
+    if len(pathfigposns) > 3:
+        fig3.savefig(pathfigposns)
     
 def showresps(flatsamples=None, fignum=8, logx=False, creg=1.0e5, wantbg=True, \
               clobber=True, \

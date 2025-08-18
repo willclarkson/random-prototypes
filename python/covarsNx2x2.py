@@ -5,7 +5,7 @@
 #
 # holds class CovarsNx2x2 so that we can import this without requiring
 # astropy. This was copied out of weightedDeltas.py on Tues Aug 14,
-# 2025.
+# 2025. All test routines are currently in weightedDeltas.py .
 #
 
 import numpy as np
