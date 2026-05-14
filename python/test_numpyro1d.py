@@ -31,6 +31,8 @@ numpyro.set_host_device_count(2)
 import arviz as az
 import corner
 
+from arviz_plots import plot_trace_dist, style
+
 def gendata(true_frac=0.8, \
             true_params=[1.0,0.0], \
             true_outliers=[0.0,1.0], \
@@ -164,7 +166,48 @@ def linear_mixture_model(x, yerr, y=None):
         # every one of the membership probabilities being printed -->
         # lots of screen output.
         
-        
+def linear_mix_uncty(x, yerr, y=None):
+
+    """1d linear model with mixture and uncertainty inflation factor f (in
+the sense that the true uncertainty is a factor f times the estimated
+uncertainty). Prior is log uniform between 0.1 and 10."""
+
+    # I'm not sure if it's possible to pass *optional* arguments into
+    # the prior and likelihood for numpyro, so I duplicate the linear
+    # mixture model and add the additional feature here. It's just a
+    # multiplication so this "should" be straightforward...
+    f = numpyro.sample("f", dist.LogUniform(0.1, 10.))
+
+    # try tweaking the prior
+    #f = numpyro.sample("f", dist.Uniform(0.1, 10.))
+
+    yerr_adj = yerr * f
+    
+    # The FOREGROUND is similar to the linear mixture...
+    theta = numpyro.sample("theta", dist.Uniform(-0.5*jnp.pi, 0.5*jnp.pi))
+    b_perp = numpyro.sample("b_perp", dist.Normal(0,1))
+    m = numpyro.deterministic("m", jnp.tan(theta))
+    b = numpyro.deterministic("b", b_perp / jnp.cos(theta) )
+    fg_dist = dist.Normal(m * x + b, yerr_adj)
+
+    # ... as is the BACKGROUND...
+    bg_mean = numpyro.sample("bg_mean", dist.Normal(0.0, 1.0))
+    bg_sigma = numpyro.sample("bg_sigma", dist.HalfNormal(3.0))
+    bg_dist = dist.Normal(bg_mean, jnp.sqrt(bg_sigma**2 + yerr_adj**2))
+    
+    # The MIXTURE is also unchanged...
+    Q = numpyro.sample("Q", dist.Uniform(0.0, 1.0))
+    mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
+    mixture = dist.MixtureGeneral(mix, [fg_dist, bg_dist] )
+
+    # State definition as before:
+    with numpyro.plate("data", len(x)):
+        y_ = numpyro.sample("obs", mixture, obs=y)
+        log_probs = mixture.component_log_probs(y_)
+        numpyro.deterministic(
+            "p", log_probs -
+            jax.nn.logsumexp(log_probs, axis=-1, keepdims=True) )
+    
 def showdata(x, y, yerr, m_bkg, x0, y0, \
              post_pred_y=np.array([]), color_pred="C0", \
              prob_fg=np.array([]), cmap='gray_r', \
@@ -336,3 +379,78 @@ def testmixture(true_frac=0.8, true_params=[1.0,0.0]):
              samplepars=chainz_mix, \
              fignum=4)
 
+
+def testinflated(true_frac=0.8, true_params=[1.0,0.0], \
+                 uncty_fac=2., ysigma_gen=0.2, ndata=15, \
+                 num_warmup=2000, num_samples=2000, \
+                 num_chains=2):
+
+    """Tests fitting the mixture model with uncertainty inflation. The
+true uncertainty is factor uncty_fac times the uncertainty
+estimated."""
+
+    if uncty_fac < 0:
+        print("testinflated WARN - uncty_fac must be >0.")
+        return
+    
+    x, y, yerr_true, bbkg, x0, y0 = gendata(true_frac=true_frac, \
+                                            true_params=true_params, \
+                                            ysigma=ysigma_gen, \
+                                            ndata=ndata)
+
+    # now we apply the uncertainty inflation - we imagine we have
+    # underestimated the true measurement uncertainty by factor
+    # uncty_fac.
+    yerr = yerr_true / uncty_fac
+
+    # the sampler and its use is similar to before:
+    sampler = infer.MCMC(
+        infer.NUTS(linear_mix_uncty),
+        num_warmup=num_warmup,
+        num_samples=num_samples,
+        num_chains=num_chains,
+        progress_bar=True,
+    )
+
+    # Run the sampler on the OBSERVED data including our
+    # knowingly-underestimated error
+    t0 = time.time()
+    sampler.run(jax.random.PRNGKey(5), x, yerr, y=y)
+    t1 = time.time()
+
+    print("Time elapsed in mixture model: %.2e seconds" % (t1-t0 ) )
+
+    samples = sampler.get_samples()
+    print(samples.keys())
+
+    inf_data = az.from_numpyro(sampler)
+    print(az.summary(inf_data, var_names=["m", "b", "Q", "f"]) )
+
+    # now let's take a look at the chains, etc.
+    chainz = np.vstack(( samples["m"], \
+                         samples["b"], \
+                         samples["Q"], \
+                         samples["f"])).T
+    fig5 = plt.figure(5, figsize=(7,7))
+    fig5.clf()
+    dum = corner.corner(chainz, labels=["m", "b", "Q", "f"], \
+                        truths = [true_params[0], true_params[1], \
+                                  true_frac, uncty_fac], \
+                        fig=fig5)
+
+    # collapse the per-object membership probability down into mean
+    # per object
+    p_fg = jnp.mean(jnp.exp(samples["p"][...,0]),axis=0)
+
+    # show the data along with any post-predictive samples
+    showdata(x,y,yerr, bbkg, x0, y0, \
+             #post_pred_y, color_pred="green", \
+             prob_fg = p_fg, cmap='Reds', \
+             samplepars=chainz, colorsample='r', \
+             fignum=6)
+
+    # try a nice arviz traceplot
+    #
+    # This is nice but hijacks the plotter and can mess up the styles. Return to this.
+
+    blah = plot_trace_dist(inf_data, var_names=["m","b","Q","f"])
