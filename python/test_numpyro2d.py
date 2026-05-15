@@ -121,7 +121,9 @@ INPUTS:
     # cdmatrix from b,c,e,f
     A = jnp.array([[b,c],[e,f]])
 
-    # predicted u,v
+    # predicted u,v, including the offsets (note that jnp arrays
+    # cannot be modified in place, so we need to construct the offset
+    # as a separate quantity to add)
     upred = jnp.einsum('jk,ik -> ij', A, x) + jnp.array([u0,v0])[None,:]
     
     # upred[:,0] += u0
@@ -167,6 +169,8 @@ def gendata(ndata=25, xsz=2., ysz=2., \
             r_true = 1.0, betadeg_true = 0., \
             u0=0., v0=0., \
             sigu=1e-3, sigv=1e-3, \
+            sigx=0.02, sigy=0.02, \
+            perturb_xy=False, \
             showdata=True):
 
     """Generate the data.
@@ -195,6 +199,12 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
     sigv = uncertainty in u[:,1] as stddev
 
+    sigx = uncertainty in x[:,0] as stddev
+
+    sigy = uncertainty in x[:,1] as stddev
+
+    perturbxy = perturb x as well as u
+
     showdata = plot the data before returning
 
     RETURNS
@@ -203,50 +213,56 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
     u = [N,2] array of transformed datapoints
 
-    ucovs = [N,2,2] array of uncertainty covariances in the u frame"""
+    ucovs = [N,2,2] array of uncertainty covariances in the u frame
 
+    xcovs = None, or [N, 2, 2] array of uncertainty covariances in the
+    x frame
+
+    """
+    
     # uniform-random positions over the domain
-    x = np.random.uniform(size=(ndata,2))-0.5
-    x[:,0] *= xsz
-    x[:,1] *= ysz
+    xgen = np.random.uniform(size=(ndata,2))-0.5
+    xgen[:,0] *= xsz
+    xgen[:,1] *= ysz
 
     # Transform these into the target frame. First build the cdmatrix
     Atrue = cdmatrix_from_pars(s_true, thetadeg_true, \
                                betadeg_true, r_true)
 
-    ugen = np.einsum('jk,ik -> ij', Atrue, x)
+    ugen = np.einsum('jk,ik -> ij', Atrue, xgen)
 
     ugen[:,0] += u0
     ugen[:,1] += v0
     
-    # now produce uncertainties and perturb with them. For starters,
-    # we will assume diagonal uniformu uncertainties, to be relaxed
-    # later if things actually work...
-    pertn=np.random.normal(size=(ndata, 2))
-    pertn[:,0] *= sigu
-    pertn[:,1] *= sigv
-                           
+    # now produce uncertainties and perturb with them. Refactored into
+    # method getcovs() since we will likely use this more than
+    # once.
+
+    ucovs, pertn = getcovs(sigu, sigv, ndata)                              
     uobs = ugen + pertn
 
-    # now turn the uncertaintis into [N,2,2] covariance matrix
-    Covs = covarsNx2x2.CovarsNx2x2(stdx=np.repeat(sigu, ndata), \
-                                   stdy=np.repeat(sigv, ndata), \
-                                   corrxy=np.zeros(ndata))
+    # Initialize the output if not perturbing in the xy plane
+    xobs = np.copy(xgen)
+    xcovs = None
 
-    ucovs = Covs.covars
-
+    # if perturbing in the xy plane, set up the perturbations and the
+    # covariances (done differently from above. Oh well.
+    if perturb_xy:
+        xcovs, xpertn = getcovs(sigx, sigy, ndata)
+        xobs = xgen + xpertn
+        
     if not showdata:
-        return x, uobs, ucovs
+        return xobs, uobs, ucovs, xcovs
     
     # it helps to show the actual data at this point...
-    fig1 = plt.figure(1, figsize=(7,2))
+    fig1 = plt.figure(1, figsize=(5,5))
     fig1.subplots_adjust(hspace=0.5, wspace=0.5, bottom=0.25)
     fig1.clf()
-    ax1a = fig1.add_subplot(131)
-    ax1b = fig1.add_subplot(132)
-    ax1c = fig1.add_subplot(133)
+    ax1a = fig1.add_subplot(221)
+    ax1b = fig1.add_subplot(222)
+    ax1d = fig1.add_subplot(224)
 
-    dum1a = ax1a.scatter(x[:,0], x[:,1], color='k', marker='o', \
+    dum1a = ax1a.scatter(xobs[:,0], xobs[:,1], color='k', marker='o', \
                          label='Observed', s=2)
     dum1b = ax1b.scatter(ugen[:,0], ugen[:,1], color='b', marker='s', \
                          label='Target', s=2)
@@ -254,26 +270,72 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     dum1b2 = ax1b.scatter(uobs[:,0], uobs[:,1], color='b', marker='x', \
                          label='Perturbed', s=2)
 
-    dum1c = ax1c.scatter(uobs[:,0]-ugen[:,0], uobs[:,1]-ugen[:,1], \
-                         color='b', marker='o', s=1, alpha=0.5, \
+    dum1d = ax1d.scatter(uobs[:,0]-ugen[:,0], uobs[:,1]-ugen[:,1], \
+                         color='b', marker='s', s=1, alpha=0.5, \
                          label='Perturbations')
-    
+
+    # ditto observed frame if we perturbed them
+    if xcovs is not None:
+        ax1c = fig1.add_subplot(223)
+        dum1c = ax1c.scatter(xobs[:,0]-xgen[:,0], xobs[:,1]-xgen[:,1], \
+                             color='k', marker='s', s=1, alpha=0.5, \
+                             label='Perturbations (obs)')
+        ax1c.set_xlabel(r'$\Delta x$')
+        ax1c.set_ylabel(r'$\Delta y$')
+        leg1c = ax1c.legend()
+        
+        
     ax1a.set_xlabel('x')
     ax1a.set_ylabel('y')
     
     ax1b.set_xlabel('u')
     ax1b.set_ylabel('v')
 
-    ax1c.set_xlabel(r'$\Delta u$')
-    ax1c.set_ylabel(r'$\Delta v$')
+    ax1d.set_xlabel(r'$\Delta u$')
+    ax1d.set_ylabel(r'$\Delta v$')
     
     leg1a = ax1a.legend()
     leg1b = ax1b.legend()
-    leg1c = ax1c.legend()
+    leg1d = ax1d.legend()
 
-    return x, uobs, ucovs
+    return xobs, uobs, ucovs, xcovs
 
 
+def getcovs(sigx=0., sigy=0., ndata=10, corxy=0.):
+
+    """Utility - returns covariances given sigmas
+
+    INPUTS
+
+    sigx, sigy = scalars for stddev in x, y
+
+    ndata = number of datapoints
+
+    corxy = correlation between x, y
+
+    RETURNS
+
+    xycovs = [ndata, 2, 2] array of covariances
+
+    xysamples = [ndata, 2] array of samples from the covariances
+
+    """
+
+    # This could be fed as arrays. For the moment let's just repeat
+    # the single plane.
+    xdev = np.repeat(sigx,  ndata)
+    ydev = np.repeat(sigy,  ndata)
+    rdev = np.repeat(corxy, ndata)
+
+    # Generate covariances object out of this...
+    Covs = covarsNx2x2.CovarsNx2x2(stdx=xdev, stdy=ydev, corrxy=rdev)
+
+    # ... draw perturbations and get the covariances
+    xypertns = Covs.getsamples()
+    xycovs = Covs.covars
+
+    return xycovs, xypertns
+    
 ######## test routines follow
 
 def test2par(ndata=25, true_params=[1.0e-2, 30.]):
@@ -281,10 +343,10 @@ def test2par(ndata=25, true_params=[1.0e-2, 30.]):
     """Test the 2D version of our fitter"""
 
     # Generate data, accepting the defaults for the moment
-    x, u, ucov = gendata(ndata, \
-                         s_true=true_params[0],
-                         thetadeg_true=true_params[1], \
-                         showdata=False)
+    x, u, ucov, xcov = gendata(ndata, \
+                               s_true=true_params[0],
+                               thetadeg_true=true_params[1], \
+                               showdata=False)
 
     # set up the sampler
     sampler = infer.MCMC(
@@ -322,19 +384,21 @@ def test6term(ndata=25, \
               s_true=1.0e-2, rotdeg_true=30., \
               betadeg_true=2.0, r_true=1.0, \
               u0_true = 2.0e-3, \
-              v0_true = 1.0e-3):
+              v0_true = 1.0e-3, \
+              perturb_xy=False):
 
     """Tests the 6-term transformation sampler"""
 
     # generate the data
-    x, u, ucov = gendata(ndata, \
-                         s_true=s_true, \
-                         thetadeg_true=rotdeg_true,\
-                         r_true=r_true, \
-                         betadeg_true=betadeg_true, \
-                         u0=u0_true, \
-                         v0=v0_true,\
-                         showdata=False)   
+    x, u, ucov, xcov = gendata(ndata, \
+                               s_true=s_true, \
+                               thetadeg_true=rotdeg_true,\
+                               r_true=r_true, \
+                               betadeg_true=betadeg_true, \
+                               u0=u0_true, \
+                               v0=v0_true,\
+                               perturb_xy=perturb_xy, \
+                               showdata=True)   
 
     # set up the sampler
     sampler = infer.MCMC(
