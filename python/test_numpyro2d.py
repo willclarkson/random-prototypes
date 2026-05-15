@@ -53,7 +53,7 @@ def model_scalerot(x,uerr, u=None):
     """
 
     # Define the priors as numpyro distributions. 
-    theta = numpyro.sample("theta", dist.Uniform(-0.5*jnp.pi, 0.5*jnp.pi))
+    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
     s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
 
     # Convert the theta, scale parameters into the CDMATRIX
@@ -85,7 +85,54 @@ def model_scalerot(x,uerr, u=None):
     with numpyro.plate("data", x.shape[0]):    
         numpyro.sample("u", pred_dist, obs=u)
 
+def model_6term(x, uerr, u=None):
 
+    """Offset and general linear transformation, parameterized in human
+terms
+
+INPUTS:
+
+    x = [N,2] = input positions
+
+    uerr = [N,2,2] = input uncertainties as covariances
+
+    u = [N,2] optional output positions
+
+    """
+
+    # Define the priors as numpyro distributions. 
+    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+    beta = numpyro.sample("beta", dist.Uniform(-0.5*jnp.pi, 0.5*jnp.pi))
+    r = numpyro.sample("r", dist.Normal(1,1))
+    u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
+    v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
+    
+    # The conversion to cdmatrix entries, which will be tracked during
+    # the sampling
+    sx = s 
+    sy = s * r
+    
+    b = numpyro.deterministic("b",  sx  * jnp.cos(theta - 0.5*beta) )
+    c = numpyro.deterministic("c",  sy  * jnp.sin(theta + 0.5*beta) )
+    e = numpyro.deterministic("e", -sx  * jnp.sin(theta - 0.5*beta) )
+    f = numpyro.deterministic("f",  sy  * jnp.cos(theta + 0.5*beta) )
+
+    # cdmatrix from b,c,e,f
+    A = jnp.array([[b,c],[e,f]])
+
+    # predicted u,v
+    upred = jnp.einsum('jk,ik -> ij', A, x) + jnp.array([u0,v0])[None,:]
+    
+    # upred[:,0] += u0
+    # upred[:,1] += v0
+
+    pred_dist = dist.MultivariateNormal(upred, uerr)
+
+    # now the deltas
+    with numpyro.plate("data", x.shape[0]):    
+        numpyro.sample("u", pred_dist, obs=u)
+    
 def cdmatrix_from_pars(sx=1., rotdeg=0., skewdeg=0., r=1., ):
 
     """Utility - returns the cdmatrix from human-readable pars
@@ -118,6 +165,7 @@ def cdmatrix_from_pars(sx=1., rotdeg=0., skewdeg=0., r=1., ):
 def gendata(ndata=25, xsz=2., ysz=2., \
             thetadeg_true = 30., s_true=1.0e-2, \
             r_true = 1.0, betadeg_true = 0., \
+            u0=0., v0=0., \
             sigu=1e-3, sigv=1e-3, \
             showdata=True):
 
@@ -138,6 +186,10 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     r_true = true sy/sx ratio
 
     betadeg_true = true deviation from axis perpendicular
+
+    u0 = offset in target frame, u[:,0]
+
+    v0 = offset in target frame, u[:.1]
 
     sigu = uncertainty in u[:,0] as stddev
 
@@ -164,6 +216,9 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
     ugen = np.einsum('jk,ik -> ij', Atrue, x)
 
+    ugen[:,0] += u0
+    ugen[:,1] += v0
+    
     # now produce uncertainties and perturb with them. For starters,
     # we will assume diagonal uniformu uncertainties, to be relaxed
     # later if things actually work...
@@ -261,3 +316,60 @@ def test2par(ndata=25, true_params=[1.0e-2, 30.]):
     dum = corner.corner(chainz, labels=["s", "theta"], \
                         truths=truths[:], \
                         fig=fig2)
+
+
+def test6term(ndata=25, \
+              s_true=1.0e-2, rotdeg_true=30., \
+              betadeg_true=2.0, r_true=1.0, \
+              u0_true = 2.0e-3, \
+              v0_true = 1.0e-3):
+
+    """Tests the 6-term transformation sampler"""
+
+    # generate the data
+    x, u, ucov = gendata(ndata, \
+                         s_true=s_true, \
+                         thetadeg_true=rotdeg_true,\
+                         r_true=r_true, \
+                         betadeg_true=betadeg_true, \
+                         u0=u0_true, \
+                         v0=v0_true,\
+                         showdata=False)   
+
+    # set up the sampler
+    sampler = infer.MCMC(
+        infer.NUTS(model_6term),
+        num_warmup=2000,
+        num_samples=2000,
+        num_chains=2,
+        progress_bar=True)
+
+    # run the sampler
+    t0=time.time()
+    sampler.run(jax.random.PRNGKey(1), x, ucov, u=u)
+    t1=time.time()
+
+    print("Time elapsed sampling: %.2e seconds" % (time.time()-t0 ) )
+    inf_data = az.from_numpyro(sampler)
+    print(az.summary(inf_data))
+
+    samples = sampler.get_samples()
+    chainz = np.vstack(( samples["s"], samples["theta"], \
+                         samples["r"], samples["beta"], \
+                         samples["u0"], samples["v0"] )).T
+
+    # some particulars for the corner plot
+    corner_labels = ["s", r"$\theta$", r"$s_y/s_x$", r"$\beta$", \
+                     r"u_0", r"v_0"]
+
+    corner_truths = [s_true, np.radians(rotdeg_true), \
+              r_true, np.radians(betadeg_true), \
+              u0_true, v0_true]
+
+    fig2 = plt.figure(2, figsize=(6,6))
+    fig2.clf()
+    dum = corner.corner(chainz, labels=corner_labels, \
+                        truths=corner_truths, \
+                        fig=fig2)
+
+    fig2.subplots_adjust(bottom=0.15, left=0.15)
