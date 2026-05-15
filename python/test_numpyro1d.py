@@ -3,7 +3,7 @@
 #
 
 #
-# 2026-04-14: Test dfm's numpyro one-dimensional example from 2022 on
+# 2026-05-14: Test dfm's numpyro one-dimensional example from 2022 on
 # my system. Do this in a .py module so that I "understand" variable
 # scope...
 #
