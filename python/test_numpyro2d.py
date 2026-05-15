@@ -413,7 +413,7 @@ def test6term(ndata=25, \
               u0_true = 2.0e-3, \
               v0_true = 1.0e-3, \
               perturb_xy=False, \
-              sigx=0.01, sigy=0.01, \
+              sigx=0.02, sigy=0.02, \
               fit_xy=False):
 
     """Tests the 6-term transformation sampler"""
