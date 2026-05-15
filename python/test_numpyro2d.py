@@ -267,6 +267,16 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     if perturb_xy:
         xcovs, xpertn = getcovs(sigx, sigy, ndata)
         xobs = xgen + xpertn
+
+        # check that the perturbation is working...
+        xcovs_tran = Atrue @ xcovs @ Atrue.T
+
+        print("DEBUG - TRANSF CHECK:")
+        print(xcovs_tran[0])
+        print(ucovs[0])
+
+        # to check later: what happens when we draw samples from this
+        # and overplot it? Does the result look sensibile?
         
     if not showdata:
         return xobs, uobs, ucovs, xcovs
