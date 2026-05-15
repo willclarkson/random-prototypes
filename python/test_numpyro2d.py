@@ -34,6 +34,10 @@ import corner
 # for constructing the covariances
 import covarsNx2x2
 
+# some visualization
+from arviz_plots import plot_trace_dist, style
+
+
 # For this, we adopt "x" as the "input" positions, and "u" as the
 # "output". This allows us to use (x,y) and (u,v) later on if that is
 # clearer.
@@ -85,7 +89,7 @@ def model_scalerot(x,uerr, u=None):
     with numpyro.plate("data", x.shape[0]):    
         numpyro.sample("u", pred_dist, obs=u)
 
-def model_6term(x, uerr, u=None):
+def model_6term(x, uerr, u=None, xerr=None):
 
     """Offset and general linear transformation, parameterized in human
 terms
@@ -97,6 +101,8 @@ INPUTS:
     uerr = [N,2,2] = input uncertainties as covariances
 
     u = [N,2] optional output positions
+
+    xerr = [N,2,2] optional xy uncertainties as covariances
 
     """
 
@@ -129,7 +135,18 @@ INPUTS:
     # upred[:,0] += u0
     # upred[:,1] += v0
 
-    pred_dist = dist.MultivariateNormal(upred, uerr)
+    # Here we transform the supplied xy-frame covariances using the
+    # transformation parameters. For the 6-term rtransformation, the
+    # cdmatrix *is* the Jacobian. For more complicated models, things
+    # will not be so simple (but I don't think e.g. chebyshev
+    # polynomials have yet been implemented in jax in the same way
+    # they are in numpy, so that's going to be some downstream effort
+    # anyway).
+    xycov_tran = 0.
+    if xerr is not None:
+        xycov_tran = A @ xerr @ A.T
+    
+    pred_dist = dist.MultivariateNormal(upred, uerr + xycov_tran)
 
     # now the deltas
     with numpyro.plate("data", x.shape[0]):    
@@ -169,7 +186,7 @@ def gendata(ndata=25, xsz=2., ysz=2., \
             r_true = 1.0, betadeg_true = 0., \
             u0=0., v0=0., \
             sigu=1e-3, sigv=1e-3, \
-            sigx=0.02, sigy=0.02, \
+            sigx=0.01, sigy=0.01, \
             perturb_xy=False, \
             showdata=True):
 
@@ -385,7 +402,9 @@ def test6term(ndata=25, \
               betadeg_true=2.0, r_true=1.0, \
               u0_true = 2.0e-3, \
               v0_true = 1.0e-3, \
-              perturb_xy=False):
+              perturb_xy=False, \
+              sigx=0.01, sigy=0.01, \
+              fit_xy=False):
 
     """Tests the 6-term transformation sampler"""
 
@@ -398,6 +417,7 @@ def test6term(ndata=25, \
                                u0=u0_true, \
                                v0=v0_true,\
                                perturb_xy=perturb_xy, \
+                               sigx=sigx, sigy=sigy, \
                                showdata=True)   
 
     # set up the sampler
@@ -410,7 +430,13 @@ def test6term(ndata=25, \
 
     # run the sampler
     t0=time.time()
-    sampler.run(jax.random.PRNGKey(1), x, ucov, u=u)
+
+    # transform x uncertainty as well?
+    xsend = None
+    if fit_xy:
+        xsend = jnp.array(xcov)
+    
+    sampler.run(jax.random.PRNGKey(1), x, ucov, u=u, xerr=xsend)
     t1=time.time()
 
     print("Time elapsed sampling: %.2e seconds" % (time.time()-t0 ) )
@@ -437,3 +463,7 @@ def test6term(ndata=25, \
                         fig=fig2)
 
     fig2.subplots_adjust(bottom=0.15, left=0.15)
+
+    #blah = plot_trace_dist(inf_data, var_names=["s","theta", \
+    #                                            "r", "beta", \
+    #                                            "u0", "v0" ])
