@@ -90,7 +90,7 @@ def model_scalerot(x,uerr, u=None):
     with numpyro.plate("data", x.shape[0]):    
         numpyro.sample("u", pred_dist, obs=u)
 
-def model_6term(x, uerr, u=None, xerr=None):
+def model_6term(x, uerr, u=None, xerr=None, fitvar=False):
 
     """Offset and general linear transformation, parameterized in human
 terms
@@ -114,7 +114,7 @@ INPUTS:
     r = numpyro.sample("r", dist.Normal(1,1))
     u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
     v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
-    
+
     # The conversion to cdmatrix entries, which will be tracked during
     # the sampling
     sx = s 
@@ -146,8 +146,17 @@ INPUTS:
     xycov_tran = 0.
     if xerr is not None:
         xycov_tran = A @ xerr @ A.T
-    
-    pred_dist = dist.MultivariateNormal(upred, uerr + xycov_tran)
+
+    # additional covariance in target frame
+    cov_extra = jnp.zeros((2,2))
+    if fitvar:
+        v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
+        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
+
+    cov_total = uerr + xycov_tran + cov_extra[None,:,:]
+                          
+    #pred_dist = dist.MultivariateNormal(upred, uerr + xycov_tran)
+    pred_dist = dist.MultivariateNormal(upred, cov_total)
 
     # now the deltas
     with numpyro.plate("data", x.shape[0]):    
@@ -186,7 +195,7 @@ def gendata(ndata=25, xsz=2., ysz=2., \
             thetadeg_true = 30., s_true=1.0e-2, \
             r_true = 1.0, betadeg_true = 0., \
             u0=0., v0=0., \
-            sigu=1e-3, sigv=1e-3, \
+            sigu=1e-4, sigv=1e-4, \
             sigx=0.01, sigy=0.01, \
             perturb_xy=False, \
             showdata=True):
@@ -415,7 +424,8 @@ def test6term(ndata=25, \
               v0_true = 1.0e-3, \
               perturb_xy=False, \
               sigx=0.02, sigy=0.02, \
-              fit_xy=False):
+              fit_xy=False, \
+              fit_var=False):
 
     """Tests the 6-term transformation sampler"""
 
@@ -447,7 +457,8 @@ def test6term(ndata=25, \
     if fit_xy:
         xsend = jnp.array(xcov)
     
-    sampler.run(jax.random.PRNGKey(1), x, ucov, u=u, xerr=xsend)
+    sampler.run(jax.random.PRNGKey(1), x, ucov, u=u, xerr=xsend, \
+                fitvar=fit_var)
     t1=time.time()
 
     print("Time elapsed sampling: %.2e seconds" % (time.time()-t0 ) )
@@ -465,8 +476,20 @@ def test6term(ndata=25, \
 
     corner_truths = [s_true, np.radians(rotdeg_true), \
               r_true, np.radians(betadeg_true), \
-              u0_true, v0_true]
+                     u0_true, v0_true]
+    
+    # ugh
+    if fit_var:
+        chainz = np.vstack(( samples["s"], samples["theta"], \
+                             samples["r"], samples["beta"], \
+                             samples["u0"], samples["v0"], \
+                             np.log10(samples["v_add"]) )).T
+        
+        corner_labels = ["s", r"$\theta$", r"$s_y/s_x$", r"$\beta$", \
+                         r"u_0", r"v_0", r"$log_{10}(v_{add})$"]
 
+        corner_truths.append(None)
+    
     fig2 = plt.figure(2, figsize=(6,6))
     fig2.clf()
     dum = corner.corner(chainz, labels=corner_labels, \
