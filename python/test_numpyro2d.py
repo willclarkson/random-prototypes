@@ -90,6 +90,63 @@ def model_scalerot(x,uerr, u=None):
     with numpyro.plate("data", x.shape[0]):    
         numpyro.sample("u", pred_dist, obs=u)
 
+def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False):
+
+    """Scale, rotation model but with some bells and whistles to test.
+
+    INPUTS
+
+    x = [N,2] = input positions
+
+    uerr = [N,2,2] = input uncertainties as covariances
+
+    u = [N,2] optional output positions
+
+    xerr = [N,2,2] optional xy uncertainties as covariances
+
+    fitvar = include diagonal covariance in model parameters
+    
+
+"""
+
+    # Define the priors as numpyro distributions. 
+    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+
+    # cdmatrix components, produce transformed positions
+    b = numpyro.deterministic("b",  s * jnp.cos(theta))
+    c = numpyro.deterministic("c",  s * jnp.sin(theta))
+    e = numpyro.deterministic("e", -s * jnp.sin(theta))
+    f = numpyro.deterministic("f",  s * jnp.cos(theta))
+    
+    A = jnp.array([[b,c],[e,f]])
+    
+    upred = jnp.einsum('jk,ik -> ij', A, x)
+
+    xycov_tran = A * 0.
+    if xerr is not None:
+        xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+
+    # additional covariance in target frame
+    cov_extra = jnp.zeros((2,2))
+    if fitvar:
+        v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
+        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
+#        cov_total = uerr + cov_extra
+#    else:
+#        cov_total = uerr
+        
+    # Total covariance WATCHOUT - WILL BREAK PROPAG FOR NOW
+    cov_total = uerr + xycov_tran + cov_extra[None,:,:]
+
+    # compute the predicted distribution
+    pred_dist = dist.MultivariateNormal(upred, cov_total)
+    # pred_dist = dist.MultivariateNormal(upred, uerr)
+
+    # now the deltas
+    with numpyro.plate("data", x.shape[0]):    
+        numpyro.sample("u", pred_dist, obs=u)
+    
 def model_6term(x, uerr, u=None, xerr=None, fitvar=False):
 
     """Offset and general linear transformation, parameterized in human
@@ -104,6 +161,8 @@ INPUTS:
     u = [N,2] optional output positions
 
     xerr = [N,2,2] optional xy uncertainties as covariances
+
+    fitvar = include diagonal covariance in model parameters
 
     """
 
@@ -145,8 +204,13 @@ INPUTS:
     # anyway).
     xycov_tran = 0.
     if xerr is not None:
-        xycov_tran = A @ xerr @ A.T
+        # xycov_tran = A @ xerr @ A.T
 
+        # 2026-05-17: using jnp.matmul because I think this forces the
+        # output to be jnp arrays (what was here before should be OK
+        # as long as the inputs are already jnp arrays).
+        xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+        
     # additional covariance in target frame
     cov_extra = jnp.zeros((2,2))
     if fitvar:
@@ -319,8 +383,8 @@ def gendata(ndata=25, xsz=2., ysz=2., \
                              label='Perturbations (obs)')
         ax1c.set_xlabel(r'$\Delta x$')
         ax1c.set_ylabel(r'$\Delta y$')
-        leg1c = ax1c.legend()
-        
+        #leg1c = ax1c.legend()
+        ax1c.set_title('Inp perturb')
         
     ax1a.set_xlabel('x')
     ax1a.set_ylabel('y')
@@ -330,10 +394,15 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
     ax1d.set_xlabel(r'$\Delta u$')
     ax1d.set_ylabel(r'$\Delta v$')
-    
-    leg1a = ax1a.legend()
-    leg1b = ax1b.legend()
-    leg1d = ax1d.legend()
+
+    # Legends are annoying here. Show the titles instead.
+    #leg1a = ax1a.legend()
+    #leg1b = ax1b.legend()
+    #leg1d = ax1d.legend()
+
+    ax1a.set_title('Input')
+    ax1b.set_title('Output')
+    ax1d.set_title('Out perturbed')
 
     return xobs, uobs, ucovs, xcovs
 
@@ -383,7 +452,7 @@ def test2par(ndata=25, true_params=[1.0e-2, 30.]):
     x, u, ucov, xcov = gendata(ndata, \
                                s_true=true_params[0],
                                thetadeg_true=true_params[1], \
-                               showdata=False)
+                               showdata=True)
 
     # set up the sampler
     sampler = infer.MCMC(
@@ -416,7 +485,68 @@ def test2par(ndata=25, true_params=[1.0e-2, 30.]):
                         truths=truths[:], \
                         fig=fig2)
 
+def test2term_bells(ndata=25, s=1.0e-2, theta=30., \
+                    sigu=1e-4, sigv=1e-4, \
+                    sigx=0.01, sigy=0.01, perturb_xy=False, \
+                    fit_xy=False, fit_var=False):
 
+    """Test 2-parameter model with various bells and whistles"""
+
+    x, u, ucov, xcov = gendata(ndata, \
+                               s_true=s, thetadeg_true=theta, \
+                               sigu=sigu, sigv=sigv, \
+                               perturb_xy=perturb_xy, \
+                               sigx=sigx, sigy=sigy, \
+                               showdata=True)
+
+    # set up the sampler...
+    sampler = infer.MCMC(
+        infer.NUTS(model_2term_bells),
+        #infer.NUTS(model_scalerot),
+        num_warmup=2000,
+        num_samples=2000,
+        num_chains=2,
+        progress_bar=True)
+
+    # run the sampler
+    t0=time.time()
+
+    # transform x uncertainty as well?
+    xsend = None
+    if fit_xy:
+        xsend = jnp.array(xcov)
+
+    sampler.run(jax.random.PRNGKey(0), x, ucov, u=u, xerr=xsend, \
+                fitvar=fit_var)
+
+    t1=time.time()
+                    
+    print("Time elapsed sampling 2term: %.2e seconds" \
+          % (time.time()-t0 ) )
+    inf_data = az.from_numpyro(sampler)
+    print(az.summary(inf_data))
+
+    samples = sampler.get_samples()
+    chainz = np.vstack(( samples["s"], samples["theta"] )).T
+
+    # some particulars for the corner plot
+    corner_labels = ["s", r"$\theta$"]
+    corner_truths = [s, np.radians(theta)]
+    
+    if fit_var:
+        chainz = np.vstack(( samples["s"], samples["theta"], \
+                             samples["v_add"] )).T
+
+        corner_labels.append([r"$v_{add}$"])
+        corner_truths.append(None)
+
+    fig2 = plt.figure(2, figsize=(6,6))
+    fig2.clf()
+    dum = corner.corner(chainz, labels=corner_labels, \
+                        truths=corner_truths, \
+                        fig=fig2)
+
+        
 def test6term(ndata=25, \
               s_true=1.0e-2, rotdeg_true=30., \
               betadeg_true=2.0, r_true=1.0, \
@@ -457,7 +587,7 @@ def test6term(ndata=25, \
     if fit_xy:
         xsend = jnp.array(xcov)
     
-    sampler.run(jax.random.PRNGKey(1), x, ucov, u=u, xerr=xsend, \
+    sampler.run(jax.random.PRNGKey(0), x, ucov, u=u, xerr=xsend, \
                 fitvar=fit_var)
     t1=time.time()
 
@@ -483,10 +613,13 @@ def test6term(ndata=25, \
         chainz = np.vstack(( samples["s"], samples["theta"], \
                              samples["r"], samples["beta"], \
                              samples["u0"], samples["v0"], \
+                             #samples["v_add"] )).T
                              np.log10(samples["v_add"]) )).T
         
         corner_labels = ["s", r"$\theta$", r"$s_y/s_x$", r"$\beta$", \
-                         r"u_0", r"v_0", r"$log_{10}(v_{add})$"]
+                         r"u_0", r"v_0", \
+                         #r"$v_{add}$"]
+                         r"$log_{10}(v_{add})$"]
 
         corner_truths.append(None)
     
@@ -498,6 +631,9 @@ def test6term(ndata=25, \
 
     fig2.subplots_adjust(bottom=0.15, left=0.15)
 
+    for ax in fig2.get_axes():
+        ax.tick_params(axis="both",labelsize=7)
+    
     #blah = plot_trace_dist(inf_data, var_names=["s","theta", \
     #                                            "r", "beta", \
     #                                            "u0", "v0" ])
