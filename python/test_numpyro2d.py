@@ -502,7 +502,6 @@ def test2term_bells(ndata=25, s=1.0e-2, theta=30., \
     # set up the sampler...
     sampler = infer.MCMC(
         infer.NUTS(model_2term_bells),
-        #infer.NUTS(model_scalerot),
         num_warmup=2000,
         num_samples=2000,
         num_chains=2,
@@ -516,9 +515,10 @@ def test2term_bells(ndata=25, s=1.0e-2, theta=30., \
     if fit_xy:
         xsend = jnp.array(xcov)
 
-    sampler.run(jax.random.PRNGKey(0), x, ucov, u=u, xerr=xsend, \
+    sampler.run(jax.random.key(123), x, ucov, u=u, xerr=xsend, \
                 fitvar=fit_var)
 
+    
     t1=time.time()
                     
     print("Time elapsed sampling 2term: %.2e seconds" \
