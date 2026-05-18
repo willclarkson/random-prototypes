@@ -488,7 +488,7 @@ def test2par(ndata=25, true_params=[1.0e-2, 30.]):
 def test2term_bells(ndata=25, s=1.0e-2, theta=30., \
                     sigu=1e-4, sigv=1e-4, \
                     sigx=0.01, sigy=0.01, perturb_xy=False, \
-                    fit_xy=False, fit_var=False):
+                    fit_xy=False, fit_var=False, num_chains=2):
 
     """Test 2-parameter model with various bells and whistles"""
 
@@ -504,7 +504,7 @@ def test2term_bells(ndata=25, s=1.0e-2, theta=30., \
         infer.NUTS(model_2term_bells),
         num_warmup=2000,
         num_samples=2000,
-        num_chains=2,
+        num_chains=num_chains,
         progress_bar=True)
 
     # run the sampler
@@ -555,7 +555,8 @@ def test6term(ndata=25, \
               perturb_xy=False, \
               sigx=0.02, sigy=0.02, \
               fit_xy=False, \
-              fit_var=False):
+              fit_var=False, \
+              num_chains=2):
 
     """Tests the 6-term transformation sampler"""
 
@@ -576,7 +577,7 @@ def test6term(ndata=25, \
         infer.NUTS(model_6term),
         num_warmup=2000,
         num_samples=2000,
-        num_chains=2,
+        num_chains=num_chains,
         progress_bar=True)
 
     # run the sampler
