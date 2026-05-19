@@ -409,15 +409,17 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
 def getcovs(sigx=0., sigy=0., ndata=10, corxy=0.):
 
-    """Utility - returns covariances given sigmas
+    """Utility - returns covariances and samples from the covariances,
+given sigmas
 
     INPUTS
 
-    sigx, sigy = scalars for stddev in x, y
+    sigx, sigy = scalars or 1D arrays for stddev in x, y
 
-    ndata = number of datapoints
+    ndata = number of datapoints. If sigx is 1D array, input ndata is
+    ignored in favor of the size of sigx.
 
-    corxy = correlation between x, y
+    corxy = correlation between x, y (scalar or 1d array)
 
     RETURNS
 
@@ -427,11 +429,27 @@ def getcovs(sigx=0., sigy=0., ndata=10, corxy=0.):
 
     """
 
-    # This could be fed as arrays. For the moment let's just repeat
-    # the single plane.
-    xdev = np.repeat(sigx,  ndata)
-    ydev = np.repeat(sigy,  ndata)
-    rdev = np.repeat(corxy, ndata)
+    # Accept scalar or vector input. This may do something unexpected
+    # if the inputs are a mixture of scalar and vectors.
+    if np.size(sigx) < 2:
+        xdev = np.repeat(sigx,  ndata)
+        ydev = np.repeat(sigy,  ndata)
+        rdev = np.repeat(corxy, ndata)
+    else:
+
+        # The lines below assume sigx is a 1D array.
+        ndata = np.shape(sigx)[0]
+        xdev = sigx
+        if np.size(sigy) != np.size(xdev):
+            ydev = np.copy(xdev)
+        else:
+            ydev = sigy
+
+        if np.size(corxy) != np.size(xdev):
+            rdev = np.zeros(ndata)
+        else:
+            rdev = corxy
+    
 
     # Generate covariances object out of this...
     Covs = covarsNx2x2.CovarsNx2x2(stdx=xdev, stdy=ydev, corrxy=rdev)
@@ -638,3 +656,26 @@ def test6term(ndata=25, \
     #blah = plot_trace_dist(inf_data, var_names=["s","theta", \
     #                                            "r", "beta", \
     #                                            "u0", "v0" ])
+
+
+def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
+                    sigu=1e-4, sigv=1e-4, \
+                    du_lo=1e-4, du_hi=1e-3):
+
+    """Sets up 2-term mapping where the objects can move after the
+transformation. Main aim: see if we can track star-by-star movements
+as part of the transformation fitting."""
+
+    # Transformation plus measurement uncertainty...
+    x, utran, ucov, xcov = gendata(ndata, \
+                                   s_strue=s, thetadeg_true=theta, \
+                                   sigu=sigu, sigv=sigv, \
+                                   showdata=True)
+
+    # Now move the objects, *after* the transformation and
+    # measurement. Depending on the input arguments, these might be by
+    # more or less than the measurement uncertainty. For the moment
+    # we'll make these diagonal for ease of specification, can relax
+    # later. So - first we generate the arrays of low, hi
+    # perturbations...
+    sigs = np.random.uniform(du_lo, du_hi, size=x.shape[0])
