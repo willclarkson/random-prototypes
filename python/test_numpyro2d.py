@@ -195,8 +195,13 @@ def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False):
 
     # Hyper-parameters for the star-by-star shifts. Try a tight prior
     shift_centers = x * 0
+    #shift_covars = jnp.array([[1.0e-6,0.], [0., 1.0e-6] ])
     shift_covars = jnp.array([[1.0e-6,0.], [0., 1.0e-6] ])
 
+    # priors broader than about 1e-5 tend to run into problems,
+    # possibly because that's about the same breadth as the entire
+    # delta distribution.
+    
     with numpyro.plate("data", x.shape[0]):
         # Now for the star-by-star shifts
         du = numpyro.sample("du", \
@@ -836,6 +841,8 @@ as part of the transformation fitting."""
         num_chains=num_chains,
         progress_bar=True)
 
+    t0 = time.time()
+    
     sampler.run(jax.random.key(seed), x, ucov, u=u_obs, xerr=None, \
                 fitvar=fit_var)
 
@@ -847,6 +854,9 @@ as part of the transformation fitting."""
     #print(az.summary(inf_data, var_names=var_names))
     print(az.summary(inf_data))
 
+    t1 = time.time()
+    print("Time sampling and printing summary: %.2e sec" % (t1 - t0))
+    
     # Set up the corner plot as usual
     samples = sampler.get_samples()
     chainz = np.vstack(( samples["s"], np.degrees(samples["theta"]) )).T
@@ -866,8 +876,12 @@ as part of the transformation fitting."""
                             )).T
         corner_labels.append('du[:,0,0]')
         corner_labels.append('du[:,0,1]')
-        corner_truths.append(shift_u)
-        corner_truths.append(shift_v)
+
+        # append the actual perturbation not the shift
+        corner_truths.append(perts_u[0,0])
+        corner_truths.append(perts_u[0,1])
+        #corner_truths.append(shift_u)
+        #corner_truths.append(shift_v)
     
     if fit_var:
         chainz = np.vstack(( samples["s"], \
