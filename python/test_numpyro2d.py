@@ -136,16 +136,78 @@ def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False):
 #    else:
 #        cov_total = uerr
         
-    # Total covariance WATCHOUT - WILL BREAK PROPAG FOR NOW
+    # Total covariance 
     cov_total = uerr + xycov_tran + cov_extra[None,:,:]
 
-    # compute the predicted distribution
-    pred_dist = dist.MultivariateNormal(upred, cov_total)
-    # pred_dist = dist.MultivariateNormal(upred, uerr)
 
     # now the deltas
-    with numpyro.plate("data", x.shape[0]):    
+    with numpyro.plate("data", x.shape[0]):
+        
+        pred_dist = dist.MultivariateNormal(upred, cov_total)
         numpyro.sample("u", pred_dist, obs=u)
+
+def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False):
+
+    """Scale and rotation, plus object-by-object moves
+
+    INPUTS
+
+    x = [N,2] = input positions
+
+    uerr = [N,2,2] = input uncertainties as covariances
+
+    u = [N,2] optional output positions
+
+    xerr = [N,2,2] optional xy uncertainties as covariances   
+
+    fitvar = include diagonal covariance in model parameters
+
+
+    """
+
+    # Define the priors as numpyro distributions. 
+    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+
+    # cdmatrix components, produce transformed positions
+    b = numpyro.deterministic("b",  s * jnp.cos(theta))
+    c = numpyro.deterministic("c",  s * jnp.sin(theta))
+    e = numpyro.deterministic("e", -s * jnp.sin(theta))
+    f = numpyro.deterministic("f",  s * jnp.cos(theta))
+    
+    A = jnp.array([[b,c],[e,f]])
+    
+    upred = jnp.einsum('jk,ik -> ij', A, x)
+    
+    # Propagating uncertainty from input frame as well?
+    xycov_tran = A * 0.
+    if xerr is not None:
+        xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+    
+    # additional covariance in target frame
+    cov_extra = jnp.zeros((2,2))
+    if fitvar:
+        v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
+        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
+
+    # Total covariance 
+    cov_total = uerr + xycov_tran + cov_extra[None,:,:]
+
+    # Hyper-parameters for the star-by-star shifts. Try a tight prior
+    shift_centers = x * 0
+    shift_covars = jnp.array([[1.0e-6,0.], [0., 1.0e-6] ])
+
+    with numpyro.plate("data", x.shape[0]):
+        # Now for the star-by-star shifts
+        du = numpyro.sample("du", \
+                            dist.MultivariateNormal(shift_centers, \
+                                                    shift_covars) )
+
+        utot = upred + du
+        
+        pred_dist = dist.MultivariateNormal(utot, cov_total)
+        numpyro.sample("u", pred_dist, obs=u)
+    
     
 def model_6term(x, uerr, u=None, xerr=None, fitvar=False):
 
@@ -660,15 +722,21 @@ def test6term(ndata=25, \
 
 def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     sigu=1e-4, sigv=1e-4, \
-                    du_lo=1e-4, du_hi=1e-3):
+                    du_lo=1e-4, du_hi=1e-3, \
+                    num_chains=2, \
+                    fit_var=True, \
+                    test_moves=False, seed=123, \
+                    shift_u=0., shift_v=0.):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
 as part of the transformation fitting."""
 
+    # try shifting u, v to see if the model recovers it
+    
     # Transformation plus measurement uncertainty...
     x, utran, ucov, xcov = gendata(ndata, \
-                                   s_strue=s, thetadeg_true=theta, \
+                                   s_true=s, thetadeg_true=theta, \
                                    sigu=sigu, sigv=sigv, \
                                    showdata=True)
 
@@ -678,4 +746,62 @@ as part of the transformation fitting."""
     # we'll make these diagonal for ease of specification, can relax
     # later. So - first we generate the arrays of low, hi
     # perturbations...
-    sigs = np.random.uniform(du_lo, du_hi, size=x.shape[0])
+    stdds_u = np.random.uniform(du_lo, du_hi, size=x.shape[0])
+    stdds_v = np.copy(stdds_u)
+
+    # now generate covariances and samples from these perturbations
+    covs, perts_u = getcovs(stdds_u, stdds_v)
+
+    # add the shifts here
+    perts_u[:,0] += shift_u
+    perts_u[:,1] += shift_v
+    
+    # ok now THIS is our observed sample
+    u_obs = utran + perts_u
+
+    # For the moment, try our "working" method, just to make sure our
+    # syntax is sensible.
+
+    methmodel = model_2term_bells
+    if test_moves:
+        print("TESTING MOVES MODEL")
+        methmodel = model_2term_moves
+        
+    sampler = infer.MCMC(
+        infer.NUTS(methmodel),
+        num_warmup=2000,
+        num_samples=2000,
+        num_chains=num_chains,
+        progress_bar=True)
+
+    sampler.run(jax.random.key(seed), x, ucov, u=u_obs, xerr=None, \
+                fitvar=fit_var)
+
+    # for screen printing
+    var_names=["s", "theta"]
+    if fit_var:
+        var_names.append("v_add")
+    inf_data = az.from_numpyro(sampler)
+    #print(az.summary(inf_data, var_names=var_names))
+    print(az.summary(inf_data))
+
+    # Set up the corner plot as usual
+    samples = sampler.get_samples()
+    chainz = np.vstack(( samples["s"], np.degrees(samples["theta"]) )).T
+
+    # some particulars for the corner plot
+    corner_labels = ["s", r"$\theta$"]
+    corner_truths = [s, theta]  # keep as degrees
+
+    if fit_var:
+        chainz = np.vstack(( samples["s"], \
+                             np.degrees(samples["theta"]), \
+                             np.log10(samples["v_add"]) )).T
+        corner_labels.append(r"$log_{10}(v_{add})$")
+        corner_truths.append(None)
+
+    fig3 = plt.figure(3, figsize=(6,6))
+    fig3.clf()
+    dum = corner.corner(chainz, labels=corner_labels, \
+                        truths=corner_truths, \
+                        fig=fig3)
