@@ -521,6 +521,67 @@ given sigmas
     xycovs = Covs.covars
 
     return xycovs, xypertns
+
+def show_du(samples={}, keypos='u_tran', \
+            ucolor='k', pcolor='g', alpha=0.4):
+
+    """Utility: shows the samples in du"""
+
+    if len(samples.keys()) < 1:
+        return
+
+    # the actual du samples themselves...
+    du = samples['du']
+
+    # should be a [nsamples, nstars, 2] array.
+    du_med = np.median(du, axis=0)
+    du_std = np.std(du, axis=0)
+
+    # set up the figure
+    fig4 = plt.figure(4, figsize=(9,4))
+    fig4.clf()
+
+    ax41 = fig4.add_subplot(121)
+    dum41 = ax41.errorbar(du_med[:,0], du_med[:,1], \
+                          yerr=du_std[:,0], xerr=du_std[:,1], \
+                          fmt='.', alpha=alpha, ms=6, capsize=2, \
+                          color=ucolor, ecolor=ucolor, zorder=10)
+
+    # If we have the commanded perturbations, show them too
+    pert = None
+    if 'u_obs' in samples.keys() and 'u_tran' in samples.keys():
+        pert = samples['u_obs'] - samples['u_tran']
+        dum41_2 = ax41.scatter(pert[:,0], pert[:,1], \
+                               alpha=alpha, c=pcolor, \
+                               zorder=20, s=16)
+    
+    ax41.set_xlabel(r"$\Delta u$")
+    ax41.set_ylabel(r"$\Delta v$")
+    
+    # Do we have the base points for quiver plot?
+    if not keypos in samples.keys():
+        return
+
+    uo = samples[keypos]
+    
+    ax42 = fig4.add_subplot(122)
+    dum_42 = ax42.quiver(uo[:,0], uo[:,1], \
+                         du_med[:,0], du_med[:,1], \
+                         color=ucolor, zorder=10, alpha=alpha)
+
+    # if we have it, overplot the commanded perturbations
+    if pert is not None:
+        dum_42_b = ax42.quiver(uo[:,0], uo[:,1], \
+                               pert[:,0], pert[:,1], \
+                               color=pcolor, zorder=20, \
+                               alpha=alpha)
+
+    
+    ax42.set_xlabel(r"$u$")
+    ax42.set_ylabel(r"$v$")
+    
+    # cosmetics
+    fig4.subplots_adjust(bottom=0.15, left=0.15, hspace=0.30, wspace=0.30)
     
 ######## test routines follow
 
@@ -724,6 +785,7 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     sigu=1e-4, sigv=1e-4, \
                     du_lo=1e-4, du_hi=1e-3, \
                     num_chains=2, \
+                    num_samples=2000, \
                     fit_var=True, \
                     test_moves=False, seed=123, \
                     shift_u=0., shift_v=0.):
@@ -770,7 +832,7 @@ as part of the transformation fitting."""
     sampler = infer.MCMC(
         infer.NUTS(methmodel),
         num_warmup=2000,
-        num_samples=2000,
+        num_samples=num_samples,
         num_chains=num_chains,
         progress_bar=True)
 
@@ -788,20 +850,42 @@ as part of the transformation fitting."""
     # Set up the corner plot as usual
     samples = sampler.get_samples()
     chainz = np.vstack(( samples["s"], np.degrees(samples["theta"]) )).T
-
+    
     # some particulars for the corner plot
     corner_labels = ["s", r"$\theta$"]
     corner_truths = [s, theta]  # keep as degrees
 
+    # additional deltas? (This is a bit awkward, since will be ignored
+    # if we fit extra variance. For the moment that's OK, but watchout
+    # later.)
+    if 'du' in samples.keys():
+        chainz = np.vstack(( samples["s"], \
+                             np.degrees(samples["theta"]), \
+                             samples['du'][:,0,0], \
+                             samples['du'][:,0,1]
+                            )).T
+        corner_labels.append('du[:,0,0]')
+        corner_labels.append('du[:,0,1]')
+        corner_truths.append(shift_u)
+        corner_truths.append(shift_v)
+    
     if fit_var:
         chainz = np.vstack(( samples["s"], \
                              np.degrees(samples["theta"]), \
                              np.log10(samples["v_add"]) )).T
         corner_labels.append(r"$log_{10}(v_{add})$")
         corner_truths.append(None)
-
+        
     fig3 = plt.figure(3, figsize=(6,6))
     fig3.clf()
     dum = corner.corner(chainz, labels=corner_labels, \
                         truths=corner_truths, \
                         fig=fig3)
+
+    # return the samples so that we can play with them. Smuggle the
+    # transformed positions in the samples as well
+    dret = samples.copy()
+    dret['u_tran'] = utran
+    dret['u_obs'] = u_obs
+
+    return dret
