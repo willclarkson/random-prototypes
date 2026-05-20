@@ -11,6 +11,10 @@
 # more modular and flexible will be a separate process. But here we
 # can build the modules around the models we want to fit.
 
+# There will likely be quite a lot of duplication in these prototypes
+# as features are added one by one. I think it will be more robust to
+# develop a few methods rather than one with lots of options.
+
 # Our usual imports
 import time
 
@@ -212,7 +216,74 @@ def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False):
         
         pred_dist = dist.MultivariateNormal(utot, cov_total)
         numpyro.sample("u", pred_dist, obs=u)
+
+def model_2term_shift(x, uerr, u=None, xerr=None, fitvar=False):
+
+    """Rotation, scale, and offset, plus (optionally) individual object
+shifts as residuals. 
+
+    INPUTS
+
+    x = [N,2] = input positions
+
+    uerr = [N,2,2] = input uncertainties as covariances
+
+    u = [N,2] optional output positions
+
+    xerr = [N,2,2] optional xy uncertainties as covariances   
+
+    fitvar = include diagonal covariance in model parameters
+
+
+    """
+
+    # priors on bulk parameters as numpyro distributions
+    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+    u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
+    v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
+
+    # cdmatrix components, produce transformed positions
+    b = numpyro.deterministic("b",  s * jnp.cos(theta))
+    c = numpyro.deterministic("c",  s * jnp.sin(theta))
+    e = numpyro.deterministic("e", -s * jnp.sin(theta))
+    f = numpyro.deterministic("f",  s * jnp.cos(theta))
     
+    A = jnp.array([[b,c],[e,f]])
+
+    # transformation model prediction, now including offset
+    upred = jnp.einsum('jk,ik -> ij', A, x) \
+        + jnp.array([u0,v0])[None,:]
+
+    # Now for the covariances
+    xycov_tran = A * 0.
+    if xerr is not None:
+        xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+    
+    # additional covariance in target frame
+    cov_extra = jnp.zeros((2,2))
+    if fitvar:
+        v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
+        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
+
+    # Total covariance 
+    cov_total = uerr + xycov_tran + cov_extra[None,:,:]
+
+    # Hyper-parameters for the star-by-star shifts. Try a tight prior
+    shift_centers = x * 0
+    shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
+
+    # now the actual distribution
+    with numpyro.plate("data", x.shape[0]):
+        # Now for the star-by-star shifts
+        du = numpyro.sample("du", \
+                            dist.MultivariateNormal(shift_centers, \
+                                                    shift_covars) )
+
+        utot = upred + du
+        
+        pred_dist = dist.MultivariateNormal(utot, cov_total)
+        numpyro.sample("u", pred_dist, obs=u)
     
 def model_6term(x, uerr, u=None, xerr=None, fitvar=False):
 
@@ -535,13 +606,23 @@ def show_du(samples={}, keypos='u_tran', \
     if len(samples.keys()) < 1:
         return
 
-    # the actual du samples themselves...
+    # The star-by-star samples: [nsamples stars, 2]
     du = samples['du']
 
     # should be a [nsamples, nstars, 2] array.
     du_med = np.median(du, axis=0)
     du_std = np.std(du, axis=0)
 
+    # The bulk-offset samples: [nsamples, 2]
+    if 'u0' in samples.keys() and 'v0' in samples.keys():
+        shift = np.vstack(( samples['u0'], samples['v0'] )).T
+        du_all = du + shift[:,None,:]
+
+        print("Including frame shift:")
+        du_med = np.median(du_all, axis=0)
+        du_std = np.std(du_all, axis=0)
+        
+    
     # set up the figure
     fig4 = plt.figure(4, figsize=(9,4))
     fig4.clf()
@@ -792,14 +873,23 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     num_chains=2, \
                     num_samples=2000, \
                     fit_var=True, \
-                    test_moves=False, seed=123, \
+                    test_moves=False, \
+                    seed=123, \
                     shift_u=0., shift_v=0., \
                     xsz=400., ysz=400., \
-                    frac_shift=1.):
+                    frac_shift=1., \
+                    test_shift=False):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
-as part of the transformation fitting."""
+as part of the transformation fitting.
+
+    Some special inputs:
+
+    test_shift = test a model in which both the model and star-by-star
+    include a shift.
+
+    """
 
     # 2026-05-20 testing note: the old defaults were:
     #
@@ -842,6 +932,10 @@ as part of the transformation fitting."""
     if test_moves:
         print("TESTING MOVES MODEL")
         methmodel = model_2term_moves
+
+    if test_shift:
+        print("TESTING SHIFT MODEL")
+        methmodel = model_2term_shift
         
     sampler = infer.MCMC(
         infer.NUTS(methmodel),
@@ -874,12 +968,24 @@ as part of the transformation fitting."""
     corner_labels = ["s", r"$\theta$"]
     corner_truths = [s, theta]  # keep as degrees
 
+    # Was a shift part of the model?
+    if "u0" in samples.keys():
+        chainz = np.vstack(( chainz.T, \
+                             samples["u0"], \
+                             samples["v0"], )).T
+        corner_labels.append(r'$u_0$')
+        corner_labels.append(r'$v_0$')
+        corner_truths.append(None)
+        corner_truths.append(None)
+
+    
     # additional deltas? (This is a bit awkward, since will be ignored
     # if we fit extra variance. For the moment that's OK, but watchout
     # later.)
     if 'du' in samples.keys():
-        chainz = np.vstack(( samples["s"], \
-                             np.degrees(samples["theta"]), \
+        chainz = np.vstack(( chainz.T, \
+#            samples["s"], \
+#                             np.degrees(samples["theta"]), \
                              samples['du'][:,0,0], \
                              samples['du'][:,0,1]
                             )).T
@@ -891,10 +997,9 @@ as part of the transformation fitting."""
         corner_truths.append(perts_u[0,1])
         #corner_truths.append(shift_u)
         #corner_truths.append(shift_v)
-    
+        
     if fit_var:
-        chainz = np.vstack(( samples["s"], \
-                             np.degrees(samples["theta"]), \
+        chainz = np.vstack(( chainz.T, \
                              np.log10(samples["v_add"]) )).T
         corner_labels.append(r"$log_{10}(v_{add})$")
         corner_truths.append(None)
@@ -903,7 +1008,11 @@ as part of the transformation fitting."""
     fig3.clf()
     dum = corner.corner(chainz, labels=corner_labels, \
                         truths=corner_truths, \
-                        fig=fig3)
+                        fig=fig3, \
+                        show_titles=True, \
+                        #titles=corner_labels[:], \
+                        title_fmt=None, \
+                        title_kwargs={"fontsize": 9})
 
     # return the samples so that we can play with them. Smuggle the
     # transformed positions in the samples as well
@@ -911,4 +1020,6 @@ as part of the transformation fitting."""
     dret['u_tran'] = utran
     dret['u_obs'] = u_obs
 
+    fig3.subplots_adjust(left=0.15, bottom=0.15)
+    
     return dret
