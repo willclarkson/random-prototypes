@@ -19,7 +19,7 @@ import matplotlib.pylab as plt
 plt.ion()
 
 import jax
-# jax.config.update("jax_enable_x64", True)
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 import numpyro
@@ -195,9 +195,9 @@ def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False):
 
     # Hyper-parameters for the star-by-star shifts. Try a tight prior
     shift_centers = x * 0
-    #shift_covars = jnp.array([[1.0e-6,0.], [0., 1.0e-6] ])
-    shift_covars = jnp.array([[1.0e-6,0.], [0., 1.0e-6] ])
+    shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
 
+    
     # priors broader than about 1e-5 tend to run into problems,
     # possibly because that's about the same breadth as the entire
     # delta distribution.
@@ -793,16 +793,21 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     num_samples=2000, \
                     fit_var=True, \
                     test_moves=False, seed=123, \
-                    shift_u=0., shift_v=0.):
+                    shift_u=0., shift_v=0., \
+                    xsz=400., ysz=400.):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
 as part of the transformation fitting."""
 
+    # 2026-05-20 testing note: the old defaults were:
+    #
+    # xsz=2., ysz=2., s=1.0e-2
+    
     # try shifting u, v to see if the model recovers it
     
     # Transformation plus measurement uncertainty...
-    x, utran, ucov, xcov = gendata(ndata, \
+    x, utran, ucov, xcov = gendata(ndata, xsz, ysz, \
                                    s_true=s, thetadeg_true=theta, \
                                    sigu=sigu, sigv=sigv, \
                                    showdata=True)
