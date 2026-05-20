@@ -794,7 +794,8 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     fit_var=True, \
                     test_moves=False, seed=123, \
                     shift_u=0., shift_v=0., \
-                    xsz=400., ysz=400.):
+                    xsz=400., ysz=400., \
+                    frac_shift=1.):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
@@ -825,8 +826,11 @@ as part of the transformation fitting."""
     covs, perts_u = getcovs(stdds_u, stdds_v)
 
     # add the shifts here
-    perts_u[:,0] += shift_u
-    perts_u[:,1] += shift_v
+    #
+    # NEW FEATURE - only shift a fraction
+    bout = np.random.rand(perts_u.shape[0]) <= frac_shift
+    perts_u[bout,0] += shift_u
+    perts_u[bout,1] += shift_v
     
     # ok now THIS is our observed sample
     u_obs = utran + perts_u
