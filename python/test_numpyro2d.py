@@ -1086,10 +1086,13 @@ as part of the transformation fitting.
     if "u0_bg" in samples.keys():
         chainz = np.vstack(( chainz.T, \
                              samples["u0_bg"], \
-                             samples["v0_bg"], )).T
+                             samples["v0_bg"], \
+                             samples["Q"] )).T
         corner_labels.append(r'$u_0(bg)$')
         corner_labels.append(r'$v_0(bg)$')
+        corner_labels.append(r'$Q$')
         corner_truths.append(None) # won't always be right
+        corner_truths.append(None)
         corner_truths.append(None)
 
     
