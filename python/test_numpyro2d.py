@@ -199,7 +199,8 @@ def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False):
 
     # Hyper-parameters for the star-by-star shifts. Try a tight prior
     shift_centers = x * 0
-    shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
+    #shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
+    shift_covars = jnp.array([[1.0e-6,0.], [0., 1.0e-6] ])
 
     
     # priors broader than about 1e-5 tend to run into problems,
@@ -284,7 +285,101 @@ shifts as residuals.
         
         pred_dist = dist.MultivariateNormal(utot, cov_total)
         numpyro.sample("u", pred_dist, obs=u)
+
+def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False):
+
+    """Scale, rotation, offset, mixture
+
+    INPUTS
+
+    x = [N,2] = input positions
+
+    uerr = [N,2,2] = input uncertainties as covariances
+
+    u = [N,2] optional output positions
+
+    xerr = [N,2,2] optional xy uncertainties as covariances   
     
+
+    """
+
+    # fitvar no longer does anything because there's already a
+    # covariance parameter in the background component
+    
+    # priors on bulk parameters as numpyro distributions
+    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+    u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
+    v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
+
+    # hyper-parameters for the star-by-star shifts
+    shift_centers = x * 0
+    shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
+    
+    # Prior on mixture fraction and "background" covariance scale. For
+    # the moment we will keep all these things as scalars and wrap
+    # them into jnp arrays, where indicated, below.
+    Q = numpyro.sample("Q", dist.Uniform(0.0, 1.0))
+    var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3))
+    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-1.0, 1.0))
+    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-1.0, 1.0))
+
+    ## COMPUTED MODEL PARAMETERS
+    # cdmatrix components, produce transformed positions
+    b = numpyro.deterministic("b",  s * jnp.cos(theta))
+    c = numpyro.deterministic("c",  s * jnp.sin(theta))
+    e = numpyro.deterministic("e", -s * jnp.sin(theta))
+    f = numpyro.deterministic("f",  s * jnp.cos(theta))
+    
+    A = jnp.array([[b,c],[e,f]])
+
+    # transformation model prediction, now including offset
+    utran = jnp.einsum('jk,ik -> ij', A, x)
+    upred = utran + jnp.array([u0,v0])[None,:]
+
+    # Now for the covariances
+    xycov_tran = A * 0.
+    if xerr is not None:
+        xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+    
+    # Total covariance (measurement in both frames, optionally)
+    cov_fg = uerr + xycov_tran
+
+    # Model parameters for background component
+    cov_bg = cov_fg + \
+        jnp.array([[var_bg,0],[0,var_bg]])[None,:,:]
+
+    u_bg = utran + jnp.array([u0_bg, v0_bg])[None,:]
+
+    # compute the distributions
+    with numpyro.plate("data", x.shape[0]):
+
+        # the star-by-star offsets
+        du = numpyro.sample("du", \
+                            dist.MultivariateNormal(shift_centers, \
+                                                    shift_covars) )
+
+        # the foreground and background predictions...
+        u_fg = upred + du        
+        u_bg = u_bg + du
+
+        dist_fg = dist.MultivariateNormal(u_fg, cov_fg)
+        dist_bg = dist.MultivariateNormal(u_bg, cov_bg)
+        
+        # Now form the mixture
+        mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
+        mixture = dist.MixtureGeneral(mix, [dist_fg, dist_bg] )
+
+        # This I think *should* compute the appropriate mixture model
+        y_ = numpyro.sample("u", mixture, obs=u)
+
+        # track the membership probabilities
+        log_probs = mixture.component_log_probs(y_)
+        numpyro.deterministic(
+            "p", log_probs - \
+            jax.nn.logsumexp(log_probs, axis=-1, keepdims=True) \
+        )
+        
 def model_6term(x, uerr, u=None, xerr=None, fitvar=False):
 
     """Offset and general linear transformation, parameterized in human
@@ -878,7 +973,10 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     shift_u=0., shift_v=0., \
                     xsz=400., ysz=400., \
                     frac_shift=1., \
-                    test_shift=False):
+                    test_shift=False, \
+                    frac_outly=0., \
+                    sigm_outly=0.01, \
+                    test_mix=False):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
@@ -915,12 +1013,15 @@ as part of the transformation fitting.
     # now generate covariances and samples from these perturbations
     covs, perts_u = getcovs(stdds_u, stdds_v)
 
+    # add outliers here
+    covs_outly, perts_outly = getcovs(np.repeat(sigm_outly, x.shape[0]))
+    boutly = np.random.rand(perts_u.shape[0]) <= frac_outly
+    perts_u[boutly] += perts_outly[boutly]
+    
     # add the shifts here
-    #
-    # NEW FEATURE - only shift a fraction
-    bout = np.random.rand(perts_u.shape[0]) <= frac_shift
-    perts_u[bout,0] += shift_u
-    perts_u[bout,1] += shift_v
+    bshif = np.random.rand(perts_u.shape[0]) <= frac_shift
+    perts_u[bshif,0] += shift_u
+    perts_u[bshif,1] += shift_v
     
     # ok now THIS is our observed sample
     u_obs = utran + perts_u
@@ -936,6 +1037,10 @@ as part of the transformation fitting.
     if test_shift:
         print("TESTING SHIFT MODEL")
         methmodel = model_2term_shift
+
+    if test_mix:
+        print("TESTING MIX MODEL")
+        methmodel = model_2term_mix
         
     sampler = infer.MCMC(
         infer.NUTS(methmodel),
@@ -975,7 +1080,16 @@ as part of the transformation fitting.
                              samples["v0"], )).T
         corner_labels.append(r'$u_0$')
         corner_labels.append(r'$v_0$')
-        corner_truths.append(None)
+        corner_truths.append(shift_u) # won't always be right
+        corner_truths.append(shift_v)
+
+    if "u0_bg" in samples.keys():
+        chainz = np.vstack(( chainz.T, \
+                             samples["u0_bg"], \
+                             samples["v0_bg"], )).T
+        corner_labels.append(r'$u_0(bg)$')
+        corner_labels.append(r'$v_0(bg)$')
+        corner_truths.append(None) # won't always be right
         corner_truths.append(None)
 
     
@@ -1012,7 +1126,8 @@ as part of the transformation fitting.
                         show_titles=True, \
                         #titles=corner_labels[:], \
                         title_fmt=None, \
-                        title_kwargs={"fontsize": 9})
+                        title_kwargs={"fontsize":9}, \
+                        label_kwargs={"fontsize":9} )
 
     # return the samples so that we can play with them. Smuggle the
     # transformed positions in the samples as well
