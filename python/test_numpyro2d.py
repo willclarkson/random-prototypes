@@ -694,7 +694,8 @@ given sigmas
     return xycovs, xypertns
 
 def show_du(samples={}, keypos='u_tran', \
-            ucolor='k', pcolor='g', alpha=0.4):
+            ucolor='k', pcolor='g', alpha=0.4, \
+            show_std=True):
 
     """Utility: shows the samples in du"""
 
@@ -723,11 +724,18 @@ def show_du(samples={}, keypos='u_tran', \
     fig4.clf()
 
     ax41 = fig4.add_subplot(121)
-    dum41 = ax41.errorbar(du_med[:,0], du_med[:,1], \
-                          yerr=du_std[:,0], xerr=du_std[:,1], \
-                          fmt='.', alpha=alpha, ms=6, capsize=2, \
-                          color=ucolor, ecolor=ucolor, zorder=10)
+    if show_std:
+        dum41 = ax41.errorbar(du_med[:,0], du_med[:,1], \
+                              yerr=du_std[:,0], xerr=du_std[:,1], \
+                              fmt='.', alpha=alpha, ms=6, capsize=2, \
+                              color=ucolor, ecolor=ucolor, zorder=10)
 
+    else:
+        dum41 = ax41.scatter(du_med[:,0], du_med[:,1], \
+                             marker='.', alpha=alpha, s=6,\
+                             c=ucolor, zorder=10)
+
+        
     # If we have the commanded perturbations, show them too
     pert = None
     if 'u_obs' in samples.keys() and 'u_tran' in samples.keys():
