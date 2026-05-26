@@ -42,6 +42,8 @@ import covarsNx2x2
 # some visualization
 from arviz_plots import plot_trace_dist, style
 
+# For dumping samples to disk while developing
+import pickle
 
 # For this, we adopt "x" as the "input" positions, and "u" as the
 # "output". This allows us to use (x,y) and (u,v) later on if that is
@@ -150,6 +152,104 @@ def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False):
         pred_dist = dist.MultivariateNormal(upred, cov_total)
         numpyro.sample("u", pred_dist, obs=u)
 
+def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False):
+
+    """Fits mixture model to the positions, but does not fit individual star-by-star shifts. 
+
+
+    INPUTS:
+
+    x = [N,2] = input positions
+
+    uerr = [N,2,2] = input uncertainties as covariances
+
+    u = [N,2] optional output positions
+
+    xerr = [N,2,2] optional xy uncertainties as covariances   
+
+    fitvar = include diagonal covariance in model parameters
+
+
+"""
+
+    # our two-term model again:
+    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+    u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
+    v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
+    
+    # transform the sampled parameters into matrix components
+    b = numpyro.deterministic("b",  s * jnp.cos(theta))
+    c = numpyro.deterministic("c",  s * jnp.sin(theta))
+    e = numpyro.deterministic("e", -s * jnp.sin(theta))
+    f = numpyro.deterministic("f",  s * jnp.cos(theta))
+    
+    A = jnp.array([[b,c],[e,f]])
+
+    # We are going to have different offsets for the "foreground" and
+    # "background" components. So:
+    utran = jnp.einsum('jk,ik -> ij', A, x)
+
+    upred_fg = utran + jnp.array([u0,v0])[None,:]
+
+    # Propagate input-frame covariances via the model paramters
+    xycov_tran = A * 0.
+    if xerr is not None:
+        xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+
+    # allow an optional additional covariance to be applied to all the
+    # objects
+    cov_extra = jnp.zeros((2,2))
+    if fitvar:
+        v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
+        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
+
+
+    # star-by-star total covariance
+    cov_total = uerr + xycov_tran + cov_extra[None,:,:]
+    
+    # Now for the mixture-relevant pieces. The "background" model
+    # components (can do this with vectors later, which would allow
+    # covariant priors)
+    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-1.0, 1.0))
+    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-1.0, 1.0))
+    var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3) )
+
+    # Model background covariance. Currently this is always greater
+    # than the "foreground" covariance:
+    cov_bg_extra = jnp.array([[var_bg,0], [0,var_bg]])
+    cov_total_bg = cov_total + cov_bg_extra[None,:,:]
+    
+    # predicted positions assuming assigned to bg component
+    upred_bg = utran + jnp.array([u0_bg,v0_bg])[None,:]
+    
+    # The mixture components. Let Q be the outlier probability. Not
+    # sure yet how to stop this going to 1/Npoints... try imposing a
+    # lower limit??
+    Q = numpyro.sample("Q", dist.Uniform(0.05, 1.0))
+    mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
+
+    # The usual plate incantation
+    with numpyro.plate("data", x.shape[0]):
+
+        # foreground and background distances:
+        dist_fg = dist.MultivariateNormal(upred_fg, cov_total)
+        dist_bg = dist.MultivariateNormal(upred_bg, cov_total_bg)
+
+        # Create the mixture...
+        mixture = dist.MixtureGeneral(mix, [dist_fg, dist_bg])
+
+        # actually do the samples:
+        y_ = numpyro.sample("obs", mixture, obs=u)
+
+        # track the membership probabilities
+        log_probs = mixture.component_log_probs(y_)
+        numpyro.deterministic(
+            "p", log_probs - \
+            jax.nn.logsumexp(log_probs, axis=-1, keepdims=True) \
+        )
+        
+    
 def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False):
 
     """Scale and rotation, plus object-by-object moves
@@ -288,7 +388,7 @@ shifts as residuals.
 
 def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False):
 
-    """Scale, rotation, offset, mixture
+    """Scale, rotation, offset, mixture, individual moves
 
     INPUTS
 
@@ -778,6 +878,114 @@ def show_du(samples={}, keypos='u_tran', \
     
     # cosmetics
     fig4.subplots_adjust(bottom=0.15, left=0.15, hspace=0.30, wspace=0.30)
+
+def show_samples(dsamples={}):
+
+    """One-liner to show some of the results from an MCMC run
+
+    INPUTS
+
+    dsamples = dictionary of samples
+
+    """
+
+    # Construct the linear transformation from the samples
+    if not 'b' in dsamples.keys():
+        print("show_samples INFO - key not in input: b. Returning")
+        return
+
+    # Parse the input dictionary. In "production" we would probably
+    # setattr, getattr, etc., but for the moment we'll spell them
+    # out. This is a prototype after all...
+    
+    # build the cdmatrix from the samples
+    npoints = dsamples['b'].shape[0]
+    A = np.zeros((npoints,2,2))
+    A[:,0,0] = dsamples['b']
+    A[:,0,1] = dsamples['c']
+    A[:,1,0] = dsamples['e']
+    A[:,1,1] = dsamples['f']
+
+    u0 = np.zeros((npoints,2))
+    if "u0" in dsamples.keys():
+        u0[:,0] = dsamples['u0']
+        u0[:,1] = dsamples['v0']
+
+    u0_bg = np.zeros((npoints,2))
+    if "u0_bg" in dsamples.keys():
+        u0_bg[:,0] = dsamples["u0_bg"]
+        u0_bg[:,1] = dsamples["v0_bg"]
+
+    var_bg = None
+    if "var_bg" in dsamples.keys():
+        var_bg = dsamples["var_bg"]
+
+    # Mixture fractions...
+    Q = None
+    if "Q" in dsamples.keys():
+        Q = dsamples['Q']
+
+    # ... and membership probabilities
+    p = None
+    if 'p' in dsamples.keys():
+        p = dsamples['p']
+        
+    # Simulated data
+    x = None
+    if "x" in dsamples.keys():
+        x = dsamples['x']
+
+    u_obs = None
+    if 'u_obs' in dsamples.keys():
+        u_obs = dsamples['u_obs']
+
+    u_tran = None
+    if 'u_tran' in dsamples.keys():
+        u_tran = dsamples['u_tran']
+
+    # Number of points in the dataset
+    ndata = u_obs.shape[0]
+
+    print("Membership probabilities:",p.shape)
+    print("Mixture fractions:", Q.shape)
+    print("Ndata:", ndata)
+    print("CDMATRIX shape:", A.shape)
+
+    # Apply the transformation here
+    Amed = np.median(A, axis=0)
+    upred_med = np.einsum('jk,ik -> ij', Amed, x)
+
+    # deltas
+    uresid_med = u_obs - upred_med
+
+    # Mean probabilities
+    pmem = np.median(p[...,0],axis=0)
+    print("pmem", pmem.shape)
+    
+    fig6 = plt.figure(6)
+    fig6.clf()
+    ax61 = fig6.add_subplot(221)
+    ax62 = fig6.add_subplot(222)
+    ax63 = fig6.add_subplot(223)
+    ax64 = fig6.add_subplot(224)
+
+    dum = ax61.hist(np.log10(Q), bins=100, alpha=0.5, zorder=10)
+    #blah = ax61.axvline(np.log10(1.0/ndata), ls='--', color='k', \
+    #                    zorder=20, label=r'$\log_{10}(N_{\rm data}^{-1})$')
+    ax61.set_xlabel(r'$\log_{10}Q$')
+    leg = ax61.legend()
+
+    # predicted
+    dum62 = ax62.scatter(upred_med[:,0], upred_med[:,1], \
+                         s=16, c='b')
+
+    dum63 = ax63.hist(pmem, alpha=0.5, color='g')
+    
+    # residuals
+    dum64 = ax64.scatter(uresid_med[:,0], uresid_med[:,1], \
+                         s=16, c='b')
+
+    fig6.subplots_adjust(hspace=0.3, wspace=0.3)
     
 ######## test routines follow
 
@@ -991,7 +1199,11 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     test_shift=False, \
                     frac_outly=0., \
                     sigm_outly=0.01, \
-                    test_mix=False):
+                    shift_outly=True, \
+                    test_mix=False, \
+                    test_popmix=False, \
+                    show_gen=True, \
+                    only_show=False):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
@@ -1001,6 +1213,11 @@ as part of the transformation fitting.
 
     test_shift = test a model in which both the model and star-by-star
     include a shift.
+
+    test_mix = test the mixture model plus individual star motions
+
+    test_popmix = test mixture model applied to populations, but NOT
+    allowing individualstars to move.
 
     """
 
@@ -1033,17 +1250,83 @@ as part of the transformation fitting.
     boutly = np.random.rand(perts_u.shape[0]) <= frac_outly
     perts_u[boutly] += perts_outly[boutly]
     
-    # add the shifts here
-    bshif = np.random.rand(perts_u.shape[0]) <= frac_shift
-    perts_u[bshif,0] += shift_u
-    perts_u[bshif,1] += shift_v
+    # add the shifts here. This is a little awkward at the moment: if
+    # we are only shifting the outliers, we apply the shift to
+    # them. Otherwise we draw a *different* random sample and shift
+    # those.
+    bshif = np.repeat(False, perts_u.shape[0])
+    if shift_outly:
+        perts_u[boutly,0] += shift_u
+        perts_u[boutly,1] += shift_v
+
+    else:
+        bshif = np.random.rand(perts_u.shape[0]) <= frac_shift
+        perts_u[bshif,0] += shift_u
+        perts_u[bshif,1] += shift_v
     
     # ok now THIS is our observed sample
     u_obs = utran + perts_u
 
+    # since the generation has become more complicated now, do a plot
+    # here.
+    if show_gen:
+        fig5=plt.figure(5, figsize=(6,6))
+        fig5.clf()
+
+        ax5_1 = fig5.add_subplot(221)
+        ax5_2 = fig5.add_subplot(222)
+        ax5_4 = fig5.add_subplot(224)
+
+        # colors
+        cinp = 'k'
+        ctar = 'b'
+        coutly = 'r'
+        cshift = 'g'
+        
+        # scatterplots of the datapoints
+        ball = np.isfinite(x[:,0])
+
+        for bset, col, zord, sz, label in \
+            zip(\
+                [ball, bshif, boutly], \
+                [ctar, cshift, coutly], \
+                [10,11,12], \
+                [16,6,2], \
+                ['all', 'shift','outlier']):
+        
+            dum51 = ax5_1.scatter(x[bset,0], x[bset,1], \
+                                  c=col, zorder=zord, s=sz)
+            dum52 = ax5_2.scatter(u_obs[bset,0], u_obs[bset,1], \
+                                  c=col, zorder=zord, s=sz)
+            dum54 = ax5_4.scatter(perts_u[bset,0], perts_u[bset,1], \
+                                  c=col, zorder=zord, s=sz, \
+                                  label=label)
+        
+        
+        ax5_1.set_xlabel(r'$X$')
+        ax5_1.set_ylabel(r'$Y$')
+
+        ax5_2.set_xlabel(r'$u$')
+        ax5_2.set_ylabel(r'$v$')
+
+        ax5_4.set_xlabel(r'$\Delta u$')
+        ax5_4.set_ylabel(r'$\Delta v$')
+
+        leg = fig5.legend(loc=3)
+        
+        fig5.subplots_adjust(wspace=0.25, hspace=0.25)
+
+        # save the figure so we can conveniently view it...
+        fig5.savefig('simulated_scatterplot.png')
+
+        # Stop here if we're tweaking our simulated datasets before
+        # sampling
+        if only_show:
+            return
+    
     # For the moment, try our "working" method, just to make sure our
     # syntax is sensible.
-
+    
     methmodel = model_2term_bells
     if test_moves:
         print("TESTING MOVES MODEL")
@@ -1056,6 +1339,10 @@ as part of the transformation fitting.
     if test_mix:
         print("TESTING MIX MODEL")
         methmodel = model_2term_mix
+
+    if test_popmix:
+        print("TESTING MIXMOD")
+        methmodel = model_2term_mixmod
         
     sampler = infer.MCMC(
         infer.NUTS(methmodel),
@@ -1101,15 +1388,18 @@ as part of the transformation fitting.
     if "Q" in samples.keys():
         chainz = np.vstack(( chainz.T, \
                              samples["u0_bg"], \
-                             #samples["v0_bg"], \
-                             #samples["var_bg"], \
+                             samples["v0_bg"], \
+                             samples["var_bg"], \
                              samples["Q"] )).T
+        
         corner_labels.append(r'$u_0(bg)$')
-        #corner_labels.append(r'$v_0(bg)$')
-        #corner_labels.append('var(bg)')
+        corner_labels.append(r'$v_0(bg)$')
+        corner_labels.append('var(bg)')
         corner_labels.append(r'$Q$')
+        
         corner_truths.append(None) # won't always be right
-        #corner_truths.append(None)
+        corner_truths.append(None)
+        corner_truths.append(None)
         corner_truths.append(None)
 
     
@@ -1154,7 +1444,12 @@ as part of the transformation fitting.
     dret = samples.copy()
     dret['u_tran'] = utran
     dret['u_obs'] = u_obs
-
+    dret['x'] = x
+    
     fig3.subplots_adjust(left=0.15, bottom=0.15)
+
+    # dump the samples to disk for the moment
+    with open('test_samples.pickle', 'wb') as wobj:
+        pickle.dump(dret, wobj)
     
     return dret

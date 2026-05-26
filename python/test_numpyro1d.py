@@ -8,8 +8,8 @@
 # scope...
 #
 #
-# This follows very heavily Dan Foreman-Mackey's excellent blog post
-# "Introduction to numpyro for astronomers", which can be found here:
+# This follows Dan Foreman-Mackey's excellent blog post "Introduction
+# to numpyro for astronomers", which can be found here:
 # https://dfm.io/posts/intro-to-numpyro/
 
 import time
