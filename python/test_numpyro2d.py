@@ -320,10 +320,17 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False):
     # the moment we will keep all these things as scalars and wrap
     # them into jnp arrays, where indicated, below.
     Q = numpyro.sample("Q", dist.Uniform(0.0, 1.0))
-    var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3))
+    # var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3))
+    var_bg = 0.
     u0_bg = numpyro.sample("u0_bg", dist.Uniform(-1.0, 1.0))
-    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-1.0, 1.0))
+    #v0_bg = numpyro.sample("v0_bg", dist.Uniform(-1.0, 1.0))
 
+    v0_bg = 0.
+    
+    # 2026-05-21: set the offsets to zero for the moment
+    #u0_bg = 0.
+    #v0_bg = 0.
+    
     ## COMPUTED MODEL PARAMETERS
     # cdmatrix components, produce transformed positions
     b = numpyro.deterministic("b",  s * jnp.cos(theta))
@@ -1091,16 +1098,18 @@ as part of the transformation fitting.
         corner_truths.append(shift_u) # won't always be right
         corner_truths.append(shift_v)
 
-    if "u0_bg" in samples.keys():
+    if "Q" in samples.keys():
         chainz = np.vstack(( chainz.T, \
                              samples["u0_bg"], \
-                             samples["v0_bg"], \
+                             #samples["v0_bg"], \
+                             #samples["var_bg"], \
                              samples["Q"] )).T
         corner_labels.append(r'$u_0(bg)$')
-        corner_labels.append(r'$v_0(bg)$')
+        #corner_labels.append(r'$v_0(bg)$')
+        #corner_labels.append('var(bg)')
         corner_labels.append(r'$Q$')
         corner_truths.append(None) # won't always be right
-        corner_truths.append(None)
+        #corner_truths.append(None)
         corner_truths.append(None)
 
     
