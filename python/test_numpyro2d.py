@@ -242,14 +242,35 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False):
         # actually do the samples:
         y_ = numpyro.sample("obs", mixture, obs=u)
 
+        # print("DEBUG: y_", y_.shape)
+        
         # track the membership probabilities
         log_probs = mixture.component_log_probs(y_)
-        numpyro.deterministic(
+        p = numpyro.deterministic(
             "p", log_probs - \
             jax.nn.logsumexp(log_probs, axis=-1, keepdims=True) \
         )
+
+        # It turns out numpyro lets you do this without filling the
+        # screen with debug statements every time through. Some magic
+        # to do with suppressing screen output (probably when the
+        # progress bar is switched on)
+        print("DEBUG: y_, log_probs, dist_fg.batch, dist_fg.event, dist_bg.batch, dist_bg.event, p", \
+              y_.shape, log_probs.shape, \
+              dist_fg.batch_shape, dist_fg.event_shape, \
+              dist_bg.batch_shape, dist_bg.event_shape, \
+              p.shape)
+        #, \
+        #      log_probs[0])
+
+        # NOW FOR THE NEXT TEST - DO THE SAME FOR THE 1D CASE. THIS
+        # WILL SHOW US WHAT DIMENSION LOG_PROBS TAKES.
         
-    
+        # jax.debug.print does access the values cleanly but is not
+        # suppressed by the progress bar. Use with caution.
+        # jax.debug.print("{x}", x=log_probs[0])
+        
+        
 def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False):
 
     """Scale and rotation, plus object-by-object moves
