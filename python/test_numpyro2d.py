@@ -211,29 +211,38 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False):
     # Now for the mixture-relevant pieces. The "background" model
     # components (can do this with vectors later, which would allow
     # covariant priors)
+
+    # foreground component. What we used to call "cov_extra" is now
+    # the covariance of the foreground component. This is identified
+    # with u_0, v_0 to avoid any identifiability problem.
+    var_fg = numpyro.sample("var_fg", dist.LogUniform(1e-12,1e-3))
+    cov_mixmod_fg =  jnp.array([[var_fg,0], [0,var_fg]])
+    cov_total_fg = cov_total + cov_mixmod_fg[None,:,:]
+    
+    # background component
     u0_bg = numpyro.sample("u0_bg", dist.Uniform(-1.0, 1.0))
     v0_bg = numpyro.sample("v0_bg", dist.Uniform(-1.0, 1.0))
     var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3) )
 
     # Model background covariance. Currently this is always greater
     # than the "foreground" covariance:
-    cov_bg_extra = jnp.array([[var_bg,0], [0,var_bg]])
-    cov_total_bg = cov_total + cov_bg_extra[None,:,:]
+    cov_mixmod_bg = jnp.array([[var_bg,0], [0,var_bg]])
+    cov_total_bg = cov_total + cov_mixmod_bg[None,:,:]
     
     # predicted positions assuming assigned to bg component
     upred_bg = utran + jnp.array([u0_bg,v0_bg])[None,:]
     
     # The mixture components. Let Q be the outlier probability. Not
     # sure yet how to stop this going to 1/Npoints... try imposing a
-    # lower limit??
-    Q = numpyro.sample("Q", dist.Uniform(0.05, 1.0))
+    # lower and upper limit
+    Q = numpyro.sample("Q", dist.Uniform(0.05, 0.95))
     mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
 
     # The usual plate incantation
     with numpyro.plate("data", x.shape[0]):
 
         # foreground and background distances:
-        dist_fg = dist.MultivariateNormal(upred_fg, cov_total)
+        dist_fg = dist.MultivariateNormal(upred_fg, cov_total_fg)
         dist_bg = dist.MultivariateNormal(upred_bg, cov_total_bg)
 
         # Create the mixture...
@@ -670,6 +679,9 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     xcovs = None, or [N, 2, 2] array of uncertainty covariances in the
     x frame
 
+    ugen = transformed xy positions before addition of perturbations
+    in the uv frame
+
     """
     
     # uniform-random positions over the domain
@@ -714,7 +726,7 @@ def gendata(ndata=25, xsz=2., ysz=2., \
         # and overplot it? Does the result look sensibile?
         
     if not showdata:
-        return xobs, uobs, ucovs, xcovs
+        return xobs, uobs, ucovs, xcovs, ugen
     
     # it helps to show the actual data at this point...
     fig1 = plt.figure(1, figsize=(5,5))
@@ -765,7 +777,7 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     ax1b.set_title('Output')
     ax1d.set_title('Out perturbed')
 
-    return xobs, uobs, ucovs, xcovs
+    return xobs, uobs, ucovs, xcovs, ugen
 
 
 def getcovs(sigx=0., sigy=0., ndata=10, corxy=0.):
@@ -994,7 +1006,7 @@ def show_samples(dsamples={}):
     #blah = ax61.axvline(np.log10(1.0/ndata), ls='--', color='k', \
     #                    zorder=20, label=r'$\log_{10}(N_{\rm data}^{-1})$')
     ax61.set_xlabel(r'$\log_{10}Q$')
-    leg = ax61.legend()
+    # leg = ax61.legend()
 
     # predicted
     dum62 = ax62.scatter(upred_med[:,0], upred_med[:,1], \
@@ -1015,10 +1027,10 @@ def test2par(ndata=25, true_params=[1.0e-2, 30.]):
     """Test the 2D version of our fitter"""
 
     # Generate data, accepting the defaults for the moment
-    x, u, ucov, xcov = gendata(ndata, \
-                               s_true=true_params[0],
-                               thetadeg_true=true_params[1], \
-                               showdata=True)
+    x, u, ucov, xcov, _ = gendata(ndata, \
+                                  s_true=true_params[0],
+                                  thetadeg_true=true_params[1], \
+                                  showdata=True)
 
     # set up the sampler
     sampler = infer.MCMC(
@@ -1058,12 +1070,12 @@ def test2term_bells(ndata=25, s=1.0e-2, theta=30., \
 
     """Test 2-parameter model with various bells and whistles"""
 
-    x, u, ucov, xcov = gendata(ndata, \
-                               s_true=s, thetadeg_true=theta, \
-                               sigu=sigu, sigv=sigv, \
-                               perturb_xy=perturb_xy, \
-                               sigx=sigx, sigy=sigy, \
-                               showdata=True)
+    x, u, ucov, xcov, _ = gendata(ndata, \
+                                  s_true=s, thetadeg_true=theta, \
+                                  sigu=sigu, sigv=sigv, \
+                                  perturb_xy=perturb_xy, \
+                                  sigx=sigx, sigy=sigy, \
+                                  showdata=True)
 
     # set up the sampler...
     sampler = infer.MCMC(
@@ -1127,16 +1139,16 @@ def test6term(ndata=25, \
     """Tests the 6-term transformation sampler"""
 
     # generate the data
-    x, u, ucov, xcov = gendata(ndata, \
-                               s_true=s_true, \
-                               thetadeg_true=rotdeg_true,\
-                               r_true=r_true, \
-                               betadeg_true=betadeg_true, \
-                               u0=u0_true, \
-                               v0=v0_true,\
-                               perturb_xy=perturb_xy, \
-                               sigx=sigx, sigy=sigy, \
-                               showdata=True)   
+    x, u, ucov, xcov, _ = gendata(ndata, \
+                                  s_true=s_true, \
+                                  thetadeg_true=rotdeg_true,\
+                                  r_true=r_true, \
+                                  betadeg_true=betadeg_true, \
+                                  u0=u0_true, \
+                                  v0=v0_true,\
+                                  perturb_xy=perturb_xy, \
+                                  sigx=sigx, sigy=sigy, \
+                                  showdata=True)   
 
     # set up the sampler
     sampler = infer.MCMC(
@@ -1224,7 +1236,8 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     test_mix=False, \
                     test_popmix=False, \
                     show_gen=True, \
-                    only_show=False):
+                    only_show=False, \
+                    add_covar=False):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
@@ -1240,6 +1253,15 @@ as part of the transformation fitting.
     test_popmix = test mixture model applied to populations, but NOT
     allowing individualstars to move.
 
+    show_gen = show generated data and save figure (usually want to do
+    this)
+
+    only_show = return after showing the figure (i.e. don't actually
+    do the samples)
+
+    add_covar = add diagonal variances described in the target frame
+    by uniform(du_lo**2, du_hi**2)
+
     """
 
     # 2026-05-20 testing note: the old defaults were:
@@ -1249,23 +1271,35 @@ as part of the transformation fitting.
     # try shifting u, v to see if the model recovers it
     
     # Transformation plus measurement uncertainty...
-    x, utran, ucov, xcov = gendata(ndata, xsz, ysz, \
-                                   s_true=s, thetadeg_true=theta, \
-                                   sigu=sigu, sigv=sigv, \
-                                   showdata=True)
+    x, utran, ucov, xcov, ugen = gendata(ndata, xsz, ysz, \
+                                         s_true=s, thetadeg_true=theta, \
+                                         sigu=sigu, sigv=sigv, \
+                                         showdata=True)
 
+    # Note: ucov, xcov are what the experimenter "thinks" the
+    # measurement uncertainties are in the input and target frame,
+    # respectively. "ugen" is the transformed xy positions BEFORE any
+    # addition of measurement uncertainty in the uv frame within
+    # gendata().
+    
+    
     # Now move the objects, *after* the transformation and
     # measurement. Depending on the input arguments, these might be by
     # more or less than the measurement uncertainty. For the moment
     # we'll make these diagonal for ease of specification, can relax
     # later. So - first we generate the arrays of low, hi
     # perturbations...
-    stdds_u = np.random.uniform(du_lo, du_hi, size=x.shape[0])
-    stdds_v = np.copy(stdds_u)
+    if add_covar:
+        stdds_u = np.random.uniform(du_lo, du_hi, size=x.shape[0])
+        stdds_v = np.copy(stdds_u)
 
-    # now generate covariances and samples from these perturbations
-    covs, perts_u = getcovs(stdds_u, stdds_v)
-
+        # now generate covariances and samples from these perturbations
+        covs, perts_u = getcovs(stdds_u, stdds_v)
+    else:
+        # Otherwise there are no perturbations to add HERE.
+        covs = np.copy(ucov)
+        perts_u = utran * 0.
+        
     # add outliers here
     covs_outly, perts_outly = getcovs(np.repeat(sigm_outly, x.shape[0]))
     boutly = np.random.rand(perts_u.shape[0]) <= frac_outly
@@ -1284,10 +1318,16 @@ as part of the transformation fitting.
         bshif = np.random.rand(perts_u.shape[0]) <= frac_shift
         perts_u[bshif,0] += shift_u
         perts_u[bshif,1] += shift_v
-    
+
     # ok now THIS is our observed sample
     u_obs = utran + perts_u
 
+    # We want to keep track of the total perturbation applied in
+    # (u,v), which means we need to know what was added within
+    # gendata() after transformation from nominal (x,y). This is what
+    # we plot in the VPD below.
+    perts_total = perts_u + utran - ugen
+    
     # since the generation has become more complicated now, do a plot
     # here.
     if show_gen:
@@ -1319,7 +1359,7 @@ as part of the transformation fitting.
                                   c=col, zorder=zord, s=sz)
             dum52 = ax5_2.scatter(u_obs[bset,0], u_obs[bset,1], \
                                   c=col, zorder=zord, s=sz)
-            dum54 = ax5_4.scatter(perts_u[bset,0], perts_u[bset,1], \
+            dum54 = ax5_4.scatter(perts_total[bset,0], perts_total[bset,1], \
                                   c=col, zorder=zord, s=sz, \
                                   label=label)
         
@@ -1403,25 +1443,28 @@ as part of the transformation fitting.
                              samples["v0"], )).T
         corner_labels.append(r'$u_0$')
         corner_labels.append(r'$v_0$')
-        corner_truths.append(shift_u) # won't always be right
-        corner_truths.append(shift_v)
+        corner_truths.append(0.) # won't always be right
+        corner_truths.append(0.)
 
     if "Q" in samples.keys():
         chainz = np.vstack(( chainz.T, \
+                             samples["var_fg"], \
                              samples["u0_bg"], \
                              samples["v0_bg"], \
                              samples["var_bg"], \
                              samples["Q"] )).T
-        
+
+        corner_labels.append(r'var(fg)')
         corner_labels.append(r'$u_0(bg)$')
         corner_labels.append(r'$v_0(bg)$')
         corner_labels.append('var(bg)')
         corner_labels.append(r'$Q$')
         
-        corner_truths.append(None) # won't always be right
-        corner_truths.append(None)
-        corner_truths.append(None)
-        corner_truths.append(None)
+        corner_truths.append(du_hi**2) # won't always be right
+        corner_truths.append(shift_u)
+        corner_truths.append(shift_v)
+        corner_truths.append(sigm_outly**2)
+        corner_truths.append(1.0-frac_outly) # Q
 
     
     # additional deltas? (This is a bit awkward, since will be ignored
@@ -1460,12 +1503,17 @@ as part of the transformation fitting.
                         title_kwargs={"fontsize":9}, \
                         label_kwargs={"fontsize":9} )
 
+    fig3.savefig('simulated_cornerplot.png')
+    
     # return the samples so that we can play with them. Smuggle the
     # transformed positions in the samples as well
     dret = samples.copy()
+    dret['u_gen'] = ugen
     dret['u_tran'] = utran
     dret['u_obs'] = u_obs
     dret['x'] = x
+
+    dret['methmodel'] = methmodel.__name__
     
     fig3.subplots_adjust(left=0.15, bottom=0.15)
 
