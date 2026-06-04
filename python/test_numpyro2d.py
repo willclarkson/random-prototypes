@@ -912,13 +912,15 @@ def show_du(samples={}, keypos='u_tran', \
     # cosmetics
     fig4.subplots_adjust(bottom=0.15, left=0.15, hspace=0.30, wspace=0.30)
 
-def show_samples(dsamples={}):
+def show_samples(dsamples={}, ellipses=True):
 
     """One-liner to show some of the results from an MCMC run
 
     INPUTS
 
     dsamples = dictionary of samples
+
+    ellipses = call our prototype ellipse plotter
 
     """
 
@@ -1019,7 +1021,108 @@ def show_samples(dsamples={}):
                          s=16, c='b')
 
     fig6.subplots_adjust(hspace=0.3, wspace=0.3)
+
+    show_ellipses(dsamples, ax=ax64, fig=fig6)
     
+def show_ellipses(dsamples={}, ax=None, fig=None, \
+                  key_cen_u='u0_bg', key_cen_v='v0_bg', \
+                  key_var_u='var_bg', key_var_v=None, \
+                  key_corr_uv=None, \
+                  errSF=1.):
+
+    """Overplots samples from covariance ellipses on the current
+axes. Specify the keys for the model component to overplot on the
+current axes. Currently every model component is assumed to be scalar (so two keys for the [u,v] components of u0, etc.
+
+    INPUTS
+
+    ax = current axis instance to use
+
+    fig = current figure instance to use
+
+    dsamples = dictionary of samples to use
+
+    key_cen_u = key for centroid in u
+
+    key_cen_v = key for centroid in v
+
+    key_var_u = key for variance in u
+    
+    key_var_v = key for variance in v (if None, variance in u is copied)
+
+    key_corr_uv = key for u,v covariance (if None, defaults to zero)
+
+    errSF = scale factor by which to exaggerate the ellipse axis
+    lengths for visualization
+
+    """
+
+    # Comment: much of this is borrowed from my repo
+    # weighteddeltas.coverrplot(), which uses some other stuff I
+    # wrote. For the moment, bring the main pieces here to try to
+    # minimize dependencies...
+    
+    # Views of the samples for convenience later on. At a minimum, we
+    # need both components of the centroid, and one component of the
+    # variance. So:
+    for key in [key_cen_u, key_cen_v, key_var_u]:
+        if not key in dsamples.keys():
+            print("show_ellipses WARN - key not present: %s" \
+                  % (key))
+            return
+            
+    # Having established that our minimum keys are present, populate
+    # the components we need:
+    u0 = dsamples[key_cen_u]
+    v0 = dsamples[key_cen_v]
+    var_u = dsamples[key_var_u]
+
+    # Now for the other variance components. Populate if not given.
+    if key_var_v in dsamples.keys():
+        var_v = dsamples[key_var_v]
+    else:
+        var_v = np.copy(var_u)
+
+    if key_corr_uv in dsamples.keys():
+        corr_uv = dsamples[key_corr_uv]
+    else:
+        corr_uv = var_u * 0.
+
+    # If we get here then the input has been correctly parsed. Whether
+    # it actually makes sense to use the input is established here.
+    if np.size(u0) < 1:
+        print("show_samples WARN - u0 has zero size")
+        return
+
+    # Wrap the covariance in to an [N,2,2] stack. That method can take
+    # stddev_u, stdev_v, corruv as inputs. We defer taking the sqrt to
+    # here (rather than specifying earlier on) so that we can decide
+    # later to use other inputs if we wish.
+    covars = covarsNx2x2.CovarsNx2x2(stdx=np.sqrt(var_u), \
+                                     stdy=np.sqrt(var_v), \
+                                     corrxy=corr_uv)
+
+    # the full-widths wanted by the ellipse collection
+    ww = covars.majors**0.5 * errSF * 2.0
+    hh = covars.minors**0.5 * errSF * 2.0
+    posans = covars.rotDegs
+    # TO BE CONTINUED - SEE LINE 2457 of weightedDeltas
+    
+    print("show_ellipses INFO:")
+    print(u0.shape, v0.shape, var_u.shape, var_v.shape, corr_uv.shape)
+    
+    # Supply a figure if none was given, and override the input choice
+    # of axis (so that the axis and figure do not point to separate
+    # objects). Could probably do the following a little more
+    # intelligently, but this will do for now.
+    if fig is None:
+        fig = plt.figure(14, figsize=(5,5))
+        ax = fig.add_subplot(111)
+
+    # ensure we have an axis to work with if none was supplied
+    if ax is None:
+        ax = fig.add_subplot(111)
+        
 ######## test routines follow
 
 def test2par(ndata=25, true_params=[1.0e-2, 30.]):
