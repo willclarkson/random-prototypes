@@ -837,6 +837,103 @@ given sigmas
 
     return xycovs, xypertns
 
+def cdmatrices_from_samples(dsamples={}):
+
+    """Returns cdmatrix from dsamples {b,c,e,f}
+
+    INPUTS:
+
+    dsamples = dictionary of samples.
+
+    RETURNS:
+
+    A = [N,2,2] array of cdmatrices"""
+
+    if not 'b' in dsamples.keys():
+        print("cdmatrices_from_samples WARN - key not in samples: b.")
+        return None
+
+    npoints = dsamples['b'].shape[0]
+    A = np.zeros((npoints,2,2))
+    A[:,0,0] = dsamples['b']
+    A[:,0,1] = dsamples['c']
+    A[:,1,0] = dsamples['e']
+    A[:,1,1] = dsamples['f']
+
+    return A
+
+def centroids_from_samples(dsamples={}, key_u0="u0", key_v0="v0"):
+
+    """Returns [N,2] array of centroids from samples dictionary
+
+    INPUTS
+
+    dsamples = dictionary of samples
+
+    key_u0 = key for centroid u
+
+    key_v0 = key for centroid v
+
+    RETURNS
+
+    u = [N,2] = array of centroids
+
+    """
+
+    for key in [key_u0, key_v0]:
+        if not key in dsamples.keys():
+            return None
+
+    return np.column_stack(( dsamples[key_u0], dsamples[key_v0] ))
+    
+    
+def correction_matrices(A=None, dsamples={}):
+
+    """Returns transformation correction matrices to undo the median frame
+transformation and apply the individual transformation for each
+sample, to support assessment of mixture models.
+
+    INPUTS:
+
+    A = [N,2,2] stack of transformation matrices
+
+    dsamples = dictionary of samples. Used if A=None.
+
+
+    RETURNS:
+
+    AAinv = [N,2,2] transformation A.A_med^-1
+
+    A_med = [2,2] median transformation matrix
+
+    """
+
+    # Implementation comment: being a rank-ordering, the 1D median is
+    # invariant under monotonic reparameterization. So I think it
+    # makes sense to take the median {b,c,e,f} rather than reaching
+    # back to the {s, theta, etc.}. The latter is correct, the former
+    # is more flexible and I think OK in practice (the median is not
+    # always the same as the mode in either case).
+
+    # Can supply the [N,2,2] stack of matrices or re-lift it from the
+    # dictionary
+    if A is None:
+        A = cdmatrices_from_samples(dsamples)
+
+    # If by this point we still have no transformations, we cannot
+    # proceed
+    if A is None:
+        return None, None
+
+    # Take the median and invert it
+    A_med = np.median(A, axis=0)
+    Ainv_med = np.linalg.inv(A_med)
+
+    # compute A.<A>^{-1}, plane by plane.
+    AAinv = np.matmul(A, Ainv_med[None,:,:])
+   
+    return AAinv, A_med
+    
 def show_du(samples={}, keypos='u_tran', \
             ucolor='k', pcolor='g', alpha=0.4, \
             show_std=True):
@@ -931,32 +1028,17 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50):
     """
 
     # Construct the linear transformation from the samples
-    if not 'b' in dsamples.keys():
-        print("show_samples INFO - key not in input: b. Returning")
+    A = cdmatrices_from_samples(dsamples)
+    if A is None:
         return
 
-    # Parse the input dictionary. In "production" we would probably
-    # setattr, getattr, etc., but for the moment we'll spell them
-    # out. This is a prototype after all...
+    # Correction matrices for use later when plotting ellipses
+    AAinv, Amed = correction_matrices(A)
+
+    # Centroids
+    u0 = centroids_from_samples(dsamples, 'u0', 'v0')
+    u0_bg = centroids_from_samples(dsamples, 'u0_bg', 'v0_bg')
     
-    # build the cdmatrix from the samples
-    npoints = dsamples['b'].shape[0]
-    A = np.zeros((npoints,2,2))
-    A[:,0,0] = dsamples['b']
-    A[:,0,1] = dsamples['c']
-    A[:,1,0] = dsamples['e']
-    A[:,1,1] = dsamples['f']
-
-    u0 = np.zeros((npoints,2))
-    if "u0" in dsamples.keys():
-        u0[:,0] = dsamples['u0']
-        u0[:,1] = dsamples['v0']
-
-    u0_bg = np.zeros((npoints,2))
-    if "u0_bg" in dsamples.keys():
-        u0_bg[:,0] = dsamples["u0_bg"]
-        u0_bg[:,1] = dsamples["v0_bg"]
-
     var_bg = None
     if "var_bg" in dsamples.keys():
         var_bg = dsamples["var_bg"]
@@ -987,10 +1069,10 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50):
     # Number of points in the dataset
     ndata = u_obs.shape[0]
 
-    print("Membership probabilities:",p.shape)
-    print("Mixture fractions:", Q.shape)
-    print("Ndata:", ndata)
-    print("CDMATRIX shape:", A.shape)
+    #print("Membership probabilities:",p.shape)
+    #print("Mixture fractions:", Q.shape)
+    #print("Ndata:", ndata)
+    #print("CDMATRIX shape:", A.shape)
 
     # Apply the transformation here
     Amed = np.median(A, axis=0)
@@ -1001,7 +1083,7 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50):
 
     # Mean probabilities
     pmem = np.median(p[...,0],axis=0)
-    print("pmem", pmem.shape)
+    ## print("pmem", pmem.shape)
     
     fig6 = plt.figure(6)
     fig6.clf()
@@ -1024,12 +1106,13 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50):
     
     # residuals
     dum64 = ax64.scatter(uresid_med[:,0], uresid_med[:,1], \
-                         s=16, c='b')
+                         s=4, c='k', zorder=30)
 
     fig6.subplots_adjust(hspace=0.3, wspace=0.3)
 
     # Draw a list of indices to send to the ellipse plotter, to be the
     # same for both ellipse sets
+    npoints = A.shape[0]
     ndraw = min([n_ellipses, npoints])
     rng = np.random.default_rng()
     lellipse = rng.choice(npoints, ndraw, replace=False)
@@ -1041,15 +1124,18 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50):
                   edgecolorEllipse='#00274C', \
                   facecolorEllipse='#FFCB05', \
                   zorder=25, \
-                  which_samples=lellipse)
+                  which_samples=lellipse, \
+                  AAinv=AAinv)
 
     show_ellipses(dsamples, ax=ax64, fig=fig6, \
                   key_cen_u='u0_bg', key_cen_v='v0_bg', \
                   key_var_u='var_bg', \
                   edgecolorEllipse='#9A3324', \
                   facecolorEllipse='#702082', \
+                  alphaEllipse=0.01, \
                   zorder=15, \
-                  which_samples=lellipse)
+                  which_samples=lellipse, \
+                  AAinv=AAinv)
     
 def show_ellipses(dsamples={}, ax=None, fig=None, \
                   key_cen_u='u0', key_cen_v='v0', \
@@ -1058,13 +1144,14 @@ def show_ellipses(dsamples={}, ax=None, fig=None, \
                   errSF=1., \
                   nshow=25, \
                   which_samples=None, \
-                  alphaEllipse=0.03, \
+                  alphaEllipse=0.02, \
                   cmapEllipse='viridis', \
                   edgecolorEllipse='#00274C', \
                   facecolorEllipse='#FFCB05', \
                   edgealphaEllipse=0.05, \
                   zorder=5, \
-                  plotMedian=True):
+                  plotMedian=True, \
+                  AAinv=None):
 
     """Overplots samples from covariance ellipses on the current
 axes. Specify the keys for the model component to overplot on the
@@ -1110,6 +1197,10 @@ current axes. Currently every model component is assumed to be scalar (so two ke
 
     plotMedian = overplot the median (of the entire sample) ellipse
 
+    AAinv = [N,2,2] stack of A.<A>^{-1} correction matrices to apply
+    the differential frame transformation when plotting each
+    ellipse. Ignored if None.
+
     """
 
     # WISHLIST:
@@ -1117,11 +1208,11 @@ current axes. Currently every model component is assumed to be scalar (so two ke
 
     # (i) compute and plot median -- DONE.
 
-    # (ii) include frame transformations -- SHOULD BE DONE UPSTREAM
+    # (ii) include frame transformations -- DONE UPSTREAM.
 
     # (iii) accept optional list of indices of entries to plot (so
     # that a deterministic random sample can be plotted, but the SAME
-    # sample for both foreground and background)
+    # sample for both foreground and background) DONE.
     
     # Comment: much of this is borrowed from my repo
     # weighteddeltas.coverrplot(), which uses some other stuff I
@@ -1168,16 +1259,39 @@ current axes. Currently every model component is assumed to be scalar (so two ke
                                      stdy=np.sqrt(var_v), \
                                      corrxy=corr_uv)
 
+    # the centroids
+    uv = np.column_stack(( u0, v0 ))
+
+    # Apply corrections here if supplied. Written out for transparency
+    if AAinv is not None:
+        U = AAinv
+        UT = np.transpose(AAinv,axes=(0,2,1))
+
+        # Create copies of the un-updated objects for checking
+        covs_old = np.copy(covars.covars)
+        uv_old = np.copy(uv)
+        
+        # Update the covariance array, plane-by-plane, and
+        # re-initialize the covariances object using THIS as input.
+        V_cor = UT @ covars.covars @ U
+        covars = None
+        covars = covarsNx2x2.CovarsNx2x2(V_cor)
+
+        # update the offset, plane-by-plane
+        uv = np.einsum('ijk,ik->ij',U,uv_old)
+
+        print("show_ellipses INFO - updated covariances and offsets with transformation corrections")
+        
+    
     # the full-widths wanted by the ellipse collection
     covars.eigensFromCovars()
     ww = covars.majors**0.5 * errSF * 2.0
     hh = covars.minors**0.5 * errSF * 2.0
     posans = covars.rotDegs
 
-    uv = np.column_stack(( u0, v0 ))
     
-    print("show_ellipses INFO:")
-    print(uv.shape, ww.shape, hh.shape, posans.shape, var_u.shape, covars.nPts)
+    #print("show_ellipses INFO:")
+    #print(uv.shape, ww.shape, hh.shape, posans.shape, var_u.shape, covars.nPts)
     
     # Supply a figure if none was given, and override the input choice
     # of axis (so that the axis and figure do not point to separate
