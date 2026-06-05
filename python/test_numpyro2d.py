@@ -916,7 +916,7 @@ def show_du(samples={}, keypos='u_tran', \
     # cosmetics
     fig4.subplots_adjust(bottom=0.15, left=0.15, hspace=0.30, wspace=0.30)
 
-def show_samples(dsamples={}, ellipses=True):
+def show_samples(dsamples={}, ellipses=True, n_ellipses=50):
 
     """One-liner to show some of the results from an MCMC run
 
@@ -925,6 +925,8 @@ def show_samples(dsamples={}, ellipses=True):
     dsamples = dictionary of samples
 
     ellipses = call our prototype ellipse plotter
+
+    n_ellipses = number of ellipses to draw
 
     """
 
@@ -1026,27 +1028,36 @@ def show_samples(dsamples={}, ellipses=True):
 
     fig6.subplots_adjust(hspace=0.3, wspace=0.3)
 
+    # Draw a list of indices to send to the ellipse plotter, to be the
+    # same for both ellipse sets
+    ndraw = min([n_ellipses, npoints])
+    rng = np.random.default_rng()
+    lellipse = rng.choice(npoints, ndraw, replace=False)
+    
     # foreground
     show_ellipses(dsamples, ax=ax64, fig=fig6, \
                   key_cen_u='u0', key_cen_v='v0', \
                   key_var_u='var_fg', \
                   edgecolorEllipse='#00274C', \
                   facecolorEllipse='#FFCB05', \
-                  zorder=25)
+                  zorder=25, \
+                  which_samples=lellipse)
 
     show_ellipses(dsamples, ax=ax64, fig=fig6, \
                   key_cen_u='u0_bg', key_cen_v='v0_bg', \
                   key_var_u='var_bg', \
                   edgecolorEllipse='#9A3324', \
                   facecolorEllipse='#702082', \
-                  zorder=15)
-
+                  zorder=15, \
+                  which_samples=lellipse)
     
 def show_ellipses(dsamples={}, ax=None, fig=None, \
                   key_cen_u='u0', key_cen_v='v0', \
                   key_var_u='var_fg', key_var_v=None, \
                   key_corr_uv=None, \
-                  errSF=1., nshow=25, \
+                  errSF=1., \
+                  nshow=25, \
+                  which_samples=None, \
                   alphaEllipse=0.03, \
                   cmapEllipse='viridis', \
                   edgecolorEllipse='#00274C', \
@@ -1081,6 +1092,8 @@ current axes. Currently every model component is assumed to be scalar (so two ke
     lengths for visualization
 
     nshow = how many to actually plot
+
+    which_samples = integer array of indices to show (optional)
 
     alphaEllipse = face color alpha
 
@@ -1183,18 +1196,28 @@ current axes. Currently every model component is assumed to be scalar (so two ke
                                          alpha=edgealphaEllipse)
     facergbaEllipse = mpl_colors.to_rgba(c=facecolorEllipse, \
                                          alpha=alphaEllipse)
-    
+
+    # Which ones to show?
+    if which_samples is None:
+        lsho = np.arange(nshow, dtype='int')
+    else:
+        lsho = np.copy(which_samples)
+
+    # ensure size OK
+    if lsho.size > np.size(ww):
+        lsho = lsho[0:np.size(ww)]
+        
     # Now construct and plot the ellipse collection
     nshow = min([nshow, np.size(ww)])
-    ec = EllipseCollection(ww[0:nshow], hh[0:nshow], posans[0:nshow], \
-                           units='xy', offsets=uv[0:nshow], \
+    ec = EllipseCollection(ww[lsho], hh[lsho], posans[lsho], \
+                           units='xy', offsets=uv[lsho], \
                            transOffset=ax.transData, \
                            #alpha=alphaEllipse, \
                            edgecolor=edgergbaEllipse, \
                            facecolor=facergbaEllipse, \
                            cmap=cmapEllipse, \
                            zorder=zorder)
-
+    
     # add the collection to the current axes
     ax.add_collection(ec)
 
