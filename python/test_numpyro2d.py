@@ -42,6 +42,10 @@ import covarsNx2x2
 # some visualization
 from arviz_plots import plot_trace_dist, style
 
+# useful for mixture model visualization
+from matplotlib.collections import EllipseCollection, LineCollection
+from matplotlib import colors as mpl_colors
+
 # For dumping samples to disk while developing
 import pickle
 
@@ -1022,13 +1026,34 @@ def show_samples(dsamples={}, ellipses=True):
 
     fig6.subplots_adjust(hspace=0.3, wspace=0.3)
 
-    show_ellipses(dsamples, ax=ax64, fig=fig6)
+    # foreground
+    show_ellipses(dsamples, ax=ax64, fig=fig6, \
+                  key_cen_u='u0', key_cen_v='v0', \
+                  key_var_u='var_fg', \
+                  edgecolorEllipse='#00274C', \
+                  facecolorEllipse='#FFCB05', \
+                  zorder=25)
+
+    show_ellipses(dsamples, ax=ax64, fig=fig6, \
+                  key_cen_u='u0_bg', key_cen_v='v0_bg', \
+                  key_var_u='var_bg', \
+                  edgecolorEllipse='#9A3324', \
+                  facecolorEllipse='#702082', \
+                  zorder=15)
+
     
 def show_ellipses(dsamples={}, ax=None, fig=None, \
-                  key_cen_u='u0_bg', key_cen_v='v0_bg', \
-                  key_var_u='var_bg', key_var_v=None, \
+                  key_cen_u='u0', key_cen_v='v0', \
+                  key_var_u='var_fg', key_var_v=None, \
                   key_corr_uv=None, \
-                  errSF=1.):
+                  errSF=1., nshow=25, \
+                  alphaEllipse=0.03, \
+                  cmapEllipse='viridis', \
+                  edgecolorEllipse='#00274C', \
+                  facecolorEllipse='#FFCB05', \
+                  edgealphaEllipse=0.05, \
+                  zorder=5, \
+                  plotMedian=True):
 
     """Overplots samples from covariance ellipses on the current
 axes. Specify the keys for the model component to overplot on the
@@ -1055,8 +1080,36 @@ current axes. Currently every model component is assumed to be scalar (so two ke
     errSF = scale factor by which to exaggerate the ellipse axis
     lengths for visualization
 
+    nshow = how many to actually plot
+
+    alphaEllipse = face color alpha
+
+    cmapEllipse = color map if using dynamic scaling (not implemented
+    for this yet)
+
+    edgecolorEllipse = edge color for the ellipse
+
+    facecolorEllipse = face color for the ellipse
+
+    edgeAlphaEllipse = alpha for ellipse edge color
+
+    zorder = vertical order for this ellipse collection
+
+    plotMedian = overplot the median (of the entire sample) ellipse
+
     """
 
+    # WISHLIST:
+    #
+
+    # (i) compute and plot median -- DONE.
+
+    # (ii) include frame transformations -- SHOULD BE DONE UPSTREAM
+
+    # (iii) accept optional list of indices of entries to plot (so
+    # that a deterministic random sample can be plotted, but the SAME
+    # sample for both foreground and background)
+    
     # Comment: much of this is borrowed from my repo
     # weighteddeltas.coverrplot(), which uses some other stuff I
     # wrote. For the moment, bring the main pieces here to try to
@@ -1103,13 +1156,15 @@ current axes. Currently every model component is assumed to be scalar (so two ke
                                      corrxy=corr_uv)
 
     # the full-widths wanted by the ellipse collection
+    covars.eigensFromCovars()
     ww = covars.majors**0.5 * errSF * 2.0
     hh = covars.minors**0.5 * errSF * 2.0
     posans = covars.rotDegs
-    # TO BE CONTINUED - SEE LINE 2457 of weightedDeltas
+
+    uv = np.column_stack(( u0, v0 ))
     
     print("show_ellipses INFO:")
-    print(u0.shape, v0.shape, var_u.shape, var_v.shape, corr_uv.shape)
+    print(uv.shape, ww.shape, hh.shape, posans.shape, var_u.shape, covars.nPts)
     
     # Supply a figure if none was given, and override the input choice
     # of axis (so that the axis and figure do not point to separate
@@ -1122,7 +1177,52 @@ current axes. Currently every model component is assumed to be scalar (so two ke
     # ensure we have an axis to work with if none was supplied
     if ax is None:
         ax = fig.add_subplot(111)
-        
+
+    # Some color fun
+    edgergbaEllipse = mpl_colors.to_rgba(c=edgecolorEllipse, \
+                                         alpha=edgealphaEllipse)
+    facergbaEllipse = mpl_colors.to_rgba(c=facecolorEllipse, \
+                                         alpha=alphaEllipse)
+    
+    # Now construct and plot the ellipse collection
+    nshow = min([nshow, np.size(ww)])
+    ec = EllipseCollection(ww[0:nshow], hh[0:nshow], posans[0:nshow], \
+                           units='xy', offsets=uv[0:nshow], \
+                           transOffset=ax.transData, \
+                           #alpha=alphaEllipse, \
+                           edgecolor=edgergbaEllipse, \
+                           facecolor=facergbaEllipse, \
+                           cmap=cmapEllipse, \
+                           zorder=zorder)
+
+    # add the collection to the current axes
+    ax.add_collection(ec)
+
+    # Are we going to plot the median?
+    if not plotMedian:
+        return
+
+    med_uv = np.median(uv,axis=0)
+    
+    # do the median covariance BEFORE conversion to the ellipse
+    # full-width
+    med_ww = np.median(covars.majors, axis=0)**0.5 * errSF * 2.0
+    med_hh = np.median(covars.minors, axis=0)**0.5 * errSF * 2.0
+    med_posan = np.median(posans)
+
+    med_rgba = mpl_colors.to_rgba(c=edgecolorEllipse, alpha=0.8)
+    med_rgba_face = mpl_colors.to_rgba(c=facecolorEllipse, \
+                                       alpha=0.0)
+    
+    med_ec = EllipseCollection(med_ww, med_hh, med_posan, \
+                               units='xy', offsets=med_uv, \
+                               transOffset = ax.transData, \
+                               edgecolor = med_rgba, \
+                               facecolor = med_rgba_face, \
+                               zorder = zorder+1)
+
+    ax.add_collection(med_ec)
+    
 ######## test routines follow
 
 def test2par(ndata=25, true_params=[1.0e-2, 30.]):
