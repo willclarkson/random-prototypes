@@ -599,6 +599,120 @@ INPUTS:
     # now the deltas
     with numpyro.plate("data", x.shape[0]):    
         numpyro.sample("u", pred_dist, obs=u)
+
+def vortex_matrices(uv=None, \
+                    rotdeg_in=0., rotdeg_out=0., xc=0., yc=0., \
+                    r_out=None, rpow=1., scal=1.):
+
+    """Radius-dependent rotation, by offset from centroid.
+
+    INPUTS
+
+    uv = [N,2] array of positions to transform
+
+    rotdeg_in = position angle at r=0 from center
+
+    rotdeg_out = position angle at maximum radius rmax
+
+    xc, yc = x, y coordinates of center
+
+    r_out = outer radius (for calibrating the rotation: taken from the
+    data if not specified)
+
+    rpow = power for position angle growth with radius, in the sense:
+
+         rotdeg = rotdeg_in + (rotdeg_out - rotdeg_in) * (r/r_out)**rpow
+
+    scal = 1. = any scaling we want to apply here
+
+    RETURNS
+   
+    AMat = [N, 2, 2] stack of transformation matrices
+
+    """
+
+    # Initialize the return
+    amat = None
+
+    if np.size(uv) < 1:
+        return amat
+
+    npoints = uv.shape[0]
+    if npoints < 1:
+        return amat
+    
+    # displacements from rotation center
+    uv_cen = np.array([xc, yc])
+    r = np.sqrt(np.sum(( uv - uv_cen[None,:])**2, axis=1))
+
+    if r_out is None:
+        r_out = np.max(r)
+
+    # now compute the position angles in degrees
+    if rpow >= 0:
+        rotdeg = rotdeg_in + (rotdeg_out - rotdeg_in) * \
+            (r/r_out)**rpow
+    else:
+        # Slightly more of a hassle if the power is negative. We are
+        # finding alpha, x0 in
+        #
+        # y = alpha*(x-x0)**beta
+        f = (rotdeg_out/rotdeg_in)**(1/rpow)
+        x0 = r_out/(1-f)
+        lnalpha = np.log(rotdeg_out) - rpow * np.log(r_out - x0)
+        alpha = np.exp(lnalpha)
+
+        rotdeg = alpha * (r-x0)**rpow
+
+    # now form the rotation matrix as appropriate for each object
+    rotrad = np.radians(rotdeg)
+    b =  scal * np.cos(rotrad)
+    c =  scal * np.sin(rotrad)
+    e = -scal * np.sin(rotrad)
+    f =  scal * np.cos(rotrad)
+
+    # form the matrix stack out of this
+    amat = np.zeros((npoints, 2, 2))
+
+    amat[:,0,0] = b
+    amat[:,0,1] = c
+    amat[:,1,0] = e
+    amat[:,1,1] = f
+
+    return amat, r, rotdeg
+
+def apply_vortex(uv=None, amat=None, uv_cen=None):
+
+    """Applies the offset-dependent rotation to input positions.
+
+    INPUTS
+
+    uv = [N,2] array of input positions
+
+    amat = [N,2,2] array of transformation matrices
+
+    uv_cen = [2] = rotation center about which to apply
+
+    RETURNS
+
+    uv_transf = transformed points."""
+
+    if uv is None:
+        return None
+
+    # Returns a copy of the input if no rotation specified
+    if amat is None:
+        return np.copy(uv)
+
+    if uv_cen is None:
+        uv_cen = np.zeros(2)
+
+    # Offset from rotation center
+    du = uv - uv_cen[None,:]
+    
+    uv_eval =  np.einsum('ijk,ik->ij',amat, du) + uv_cen[None,:]
+
+    return uv_eval
     
 def cdmatrix_from_pars(sx=1., rotdeg=0., skewdeg=0., r=1., ):
 
@@ -1865,3 +1979,55 @@ as part of the transformation fitting.
         pickle.dump(dret, wobj)
     
     return dret
+
+def test_vortex(npoints=50, uv_cen = np.array([0.25, 0.25]),\
+                rpow=-2, rot_in=20., rot_ou=1.):
+
+    """Tests the vortex model"""
+
+    uv = np.random.uniform(size=(npoints,2))
+
+    AA, r, rotdeg = vortex_matrices(uv, rot_in, rot_ou, \
+                                    *uv_cen, rpow=rpow)
+
+    uv_eval = apply_vortex(uv, AA, uv_cen)
+    
+    # shift
+    uv_shif = uv_eval - uv
+
+    # All the rest is debug plot
+    
+    fig7 = plt.figure(7)
+    fig7.clf()
+    ax71 = fig7.add_subplot(224)
+    ax72 = fig7.add_subplot(221)
+    ax73 = fig7.add_subplot(223)
+
+    # Label for the theta plot
+    sthet = r'$\phi_i=%.1f^o, \phi_{ou}=%.1f^o, rpow=%.1f, [%.1f, %.1f]$' \
+        % (rot_in, rot_ou, rpow, uv_cen[0], uv_cen[1])
+    
+    dum1 = ax71.scatter(uv[:,0], uv[:,1], \
+                        s=1, color='k', zorder=10, alpha=0.4)
+    dum2 = ax71.scatter(uv_eval[:,0], uv_eval[:,1], \
+                        s=2, color='r', zorder=15, alpha=0.4)
+
+    dum3 = ax72.scatter(r, rotdeg, s=4, alpha=0.5, label=sthet)
+
+    dum4 = ax73.quiver(uv[:,0], uv[:,1], uv_shif[:,0], uv_shif[:,1],\
+                       scale_units='xy')
+
+    for ax in [ax71, ax73]:
+        ax.set_xlabel('u')
+        ax.set_ylabel('v')
+
+    ax72.set_xlabel('r')
+    ax72.set_ylabel(r'$\phi$')
+
+    ax72.set_title(sthet, fontsize=7)
+
+    #leg2 = ax72.legend(fontsize=8)
+    
+    fig7.subplots_adjust(hspace=0.30, wspace=0.30)
+    
+    fig7.savefig('test_vortexplot.png')
