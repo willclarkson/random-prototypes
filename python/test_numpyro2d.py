@@ -1694,7 +1694,10 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     test_popmix=False, \
                     show_gen=True, \
                     only_show=False, \
-                    add_covar=False):
+                    add_covar=False, \
+                    add_contam=False, \
+                    frac_contam=0.2, \
+                    tell_perts=True):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
@@ -1719,6 +1722,12 @@ as part of the transformation fitting.
     add_covar = add diagonal variances described in the target frame
     by uniform(du_lo**2, du_hi**2)
 
+    add_contam = add systematic (e.g. vortex) contaminants
+
+    frac_contam = fraction of objects to label as contaminants
+
+    tell_perts = report to screen which perturbations are being generated
+
     """
 
     # 2026-05-20 testing note: the old defaults were:
@@ -1738,8 +1747,48 @@ as part of the transformation fitting.
     # respectively. "ugen" is the transformed xy positions BEFORE any
     # addition of measurement uncertainty in the uv frame within
     # gendata().
-    
-    
+
+    # Assign a population of "contaminants" undergoing something
+    # systematic in the [u,v] frame. Since we want to allow nonlinear
+    # transforamtions (in the coordinates) without incurring
+    # measurement uncertainty more than once, the offsets are
+    # generated using the positions before measurement uncertainty is
+    # applied. They can then be added in any order. Currently the
+    # actual model for the contamination is our separation-dependent
+    # "vortex" model, which we apply as a rotation on top of the [x,y]
+    # to [u,v] transformation. So:
+    bcontam = np.repeat(False, ugen.shape[0])
+    perts_contam = ugen * 0.
+    if add_contam and frac_contam > 0:
+
+        # Generate a rotation center slightly off-axis,
+        # programammatically for the moment (we aren't fitting this,
+        # but are using it to challenge the sampler). Set some nasty
+        # contamination parameters.
+        rot_cen = ugen.min(axis=0) \
+            + 0.45*(ugen.max(axis=0)-ugen.min(axis=0))
+
+        #rot_cen=np.zeros(2)
+        
+        rot_in = 1.
+        rot_ou = 0.05
+        rot_pow = -3.
+        
+        # Generate contamination shift for everything...
+        AA, contam_dr, contam_rotdeg \
+            = vortex_matrices(ugen, rot_in, rot_ou, *rot_cen, rpow=rot_pow)
+
+        duv_contam = apply_vortex(ugen, AA, rot_cen) - ugen
+
+        # ... and select out a sample to apply
+        bcontam = np.random.rand(ugen.shape[0]) <= frac_contam
+        perts_contam[bcontam] = duv_contam[bcontam]
+
+        if tell_perts:
+            print("test2term_moves INFO - adding contam: %.2f, %i, rotn center [%.2e, %.2e], rotdegs (%.2f, %.2f), power %.1f" \
+                  % (frac_contam, np.sum(bcontam), rot_cen[0], rot_cen[1], \
+                     rot_in, rot_ou, rot_pow))
+        
     # Now move the objects, *after* the transformation and
     # measurement. Depending on the input arguments, these might be by
     # more or less than the measurement uncertainty. For the moment
@@ -1752,15 +1801,29 @@ as part of the transformation fitting.
 
         # now generate covariances and samples from these perturbations
         covs, perts_u = getcovs(stdds_u, stdds_v)
+
+        if tell_perts:
+            print("test2term_moves INFO - added (uv) covariances: %.2e to %.2e" \
+                  % (du_lo, du_hi))
+        
     else:
         # Otherwise there are no perturbations to add HERE.
         covs = np.copy(ucov)
         perts_u = utran * 0.
+
+    # Add the "contaminants" (complicated systematic in [u,v] defined
+    # above)
+    perts_u[bcontam] += perts_contam[bcontam]
         
-    # add outliers here
+    # add outliers (gaussian with big deviations) here
     covs_outly, perts_outly = getcovs(np.repeat(sigm_outly, x.shape[0]))
     boutly = np.random.rand(perts_u.shape[0]) <= frac_outly
     perts_u[boutly] += perts_outly[boutly]
+
+    # Report to screen that the outliers were apploed?
+    if np.sum(boutly) > 0 and tell_perts:
+        print("test2term_moves INFO - added outliers: s=%.2e, f=%.2f" \
+              % (sigm_outly, frac_outly))
     
     # add the shifts here. This is a little awkward at the moment: if
     # we are only shifting the outliers, we apply the shift to
@@ -1771,10 +1834,18 @@ as part of the transformation fitting.
         perts_u[boutly,0] += shift_u
         perts_u[boutly,1] += shift_v
 
+        if tell_perts:
+            print("test2term_moves INFO - shifting outliers [%.2e, %.2e]" \
+                  % (shift_u, shift_v))
+        
     else:
         bshif = np.random.rand(perts_u.shape[0]) <= frac_shift
         perts_u[bshif,0] += shift_u
         perts_u[bshif,1] += shift_v
+
+        if tell_perts and frac_shift > 0:
+            print("test2term_moves INFO - shifted subset %.2f by [%.2e, %.2e]" \
+                  % (frac_shift, shift_u, shift_v))
 
     # ok now THIS is our observed sample
     u_obs = utran + perts_u
@@ -1798,26 +1869,28 @@ as part of the transformation fitting.
         # colors
         cinp = 'k'
         ctar = 'b'
-        coutly = 'r'
-        cshift = 'g'
+        coutly = '#00B2A9'
+        cshift = '#FFCB05'
+        ccontam = '#D86018'
         
         # scatterplots of the datapoints
         ball = np.isfinite(x[:,0])
 
-        for bset, col, zord, sz, label in \
+        for bset, col, zord, sz, marker, label in \
             zip(\
-                [ball, bshif, boutly], \
-                [ctar, cshift, coutly], \
-                [10,11,12], \
-                [16,6,2], \
-                ['all', 'shift','outlier']):
+                [ball, bshif, boutly, bcontam], \
+                [ctar, cshift, coutly, ccontam], \
+                [10,11,12, 13], \
+                [16,9,16, 25], \
+                ['o','s','+','x'], \
+                ['all', 'shift','outlier', 'contam']):
         
             dum51 = ax5_1.scatter(x[bset,0], x[bset,1], \
-                                  c=col, zorder=zord, s=sz)
+                                  c=col, zorder=zord, s=sz, marker=marker)
             dum52 = ax5_2.scatter(u_obs[bset,0], u_obs[bset,1], \
-                                  c=col, zorder=zord, s=sz)
+                                  c=col, zorder=zord, s=sz, marker=marker)
             dum54 = ax5_4.scatter(perts_total[bset,0], perts_total[bset,1], \
-                                  c=col, zorder=zord, s=sz, \
+                                  c=col, zorder=zord, s=sz, marker=marker, \
                                   label=label)
         
         
@@ -1840,7 +1913,7 @@ as part of the transformation fitting.
         # Stop here if we're tweaking our simulated datasets before
         # sampling
         if only_show:
-            return
+            return {}
     
     # For the moment, try our "working" method, just to make sure our
     # syntax is sensible.
