@@ -849,6 +849,9 @@ def cdmatrices_from_samples(dsamples={}):
 
     A = [N,2,2] array of cdmatrices"""
 
+    if dsamples is None:
+        return None
+    
     if not 'b' in dsamples.keys():
         print("cdmatrices_from_samples WARN - key not in samples: b.")
         return None
