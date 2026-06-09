@@ -1305,6 +1305,9 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
     
     ax82.set_xlabel('u')
     ax82.set_ylabel('v')
+
+    fig8.savefig('test_mixmod_quiver.png')
+
     
 def show_ellipses(dsamples={}, ax=None, fig=None, \
                   key_cen_u='u0', key_cen_v='v0', \
@@ -1751,11 +1754,12 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     frac_contam=0.2, \
                     rot_in=1., rot_ou=0.05, rot_pow=-3., \
                     rtrue=1., betadeg=0., \
+                    test_clumps=False, \
                     tell_perts=True):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
-as part of the transformation fitting.
+as part of the transformation fitting. Lots of optional tweaks to the input to test the parameter exploration under various confounding situations.
 
     Some special inputs:
 
@@ -1790,6 +1794,8 @@ as part of the transformation fitting.
 
     rtrue = scale ratio sy/sx in the transformation (note that the
     2-term scale-rotation model assumes rtrue=1).
+
+    test_clumps = test multiple clumps in at least du, dv space
 
     betadeg = axis deviation from perpendicular, in degrees (note that
     the 2-term scale rotation model assumes betadeg=0.)
