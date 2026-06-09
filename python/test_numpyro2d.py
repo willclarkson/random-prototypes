@@ -1130,7 +1130,10 @@ def show_du(samples={}, keypos='u_tran', \
     # cosmetics
     fig4.subplots_adjust(bottom=0.15, left=0.15, hspace=0.30, wspace=0.30)
 
-def show_samples(dsamples={}, ellipses=True, n_ellipses=50):
+    fig4.savefig('test_postdeltas.png')
+    
+def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
+                 cmap='plasma_r', extralog=False):
 
     """One-liner to show some of the results from an MCMC run
 
@@ -1141,6 +1144,11 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50):
     ellipses = call our prototype ellipse plotter
 
     n_ellipses = number of ellipses to draw
+
+    cmap = colormap for quiver plot color coded by membership
+    probability
+
+    extralog = do log10(log(pmem))?
 
     """
 
@@ -1201,7 +1209,8 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50):
     # Mean probabilities
     pmem = np.median(p[...,0],axis=0)
     ## print("pmem", pmem.shape)
-    
+
+    #### FOUR-PANEL PLOT WITH RESIDUALS AND ELLIPSES
     fig6 = plt.figure(6)
     fig6.clf()
     ax61 = fig6.add_subplot(221)
@@ -1253,6 +1262,49 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50):
                   zorder=15, \
                   which_samples=lellipse, \
                   AAinv=AAinv)
+
+    fig6.savefig('test_mixmod_ellipses.png')
+
+    #### QUIVER PLOT COLOR CODED BY MEDIAN MEMBERSHIP PROBABILITY
+    fig8=plt.figure(8, figsize=(10,4))
+    fig8.clf()
+    ax81=fig8.add_subplot(121)    
+    ax82=fig8.add_subplot(122)
+
+    # plot u_tran unless not present, in which case use u_obs
+    if u_tran is not None:
+        u_sho = u_tran
+    else:
+        u_sho = u_obs
+
+    # shading
+    shade = np.copy(pmem)
+    label_pmem = 'ln(pmem)'
+
+    # formal membership probabilities can be REALLY small.
+    if extralog:
+        shade = np.sign(pmem) * np.log10(np.abs(pmem))
+        label_pmem = r'log$_{10}$(ln(pmem))'
+        
+    # cmap = 'plasma'
+        
+    dum_81 = ax82.quiver(u_sho[:,0], u_sho[:,1], \
+                         uresid_med[:,0], uresid_med[:,1], \
+                         shade, cmap=cmap)
+
+    # scatterplot of deltas
+    dum_81 = ax81.scatter(uresid_med[:,0], uresid_med[:,1], \
+                          c=shade, cmap=cmap, s=16, \
+                          edgecolor='0.5')
+
+    cbar81 = fig8.colorbar(dum_81, ax=ax81)
+    cbar82 = fig8.colorbar(dum_81, ax=ax82, label=label_pmem)
+
+    ax81.set_xlabel(r'$\Delta u$')
+    ax81.set_ylabel(r'$\Delta v$')
+    
+    ax82.set_xlabel('u')
+    ax82.set_ylabel('v')
     
 def show_ellipses(dsamples={}, ax=None, fig=None, \
                   key_cen_u='u0', key_cen_v='v0', \
@@ -1697,6 +1749,8 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     add_covar=False, \
                     add_contam=False, \
                     frac_contam=0.2, \
+                    rot_in=1., rot_ou=0.05, rot_pow=-3., \
+                    rtrue=1., betadeg=0., \
                     tell_perts=True):
 
     """Sets up 2-term mapping where the objects can move after the
@@ -1726,6 +1780,20 @@ as part of the transformation fitting.
 
     frac_contam = fraction of objects to label as contaminants
 
+    rot_in = position angle for contaminants, in degrees, at the
+    contaminant rotation center
+
+    rot_ou = as rot_in but for the maximum radius (which defaults to
+    the greatest separation from the center of rotation)
+
+    rot_pow = power law exponent for the rotation angle of contaminants
+
+    rtrue = scale ratio sy/sx in the transformation (note that the
+    2-term scale-rotation model assumes rtrue=1).
+
+    betadeg = axis deviation from perpendicular, in degrees (note that
+    the 2-term scale rotation model assumes betadeg=0.)
+
     tell_perts = report to screen which perturbations are being generated
 
     """
@@ -1735,10 +1803,19 @@ as part of the transformation fitting.
     # xsz=2., ysz=2., s=1.0e-2
     
     # try shifting u, v to see if the model recovers it
-    
+
+    if tell_perts:
+        print("test2term_moves INFO - truth parameters:")
+        print("test2term_moves INFO - s=%.2e, theta=%.2e (%.3f rad), shift_u=%.2e, shift_v=%.2e" \
+              % (s, theta, np.radians(theta), shift_u, shift_v))
+        print("test2term_moves INFO - sy/sx=%.2f, betadeg=%.2f" \
+              % (rtrue, betadeg))
+        
     # Transformation plus measurement uncertainty...
     x, utran, ucov, xcov, ugen = gendata(ndata, xsz, ysz, \
                                          s_true=s, thetadeg_true=theta, \
+                                         r_true=rtrue, \
+                                         betadeg_true=betadeg, \
                                          sigu=sigu, sigv=sigv, \
                                          showdata=True)
 
@@ -1766,13 +1843,25 @@ as part of the transformation fitting.
         # but are using it to challenge the sampler). Set some nasty
         # contamination parameters.
         rot_cen = ugen.min(axis=0) \
-            + 0.45*(ugen.max(axis=0)-ugen.min(axis=0))
+            + 0.35*(ugen.max(axis=0)-ugen.min(axis=0))
 
-        #rot_cen=np.zeros(2)
+        # this was 0.45
         
-        rot_in = 1.
-        rot_ou = 0.05
-        rot_pow = -3.
+        #rot_cen=np.zeros(2)
+
+        ## moved up to arguments
+        #rot_in = 1.
+        #rot_ou = 0.05
+        #rot_pow = -3.
+
+        ## try a *really* big spurious rotation. What happens?
+        #rot_in = 2.
+        #rot_ou = 0.05
+
+        ## 2026-06-08 9:06pm - try a really large contaminating
+        ## rotation. Does this pull off the fitted parameters?
+        #rot_in=10.
+        #rot_ou=0.5
         
         # Generate contamination shift for everything...
         AA, contam_dr, contam_rotdeg \
@@ -1847,6 +1936,12 @@ as part of the transformation fitting.
             print("test2term_moves INFO - shifted subset %.2f by [%.2e, %.2e]" \
                   % (frac_shift, shift_u, shift_v))
 
+    # report the fraction assigned outlier or shift or contam
+    bbg = boutly + bshif + bcontam
+    if tell_perts:
+        print("test2term_moves INFO - assigned perturbed: %i of %i = %.2e" \
+              % (np.sum(bbg), np.size(bbg), 1.0*np.sum(bbg)/np.size(bbg)))
+            
     # ok now THIS is our observed sample
     u_obs = utran + perts_u
 
@@ -1866,6 +1961,14 @@ as part of the transformation fitting.
         ax5_2 = fig5.add_subplot(222)
         ax5_4 = fig5.add_subplot(224)
 
+        # vs-coord plots
+        fig9=plt.figure(9, figsize=(6,4))
+        fig9.clf()
+        ax9_1 = fig9.add_subplot(321)
+        ax9_2 = fig9.add_subplot(323, sharex=ax9_1)
+        ax9_3 = fig9.add_subplot(322, sharey=ax9_1)
+        ax9_4 = fig9.add_subplot(324, sharey=ax9_2, sharex=ax9_3)
+        
         # colors
         cinp = 'k'
         ctar = 'b'
@@ -1880,7 +1983,7 @@ as part of the transformation fitting.
             zip(\
                 [ball, bshif, boutly, bcontam], \
                 [ctar, cshift, coutly, ccontam], \
-                [10,11,12, 13], \
+                [10,14,15, 13], \
                 [16,9,16, 25], \
                 ['o','s','+','x'], \
                 ['all', 'shift','outlier', 'contam']):
@@ -1893,7 +1996,35 @@ as part of the transformation fitting.
                                   c=col, zorder=zord, s=sz, marker=marker, \
                                   label=label)
         
-        
+
+            # Now for the marginals. Make what we plot for the
+            # coordinates a choice, we can promote this to an argument
+            # (or refactor this all out into a method) later.
+            marginals_u=False
+            
+            coosho = x
+            labx='X'
+            laby='Y'
+            if marginals_u:
+                coosho = u_obs
+                labx='u'
+                laby='v'
+                
+            dum9xx = ax9_1.scatter(coosho[bset,0], perts_total[bset,0], \
+                                   c=col, zorder=zord, s=sz*0.5, \
+                                   marker=marker)
+            dum9xy = ax9_2.scatter(coosho[bset,0], perts_total[bset,1], \
+                                   c=col, zorder=zord, s=sz*0.5, \
+                                   marker=marker)
+            dum9yx = ax9_3.scatter(coosho[bset,1], perts_total[bset,0], \
+                                   c=col, zorder=zord, s=sz*0.5, \
+                                   marker=marker)
+            dum9yy = ax9_4.scatter(coosho[bset,1], perts_total[bset,1], \
+                                   c=col, zorder=zord, s=sz*0.5, \
+                                   marker=marker, \
+                                   label=label)
+
+            
         ax5_1.set_xlabel(r'$X$')
         ax5_1.set_ylabel(r'$Y$')
 
@@ -1910,6 +2041,24 @@ as part of the transformation fitting.
         # save the figure so we can conveniently view it...
         fig5.savefig('simulated_scatterplot.png')
 
+        # NOw for the marginals
+        for ax in [ax9_1, ax9_2]:
+            ax.set_xlabel(labx)
+        for ax in [ax9_3, ax9_4]:
+            ax.set_xlabel(laby)
+        for ax in [ax9_1]:#, ax9_3]:
+            ax.set_ylabel(r'$\Delta u$')
+        for ax in [ax9_2]:#, ax9_4]:
+            ax.set_ylabel(r'$\Delta v$')
+
+        for ax in [ax9_3, ax9_4]:
+            ax.yaxis.tick_right()
+            
+        leg9 = fig9.legend(loc=3)
+        fig9.subplots_adjust(wspace=0., hspace=0., left=0.2)
+
+        fig9.savefig('simulated_deltas.png')
+            
         # Stop here if we're tweaking our simulated datasets before
         # sampling
         if only_show:
