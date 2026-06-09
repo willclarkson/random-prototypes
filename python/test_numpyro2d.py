@@ -897,7 +897,110 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
     return xobs, uobs, ucovs, xcovs, ugen
 
+def clumps_du(uv=None, fracs=None, cens_u=None, cens_v=None, \
+              sigs_u=None, sigs_v=None, corxy_uv=None):
 
+    """Generates clumps in [du, dv] space, inheriting uv from input.
+
+    INPUTS
+
+    uv = [N,2] unperturbed datapoints
+
+    fracs = [M] - fractions of the sample in each clump. E.g. for two
+    clumps, at 15% and 20% of the sample each, this would be [0.15,
+    0.20].
+
+    cens_u = [M] - centroids in u
+
+    cens_v = [M] - centroids in v
+
+    sigs_u = [M] - stddevs in u of clumps
+
+    sigs_v = [M] - stddevs in v of clumps. Defaults to sigs_u if not
+    set
+
+    corxy_uv = [M] - xy correlations in u, v of clumps.
+
+    RETURNS
+
+    perts_clumps = [N, 2] array of perturbations
+
+    which_clump = [N] array giving ID of each clump (-1 means not assigned to any clump)
+
+    """
+    
+    if uv is None or fracs is None or sigs_u is None:
+        print("clumps_du WARN - at least one of uv, fracs, sigs_u is None")
+        return None, None
+
+    mclumps = len(fracs)
+    if mclumps < 1:
+        return None, None
+
+    # Accept scalar covariance info for the clump (and replicate to
+    # the other entries if so). Note that np.isscalar(None) = False.
+    if np.isscalar(sigs_u):
+        sigs_u = np.repeat(sigs_u, mclumps)
+    if np.isscalar(sigs_v):
+        sigs_v = np.repeat(sigs_v, mclumps)
+    if np.isscalar(corxy_uv):
+        corxy_uv = np.repeat(corxy_uv, mclumps)
+
+    if np.size(sigs_v) < np.size(sigs_u) or sigs_v is None:
+        sigs_v = np.copy(sigs_u)
+
+    if np.size(corxy_uv) < np.size(sigs_u) or corxy_uv is None:
+        corxy_uv = np.zeros(np.size(sigs_u))
+        
+    # Ensure the clump centers and sigmas are filled. We might
+    # concievably use this to put clumps on top of each other, so
+    # deficient input dimensions is not actually an error. But at
+    # least tell the user what is going on...
+    if np.size(cens_u) < mclumps or cens_u is None:
+        print("clumps_du INFO: %i centers supplied < %i fractions. All clumps defaulting to [0,0]." % (np.size(cens_u), mclumps) )
+
+        duv = np.zeros((mclumps, 2))
+
+    else:
+        duv = np.column_stack(( cens_u, cens_v ))
+    
+    # convert clump fractions into array indices in input
+    # data. Calling lsor [0:linds[0], linds[0]:linds[1],
+    # linds[1]:linds[2], etc., should pull out a random sample by
+    # fraction as we want.
+    ndata = uv.shape[0]
+    lsor = np.argsort(np.random.uniform(size=ndata))
+    linds = np.asarray(np.cumsum(fracs)*uv.shape[0],'int')
+
+    # Initialize the perturbations...
+    perts_clumps = uv*0.
+
+    # ... and populate them
+    which_clump = np.zeros(ndata)-1
+    bclump = np.repeat(False, ndata)
+    
+    ilo = 0
+    for iclump in range(mclumps):
+        ihi = np.copy(linds[iclump])
+
+        # indices to assign to this clump
+        lthis = lsor[ilo:ihi]
+        
+        which_clump[lthis] = iclump
+        bclump[lthis] = True
+        
+        # Generate perturbations about 0, 0...
+        covs, perts = getcovs(sigs_u[iclump], sigs_v[iclump], \
+                              ndata, corxy_uv[iclump])
+
+        # ... add the centroid onto the perturbations
+        perts += duv[iclump][None,:]
+        perts_clumps[lthis] = perts[lthis]
+        
+        ilo = np.copy(ihi)
+
+    return perts_clumps, which_clump
+        
 def getcovs(sigx=0., sigy=0., ndata=10, corxy=0.):
 
     """Utility - returns covariances and samples from the covariances,
@@ -1754,7 +1857,7 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     frac_contam=0.2, \
                     rot_in=1., rot_ou=0.05, rot_pow=-3., \
                     rtrue=1., betadeg=0., \
-                    test_clumps=False, \
+                    add_clumps=False, \
                     tell_perts=True):
 
     """Sets up 2-term mapping where the objects can move after the
@@ -1795,7 +1898,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     rtrue = scale ratio sy/sx in the transformation (note that the
     2-term scale-rotation model assumes rtrue=1).
 
-    test_clumps = test multiple clumps in at least du, dv space
+    add_clumps = test multiple clumps in at least du, dv space
 
     betadeg = axis deviation from perpendicular, in degrees (note that
     the 2-term scale rotation model assumes betadeg=0.)
@@ -1831,6 +1934,34 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # addition of measurement uncertainty in the uv frame within
     # gendata().
 
+    # Add one or more clumps in du, dv space (later we can add in u, v
+    # space too).
+    bclumps = np.repeat(False, utran.shape[0])
+    perts_clumps = utran * 0.
+    if add_clumps:
+
+        # For the moment, let's come up with some parameters
+        fclumps = [0.1, 0.1, 0.15]
+        du_clumps = [0.003, 0.003, -0.003]
+        dv_clumps = [-0.003, 0.003, 0.003]
+
+        sigu_clumps = [1e-4, 1e-4, 5e-4]
+        sigv_clumps = [1e-4, 1e-5, 8e-4]
+        corrxy_clumps = [0.0, 0.2, -0.2]
+        
+        perts_clumps, which_clump \
+            = clumps_du(utran, fclumps, \
+                        np.array(du_clumps), np.array(dv_clumps), \
+                        np.array(sigu_clumps), np.array(sigv_clumps), \
+                        np.array(corrxy_clumps))
+
+        # which objects are part of clumps?
+        bclumps = which_clump >= 0
+
+        if tell_perts:
+            print("test2term_moves INFO - added %i clumps:" \
+                  % (np.max(which_clump)+1), np.sum(bclumps) )
+        
     # Assign a population of "contaminants" undergoing something
     # systematic in the [u,v] frame. Since we want to allow nonlinear
     # transforamtions (in the coordinates) without incurring
@@ -1942,8 +2073,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
             print("test2term_moves INFO - shifted subset %.2f by [%.2e, %.2e]" \
                   % (frac_shift, shift_u, shift_v))
 
+    # Add the clumps
+    perts_u += perts_clumps
+            
     # report the fraction assigned outlier or shift or contam
-    bbg = boutly + bshif + bcontam
+    bbg = boutly + bshif + bcontam + bclumps
     if tell_perts:
         print("test2term_moves INFO - assigned perturbed: %i of %i = %.2e" \
               % (np.sum(bbg), np.size(bbg), 1.0*np.sum(bbg)/np.size(bbg)))
@@ -1981,18 +2115,19 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         coutly = '#00B2A9'
         cshift = '#FFCB05'
         ccontam = '#D86018'
+        cclumps = '#D86018'
         
         # scatterplots of the datapoints
         ball = np.isfinite(x[:,0])
 
         for bset, col, zord, sz, marker, label in \
             zip(\
-                [ball, bshif, boutly, bcontam], \
-                [ctar, cshift, coutly, ccontam], \
-                [10,14,15, 13], \
-                [16,9,16, 25], \
-                ['o','s','+','x'], \
-                ['all', 'shift','outlier', 'contam']):
+                [ball, bshif, boutly, bcontam, bclumps], \
+                [ctar, cshift, coutly, ccontam, cclumps], \
+                [10,14,15, 13, 14], \
+                [16,9,16, 25, 9], \
+                ['o','s','+','x', 's'], \
+                ['all', 'shift','outlier', 'contam', 'clumps']):
         
             dum51 = ax5_1.scatter(x[bset,0], x[bset,1], \
                                   c=col, zorder=zord, s=sz, marker=marker)
@@ -2259,3 +2394,29 @@ def test_vortex(npoints=50, uv_cen = np.array([0.25, 0.25]),\
     fig7.subplots_adjust(hspace=0.30, wspace=0.30)
     
     fig7.savefig('test_vortexplot.png')
+
+def test_clumps(ndata=100):
+
+    """Tests the clump adder"""
+
+    uvdum = np.zeros((ndata, 2))
+
+    fracs = [0.2,0.15,0.1]
+
+    sigs_u = np.array([0.01,0.005,0.02])
+    sigs_v = np.array([0.01,0.009,0.04])
+    corrxy = np.array([0.0,0.2, -0.6])
+
+    cens_u = np.array([0.1, -0.1, -0.1])
+    cens_v = np.array([0.0,  0.0,  0.1])
+
+    perts, whichclump = clumps_du(uvdum, fracs, cens_u, cens_v, \
+                                  sigs_u, sigs_v, corrxy)
+
+    fig7 = plt.figure(7,figsize=(4,4))
+    fig7.clf()
+    ax7=fig7.add_subplot(111)
+
+    dum = ax7.scatter(perts[:,0], perts[:,1], c=whichclump, s=9, alpha=0.5)
+    ax7.set_xlabel(r'$\Delta u$')
+    ax7.set_xlabel(r'$\Delta v$')
