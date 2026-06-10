@@ -1945,12 +1945,12 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     if add_clumps:
 
         # For the moment, let's come up with some parameters
-        fclumps = [0.1, 0.1, 0.20]
-        du_clumps = [0.006, 0.004, -0.003]
+        fclumps = [0.15, 0.1, 0.15]
+        du_clumps = [0.009, 0.004, -0.003]
         dv_clumps = [-0.006, 0.004, 0.003]
 
-        sigu_clumps = [2e-4, 1e-4, 5e-3]
-        sigv_clumps = [2e-4, 1e-5, 8e-3]
+        sigu_clumps = [2e-4, 1e-4, 5e-4]
+        sigv_clumps = [2e-4, 1e-5, 8e-4]
         corrxy_clumps = [0.0, 0.2, -0.2]
         
         perts_clumps, which_clump \
