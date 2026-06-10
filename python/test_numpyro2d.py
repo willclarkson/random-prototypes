@@ -1309,6 +1309,9 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
     # deltas
     uresid_med = u_obs - upred_med
 
+    print("show_samples DBG:")
+    print(A.shape, Amed.shape, upred_med.shape, u_obs.shape)
+    
     # Mean probabilities
     pmem = np.median(p[...,0],axis=0)
     ## print("pmem", pmem.shape)
@@ -1337,6 +1340,7 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
     dum64 = ax64.scatter(uresid_med[:,0], uresid_med[:,1], \
                          s=4, c='k', zorder=30)
 
+    
     fig6.subplots_adjust(hspace=0.3, wspace=0.3)
 
     # Draw a list of indices to send to the ellipse plotter, to be the
@@ -1386,12 +1390,12 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
 
     # formal membership probabilities can be REALLY small.
     if extralog:
-        shade = np.sign(pmem) * np.log10(np.abs(pmem))
-        label_pmem = r'log$_{10}$(ln(pmem))'
-        
+        shade = np.sign(pmem) * np.log10(np.abs(pmem-1.))
+        label_pmem = r'log$_{10}$(|ln(pmem)-1.|)'
+
     # cmap = 'plasma'
         
-    dum_81 = ax82.quiver(u_sho[:,0], u_sho[:,1], \
+    dum_82 = ax82.quiver(u_sho[:,0], u_sho[:,1], \
                          uresid_med[:,0], uresid_med[:,1], \
                          shade, cmap=cmap)
 
@@ -1399,9 +1403,9 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
     dum_81 = ax81.scatter(uresid_med[:,0], uresid_med[:,1], \
                           c=shade, cmap=cmap, s=16, \
                           edgecolor='0.5')
-
+    
     cbar81 = fig8.colorbar(dum_81, ax=ax81)
-    cbar82 = fig8.colorbar(dum_81, ax=ax82, label=label_pmem)
+    cbar82 = fig8.colorbar(dum_82, ax=ax82, label=label_pmem)
 
     ax81.set_xlabel(r'$\Delta u$')
     ax81.set_ylabel(r'$\Delta v$')
@@ -1941,12 +1945,12 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     if add_clumps:
 
         # For the moment, let's come up with some parameters
-        fclumps = [0.1, 0.1, 0.15]
-        du_clumps = [0.003, 0.003, -0.003]
-        dv_clumps = [-0.003, 0.003, 0.003]
+        fclumps = [0.1, 0.1, 0.20]
+        du_clumps = [0.006, 0.004, -0.003]
+        dv_clumps = [-0.006, 0.004, 0.003]
 
-        sigu_clumps = [1e-4, 1e-4, 5e-4]
-        sigv_clumps = [1e-4, 1e-5, 8e-4]
+        sigu_clumps = [2e-4, 1e-4, 5e-3]
+        sigv_clumps = [2e-4, 1e-5, 8e-3]
         corrxy_clumps = [0.0, 0.2, -0.2]
         
         perts_clumps, which_clump \
