@@ -1838,6 +1838,7 @@ def test6term(ndata=25, \
 
 
 def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
+                    u0=0., v0=0., \
                     sigu=1e-4, sigv=1e-4, \
                     du_lo=1e-4, du_hi=1e-3, \
                     num_chains=2, \
@@ -1868,7 +1869,47 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
 transformation. Main aim: see if we can track star-by-star movements
 as part of the transformation fitting. Lots of optional tweaks to the input to test the parameter exploration under various confounding situations.
 
-    Some special inputs:
+    INPUTS
+    ======
+
+    ndata = number of datapoints to generate
+
+    s = model scale
+
+    theta = model position angle, degrees
+
+    u0 = model center, u
+
+    v0 = model center, v
+
+    sigu = standard deviation ("measurement uncertainty") in u
+
+    sigv = standard deviation in v
+
+    du_lo = additional variance in u, lower bound
+
+    du_hi = additional variance in v, lower bound
+
+    num_chains = number of MCMC chains
+
+    num_samples = number of samples per chain
+
+    fit_var = fit additional variance as a model parameter
+
+    seed = random number seed
+
+    shift_u0 = shift to add to SOME of the points, u
+
+    shift_v0 = shift to add to SOME of the points, v
+
+    xsz = dataset x side length
+
+    ysz = dataset y side length
+
+    frac_shift = fraction of points to shift
+
+    test_moves = test 2-term model plus star-by-star moves but without
+    centroid shift
 
     test_shift = test a model in which both the model and star-by-star
     include a shift.
@@ -1909,6 +1950,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
     tell_perts = report to screen which perturbations are being generated
 
+    RETURNS
+    =======
+
+    dret = {} = dictionary containing the MCMC samples, with arguments that depend on the options that were sent in
+
     """
 
     # 2026-05-20 testing note: the old defaults were:
@@ -1929,6 +1975,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                                          s_true=s, thetadeg_true=theta, \
                                          r_true=rtrue, \
                                          betadeg_true=betadeg, \
+                                         u0=u0, v0=v0, \
                                          sigu=sigu, sigv=sigv, \
                                          showdata=True)
 
