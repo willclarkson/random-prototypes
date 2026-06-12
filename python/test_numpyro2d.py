@@ -179,8 +179,10 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False):
     # our two-term model again:
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
     s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
-    u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
-    v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
+
+    # 2026-06-11 widen the priors
+    u0= numpyro.sample("u0", dist.Uniform(-10.0, 10.0))
+    v0= numpyro.sample("v0", dist.Uniform(-10.0, 10.0))
     
     # transform the sampled parameters into matrix components
     b = numpyro.deterministic("b",  s * jnp.cos(theta))
@@ -223,15 +225,17 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False):
     cov_mixmod_fg =  jnp.array([[var_fg,0], [0,var_fg]])
     cov_total_fg = cov_total + cov_mixmod_fg[None,:,:]
     
-    # background component
-    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-1.0, 1.0))
-    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-1.0, 1.0))
-    var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3) )
+    # background component (2026-06-11 widened prior)
+    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-5.0, 5.0))
+    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-5.0, 5.0))
 
-    # Model background covariance. Currently this is always greater
-    # than the "foreground" covariance:
+    # maybe this prior should be tightened to avoid piling up on one object
+    #var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3) )
+    var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-10,1e-2) )
+
+    # Model background covariance.
     cov_mixmod_bg = jnp.array([[var_bg,0], [0,var_bg]])
-    cov_total_bg = cov_total + cov_mixmod_bg[None,:,:]
+    cov_total_bg = cov_total  + cov_mixmod_bg[None,:,:]
     
     # predicted positions assuming assigned to bg component
     upred_bg = utran + jnp.array([u0_bg,v0_bg])[None,:]
@@ -375,9 +379,16 @@ shifts as residuals.
     # priors on bulk parameters as numpyro distributions
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
     s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
-    u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
-    v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
+    #u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
+    #v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
 
+    # 2026-06-11 try broadening the priors. Tried making the shift
+    # [+1. +1] and the (mixture) trials pegged at +1, +1. Nice!! Let's
+    # loosen this somewhat...
+    u0= numpyro.sample("u0", dist.Uniform(-10.0, 10.0))
+    v0= numpyro.sample("v0", dist.Uniform(-10.0, 10.0))
+
+    
     # cdmatrix components, produce transformed positions
     b = numpyro.deterministic("b",  s * jnp.cos(theta))
     c = numpyro.deterministic("c",  s * jnp.sin(theta))
@@ -443,9 +454,14 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False):
     # priors on bulk parameters as numpyro distributions
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
     s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
-    u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
-    v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
+    #u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
+    #v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
 
+    # 2026-06-11 update the prior to make more flexible...
+    u0= numpyro.sample("u0", dist.Uniform(-10.0, 10.0))
+    v0= numpyro.sample("v0", dist.Uniform(-10.0, 10.0))
+
+    
     # hyper-parameters for the star-by-star shifts
     shift_centers = x * 0
     shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
@@ -1171,14 +1187,17 @@ def show_du(samples={}, keypos='u_tran', \
     du_std = np.std(du, axis=0)
 
     # The bulk-offset samples: [nsamples, 2]
-    if 'u0' in samples.keys() and 'v0' in samples.keys():
-        shift = np.vstack(( samples['u0'], samples['v0'] )).T
-        du_all = du + shift[:,None,:]
+    #
+    # update: NO - THIS IS ALREADY INCLUDED IN THE MODEL!!
+    #if 'u0' in samples.keys() and 'v0' in samples.keys():
+    #    shift = np.vstack(( samples['u0'], samples['v0'] )).T
+    #    du_all = du + shift[:,None,:]
 
-        print("Including frame shift:")
-        du_med = np.median(du_all, axis=0)
-        du_std = np.std(du_all, axis=0)
-        
+    # print("Including frame shift:")
+    #    du_med = np.median(du_all, axis=0)
+    #    du_std = np.std(du_all, axis=0)
+
+    #    # consider the u0, v0 model parameters
     
     # set up the figure
     fig4 = plt.figure(4, figsize=(9,4))
@@ -1965,8 +1984,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
     if tell_perts:
         print("test2term_moves INFO - truth parameters:")
-        print("test2term_moves INFO - s=%.2e, theta=%.2e (%.3f rad), shift_u=%.2e, shift_v=%.2e" \
-              % (s, theta, np.radians(theta), shift_u, shift_v))
+        print("test2term_moves INFO - s=%.2e, theta=%.2e (%.3f rad), shift_u=%.2e, shift_v=%.2e, u0=%.2e, v0=%.2e" \
+              % (s, theta, np.radians(theta), shift_u, shift_v, u0, v0))
         print("test2term_moves INFO - sy/sx=%.2f, betadeg=%.2f" \
               % (rtrue, betadeg))
         
@@ -2179,7 +2198,12 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                 [16,9,16, 25, 9], \
                 ['o','s','+','x', 's'], \
                 ['all', 'shift','outlier', 'contam', 'clumps']):
-        
+
+            # don't plot if this is an empty set (relax this if we do
+            # want to see in the plot that there are empty sets)
+            if np.sum(bset) < 1:
+                continue
+            
             dum51 = ax5_1.scatter(x[bset,0], x[bset,1], \
                                   c=col, zorder=zord, s=sz, marker=marker)
             dum52 = ax5_2.scatter(u_obs[bset,0], u_obs[bset,1], \
@@ -2314,8 +2338,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                              samples["v0"], )).T
         corner_labels.append(r'$u_0$')
         corner_labels.append(r'$v_0$')
-        corner_truths.append(0.) # won't always be right
-        corner_truths.append(0.)
+        corner_truths.append(u0) # won't always be right
+        corner_truths.append(v0)
 
     if "Q" in samples.keys():
         chainz = np.vstack(( chainz.T, \
