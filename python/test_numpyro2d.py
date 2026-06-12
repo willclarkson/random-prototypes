@@ -1188,7 +1188,7 @@ def show_du(samples={}, keypos='u_tran', \
 
     # The bulk-offset samples: [nsamples, 2]
     #
-    # update: NO - THIS IS ALREADY INCLUDED IN THE MODEL!!
+    # update 2026-06-11 : NO - THIS IS ALREADY INCLUDED IN THE MODEL!!
     #if 'u0' in samples.keys() and 'v0' in samples.keys():
     #    shift = np.vstack(( samples['u0'], samples['v0'] )).T
     #    du_all = du + shift[:,None,:]
@@ -1198,7 +1198,7 @@ def show_du(samples={}, keypos='u_tran', \
     #    du_std = np.std(du_all, axis=0)
 
     #    # consider the u0, v0 model parameters
-    
+
     # set up the figure
     fig4 = plt.figure(4, figsize=(9,4))
     fig4.clf()
@@ -1223,7 +1223,11 @@ def show_du(samples={}, keypos='u_tran', \
         dum41_2 = ax41.scatter(pert[:,0], pert[:,1], \
                                alpha=alpha, c=pcolor, \
                                zorder=20, s=16)
-    
+
+        print("show_du DEBUG - median offset in shifts: %.2e, %.2e" \
+              % (np.median(pert[:,0]-du_med[:,0]), \
+                 np.median(pert[:,1]-du_med[:,1]) ) )
+        
     ax41.set_xlabel(r"$\Delta u$")
     ax41.set_ylabel(r"$\Delta v$")
     
@@ -1257,7 +1261,7 @@ def show_du(samples={}, keypos='u_tran', \
 def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
                  cmap='plasma_r', extralog=False):
 
-    """One-liner to show some of the results from an MCMC run
+    """One-liner to show some of the results from an MCMC run.
 
     INPUTS
 
@@ -1321,10 +1325,15 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
     #print("Ndata:", ndata)
     #print("CDMATRIX shape:", A.shape)
 
-    # Apply the transformation here
+    # Apply the median transformation here INCLUDING THE OFFSET
+    u0med = np.median(u0, axis=0)
     Amed = np.median(A, axis=0)
-    upred_med = np.einsum('jk,ik -> ij', Amed, x)
+    # upred_med = np.einsum('jk,ik -> ij', Amed, x)
 
+    upred_med = np.einsum('jk,ik -> ij', Amed, x) + u0med[None,:]
+
+    print("show_samples INFO:", u0med)
+    
     # deltas
     uresid_med = u_obs - upred_med
 
@@ -1449,7 +1458,8 @@ def show_ellipses(dsamples={}, ax=None, fig=None, \
                   edgealphaEllipse=0.05, \
                   zorder=5, \
                   plotMedian=True, \
-                  AAinv=None):
+                  AAinv=None, \
+                  residuals_include_offsets=True):
 
     """Overplots samples from covariance ellipses on the current
 axes. Specify the keys for the model component to overplot on the
@@ -1498,6 +1508,8 @@ current axes. Currently every model component is assumed to be scalar (so two ke
     AAinv = [N,2,2] stack of A.<A>^{-1} correction matrices to apply
     the differential frame transformation when plotting each
     ellipse. Ignored if None.
+    
+    residuals_include_offsets - True if the residuals include the offsets [u0, v0] in the model.
 
     """
 
@@ -1557,8 +1569,12 @@ current axes. Currently every model component is assumed to be scalar (so two ke
                                      stdy=np.sqrt(var_v), \
                                      corrxy=corr_uv)
 
-    # the centroids
+    # the centroids. Note that because the offset is now included in
+    # the model, we subtract off the median offset first. This is
+    # probably most easily done in the following way:
     uv = np.column_stack(( u0, v0 ))
+    if residuals_include_offsets:
+        uv -= np.median(uv, axis=0)[None,:]
 
     # Apply corrections here if supplied. Written out for transparency
     if AAinv is not None:
