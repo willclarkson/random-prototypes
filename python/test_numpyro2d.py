@@ -1180,9 +1180,12 @@ sample, to support assessment of mixture models.
 def show_du(samples={}, keypos='u_tran', \
             ucolor='k', errcolor='0.7', \
             pcolor='g', alpha=0.4, \
-            show_std=True, fshow = 1.0):
+            show_std=True, fshow = 1.0, \
+            subset_name=None):
 
-    """Utility: shows the samples in du"""
+    """Utility: shows the samples in du
+
+    subset = keyname of subset"""
 
     if len(samples.keys()) < 1:
         return
@@ -1215,7 +1218,18 @@ def show_du(samples={}, keypos='u_tran', \
     bsho = np.repeat(True, du_med.shape[0])
     if fshow < 1.0:
         bsho = np.random.rand(du_med.shape[0]) <= fshow
-    
+
+    # ... or we can quote by subset
+    if subset_name in samples.keys():
+        if subset_name.find('b_') == 0:
+            bsho = samples[subset_name]
+
+            print("using subset %s: %i" % (subset_name, np.sum(bsho)))
+
+            if np.sum(bsho) <1:
+                print("No entries in this subset! Nothing to plot...")
+                return
+            
     ax41 = fig4.add_subplot(121)
     if show_std:
         dum41 = ax41.errorbar(du_med[bsho,0], du_med[bsho,1], \
