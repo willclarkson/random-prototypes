@@ -156,7 +156,7 @@ def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False):
         pred_dist = dist.MultivariateNormal(upred, cov_total)
         numpyro.sample("u", pred_dist, obs=u)
 
-def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False):
+def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, wid_u0=2.):
 
     """Fits mixture model to the positions, but does not fit individual star-by-star shifts. 
 
@@ -173,6 +173,7 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False):
 
     fitvar = include diagonal covariance in model parameters
 
+    wid_u0 = prior width for u0 parameters
 
 """
 
@@ -181,8 +182,8 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False):
     s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
 
     # 2026-06-11 widen the priors
-    u0= numpyro.sample("u0", dist.Uniform(-10.0, 10.0))
-    v0= numpyro.sample("v0", dist.Uniform(-10.0, 10.0))
+    u0= numpyro.sample("u0", dist.Uniform(-wid_u0, wid_u0))
+    v0= numpyro.sample("v0", dist.Uniform(-wid_u0, wid_u0))
     
     # transform the sampled parameters into matrix components
     b = numpyro.deterministic("b",  s * jnp.cos(theta))
@@ -226,8 +227,8 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False):
     cov_total_fg = cov_total + cov_mixmod_fg[None,:,:]
     
     # background component (2026-06-11 widened prior)
-    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-5.0, 5.0))
-    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-5.0, 5.0))
+    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-wid_u0, wid_u0))
+    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-wid_u0, wid_u0))
 
     # maybe this prior should be tightened to avoid piling up on one object
     #var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3) )
