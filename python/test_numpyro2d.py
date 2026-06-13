@@ -226,24 +226,30 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, wid_u0=2.):
     cov_mixmod_fg =  jnp.array([[var_fg,0], [0,var_fg]])
     cov_total_fg = cov_total + cov_mixmod_fg[None,:,:]
     
-    # background component (2026-06-11 widened prior)
-    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-wid_u0, wid_u0))
-    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-wid_u0, wid_u0))
+    # background component (2026-06-13 narrowed prior and made this a
+    # delta over u0, v0)
+    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-0.1, 0.1))
+    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-0.1, 0.1))
 
     # maybe this prior should be tightened to avoid piling up on one object
     #var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3) )
-    var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-10,1e-2) )
+    var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-2) )
 
-    # Model background covariance.
+    # Model background covariance. Try making this ALWAYS bigger than
+    # the fg variance to assist with component identification...
     cov_mixmod_bg = jnp.array([[var_bg,0], [0,var_bg]])
-    cov_total_bg = cov_total  + cov_mixmod_bg[None,:,:]
+    # cov_total_bg = cov_total  + cov_mixmod_bg[None,:,:]
+    cov_total_bg = cov_total_fg  + cov_mixmod_bg[None,:,:]
     
-    # predicted positions assuming assigned to bg component
-    upred_bg = utran + jnp.array([u0_bg,v0_bg])[None,:]
+    # predicted positions assuming assigned to bg component. NOTE that these are now smaller deltas over the foreground component.
+    upred_bg = utran + jnp.array([u0_bg + u0,v0_bg + v0])[None,:]
     
     # The mixture components. Let Q be the outlier probability. Not
     # sure yet how to stop this going to 1/Npoints... try imposing a
-    # lower and upper limit
+    # lower and upper limit.
+    #
+    # 2026-06-12 try also enforcing Q as the majority component. This
+    # has been the case for the simulations I have tried, but WATCHOUT...
     Q = numpyro.sample("Q", dist.Uniform(0.05, 0.95))
     mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
 
@@ -1172,8 +1178,9 @@ sample, to support assessment of mixture models.
     return AAinv, A_med
     
 def show_du(samples={}, keypos='u_tran', \
-            ucolor='k', pcolor='g', alpha=0.4, \
-            show_std=True):
+            ucolor='k', errcolor='0.7', \
+            pcolor='g', alpha=0.4, \
+            show_std=True, fshow = 1.0):
 
     """Utility: shows the samples in du"""
 
@@ -1204,15 +1211,20 @@ def show_du(samples={}, keypos='u_tran', \
     fig4 = plt.figure(4, figsize=(9,4))
     fig4.clf()
 
+    # allow plotting a subset so that we can get into the dense areas
+    bsho = np.repeat(True, du_med.shape[0])
+    if fshow < 1.0:
+        bsho = np.random.rand(du_med.shape[0]) <= fshow
+    
     ax41 = fig4.add_subplot(121)
     if show_std:
-        dum41 = ax41.errorbar(du_med[:,0], du_med[:,1], \
-                              yerr=du_std[:,0], xerr=du_std[:,1], \
+        dum41 = ax41.errorbar(du_med[bsho,0], du_med[bsho,1], \
+                              yerr=du_std[bsho,0], xerr=du_std[bsho,1], \
                               fmt='.', alpha=alpha, ms=6, capsize=2, \
-                              color=ucolor, ecolor=ucolor, zorder=10)
+                              color=ucolor, ecolor=errcolor, zorder=10)
 
     else:
-        dum41 = ax41.scatter(du_med[:,0], du_med[:,1], \
+        dum41 = ax41.scatter(du_med[bsho,0], du_med[bsho,1], \
                              marker='.', alpha=alpha, s=6,\
                              c=ucolor, zorder=10)
 
@@ -1221,13 +1233,14 @@ def show_du(samples={}, keypos='u_tran', \
     pert = None
     if 'u_obs' in samples.keys() and 'u_tran' in samples.keys():
         pert = samples['u_obs'] - samples['u_tran']
-        dum41_2 = ax41.scatter(pert[:,0], pert[:,1], \
+        #pert = samples['perts_u']
+        dum41_2 = ax41.scatter(pert[bsho,0], pert[bsho,1], \
                                alpha=alpha, c=pcolor, \
                                zorder=20, s=16)
 
-        print("show_du DEBUG - median offset in shifts: %.2e, %.2e" \
-              % (np.median(pert[:,0]-du_med[:,0]), \
-                 np.median(pert[:,1]-du_med[:,1]) ) )
+        print("show_du DEBUG - median offset in plotted shifts: %.2e, %.2e" \
+              % (np.median(pert[bsho,0]-du_med[bsho,0]), \
+                 np.median(pert[bsho,1]-du_med[bsho,1]) ) )
         
     ax41.set_xlabel(r"$\Delta u$")
     ax41.set_ylabel(r"$\Delta v$")
@@ -2423,9 +2436,19 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     dret['u_gen'] = ugen
     dret['u_tran'] = utran
     dret['u_obs'] = u_obs
+    dret['perts_u'] = perts_u # I've lost track of what is what
     dret['x'] = x
 
     dret['methmodel'] = methmodel.__name__
+    
+    # for the simulations, we know which ones are (not) outliers,
+    # which is useful to know while diagnosing performance and
+    # bugfixing. So include this information too.
+    dret['b_inly'] = ~bbg
+    dret['b_outly'] = boutly
+    dret['b_shif'] = bshif
+    dret['b_contam'] = bcontam
+    dret['b_clumps'] = bclumps
     
     fig3.subplots_adjust(left=0.15, bottom=0.15)
 
