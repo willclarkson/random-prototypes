@@ -1197,6 +1197,26 @@ def show_du(samples={}, keypos='u_tran', \
     du_med = np.median(du, axis=0)
     du_std = np.std(du, axis=0)
 
+    # To put du in context, we also need to see the rest of the
+    # model. So get that here.
+    u0 = centroids_from_samples(samples, 'u0', 'v0')
+    A = cdmatrices_from_samples(samples)
+    x = samples['x']
+    u_obs = samples['u_obs']
+    
+    # Predicted position set for every sample
+    print("show_du INFO - sample shapes:")
+    print("show_du INFO - x:", x.shape)
+    print("show_du INFO - A:", A.shape)
+    print("show_du INFO - u0:", u0.shape)
+
+    # For the moment let's take the median transformation FIRST:
+    A_med = np.median(A, axis=0)
+    u0_med = np.median(u0, axis=0)
+    upred_med = np.einsum('jk,ik -> ij', A_med, x) + u0_med[None,:]
+
+    print("show_du INFO - upred_med:", upred_med.shape)
+    
     # The bulk-offset samples: [nsamples, 2]
     #
     # update 2026-06-11 : NO - THIS IS ALREADY INCLUDED IN THE MODEL!!
@@ -1246,7 +1266,8 @@ def show_du(samples={}, keypos='u_tran', \
     # If we have the commanded perturbations, show them too
     pert = None
     if 'u_obs' in samples.keys() and 'u_tran' in samples.keys():
-        pert = samples['u_obs'] - samples['u_tran']
+        ##pert = samples['u_obs'] - samples['u_tran']
+        pert = u_obs - upred_med # THIS matches du very well. 
         #pert = samples['perts_u']
         dum41_2 = ax41.scatter(pert[bsho,0], pert[bsho,1], \
                                alpha=alpha, c=pcolor, \
