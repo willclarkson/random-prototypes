@@ -1176,9 +1176,45 @@ sample, to support assessment of mixture models.
     AAinv = np.matmul(A, Ainv_med[None,:,:])
    
     return AAinv, A_med
+
+
+
+def ellipsepars_from_covars(covars=None, exagfac=1.):
+
+    """Utility - given a CovarsNx2x2 object, returns the parameters needed
+for a matplotlib ellipse collection.
+
+    INPUTS
+    ======
+
+    covars = covarsNx2x2 object
+
+    exagfac = exaggeration factor. Widths are scaled by this for
+    visual display.
+
+    RETURNS
+    =======
     
+    ww = [N] widths for ellipses
+
+    hh = [N] heights for ellipses
+
+    posans = [N] position angles for ellipses
+
+    """
+
+    if covars is None:
+        return None, None, None
+
+    # ensure the eigenvalues and vectors are populated
+    covars.eigensFromCovars()
+
+    ww = covars.majors**0.5 * exagfac * 2.0
+    hh = covars.minors**0.5 * exagfac * 2.0
+    return ww, hh, covars.rotDegs
+
 def show_du(samples={}, keypos='u_tran', \
-            ucolor='k', errcolor='0.7', \
+            ucolor='k', errcolor='0.25', \
             pcolor='g', alpha=0.4, \
             show_std=True, fshow = 1.0, \
             subset_name=None):
@@ -1210,12 +1246,42 @@ def show_du(samples={}, keypos='u_tran', \
     print("show_du INFO - A:", A.shape)
     print("show_du INFO - u0:", u0.shape)
     print("show_du INFO - du:", du.shape)
+    print("show_du INFO - u_obs:", u_obs.shape)
 
     # multiply row by row
     print("show_du INFO - re-projecting predictions...")
     t00 = time.time()
     upred_samples = np.einsum('ijk,lk->ilj',A, x)
     print("show_du INFO - done einsum in %.2e seconds" % (time.time()-t00))
+
+    # now add on the deltas
+    upred_total = upred_samples + du + u0[:,None,:]
+
+    # Form statistics on THESE. Our covsNx2x2 object does this,
+    # but expects [nsamples 2, ndata]. So we transpose first.
+    sampls = np.transpose(upred_total, axes=(0,2,1))
+    Covs = covarsNx2x2.CovarsNx2x2(xysamples=sampls)
+    print("show_du INFO - upred_total:", upred_total.shape)
+    print("show_du INFO - sampls shape:", sampls.shape)
+    print("show_du INFO - covars shape:", Covs.covars.shape)
+
+
+    # median along the samples of the upred
+    upred_med = np.median(upred_total, axis=0)
+
+    # median along the data of the predictions
+    #pred_cen = np.median(upred_med, axis=0)
+    
+    # The deltas about predictions...
+    delt_u = u_obs[None,:,:] - upred_total
+    #delt_u = upred_total - pred_cen[None,None,:]
+    
+    print("show_du INFO: delt_u:", delt_u.shape)
+
+    dutotal_med = np.median(delt_u, axis=0)
+    dutotal_std = np.std(delt_u, axis=0)
+
+    print("DEBUG:", np.median(dutotal_std, axis=0) )
     
     # is that at all sensible??
     isho = 10
@@ -1226,16 +1292,20 @@ def show_du(samples={}, keypos='u_tran', \
           (isho, lsho), upred_samples[isho, lsho])
     print("MULTIPLY DEBUG: direct: A[%i].x[%i]:   " % \
           (isho, lsho), udum)
-    
+
+    print("show_du DBG: upred_total[%i,%i]: " % \
+          (isho, lsho), upred_total[isho, lsho])
     
     print("show_du INFO - upred_samples:", upred_samples.shape)
+    print("show_du INFO - upred_total:", upred_total.shape)
     
-    # For the moment let's take the median transformation FIRST:
-    A_med = np.median(A, axis=0)
-    u0_med = np.median(u0, axis=0)
-    upred_med = np.einsum('jk,ik -> ij', A_med, x) + u0_med[None,:]
+    ## For the moment let's take the median transformation FIRST:
+    #A_med = np.median(A, axis=0)
+    #u0_med = np.median(u0, axis=0)
+    #upred_med = np.einsum('jk,ik -> ij', A_med, x) + u0_med[None,:]
 
     print("show_du INFO - upred_med:", upred_med.shape)
+    
     
     # The bulk-offset samples: [nsamples, 2]
     #
@@ -1251,7 +1321,7 @@ def show_du(samples={}, keypos='u_tran', \
     #    # consider the u0, v0 model parameters
 
     # set up the figure
-    fig4 = plt.figure(4, figsize=(9,4))
+    fig4 = plt.figure(4, figsize=(13,4))
     fig4.clf()
 
     # allow plotting a subset so that we can get into the dense areas
@@ -1269,36 +1339,129 @@ def show_du(samples={}, keypos='u_tran', \
             if np.sum(bsho) <1:
                 print("No entries in this subset! Nothing to plot...")
                 return
+
+    # 2026-06-15 I have got tangled in definitions of which delta is
+    # which... Go back and overplot the predictions against the
+    # observations. That will show if the model plus delta is bringing
+    # about an offset!
             
-    ax41 = fig4.add_subplot(121)
+    ax41 = fig4.add_subplot(131)
     if show_std:
-        dum41 = ax41.errorbar(du_med[bsho,0], du_med[bsho,1], \
-                              yerr=du_std[bsho,0], xerr=du_std[bsho,1], \
-                              fmt='.', alpha=alpha, ms=6, capsize=2, \
+
+        # 2026-06-15 commented out while testing overplot of positions
+        #dum41 = ax41.errorbar(du_med[bsho,0], du_med[bsho,1], \
+        #                      #yerr=du_std[bsho,1], xerr=du_std[bsho,0], \
+        #                      xerr=dutotal_std[bsho,0], \
+        #                      yerr=dutotal_std[bsho,1], \
+        #                      fmt='.', alpha=alpha, ms=4, capsize=2, \
+        #                      color=ucolor, ecolor=errcolor, zorder=10)
+
+        dum41 = ax41.errorbar(upred_med[bsho,0], upred_med[bsho,1], \
+                              #yerr=du_std[bsho,1], xerr=du_std[bsho,0], \
+                              xerr=dutotal_std[bsho,0], \
+                              yerr=dutotal_std[bsho,1], \
+                              fmt='.', alpha=alpha, ms=4, capsize=2, \
                               color=ucolor, ecolor=errcolor, zorder=10)
 
+        
     else:
-        dum41 = ax41.scatter(du_med[bsho,0], du_med[bsho,1], \
+        dum41 = ax41.scatter(dutotal_med[bsho,0], \
+                             dutotal_med[bsho,1], \
                              marker='.', alpha=alpha, s=6,\
                              c=ucolor, zorder=10)
 
-        
+
+    # test our ellipses
+    #
+    # I think the exaggeration factor should be 1/sqrt(nsamples)
+    exag = 1.0/np.sqrt(du.shape[0])
+    print("DEBUG - exag:", exag)
+    ww, hh, posans = ellipsepars_from_covars(Covs, 1.0)
+    facecolorEllipse='b'
+    alphaEllipse=0.05
+    facergbaEllipse = mpl_colors.to_rgba(c=facecolorEllipse, \
+                                         alpha=alphaEllipse)
+    ecc = EllipseCollection(ww[bsho], hh[bsho], posans[bsho], \
+                            units='xy', \
+                            #offsets=dutotal_med[bsho], \
+                            offsets=upred_med[bsho], \
+                            transOffset=ax41.transData, \
+                            edgecolor='b', \
+                            #facecolor=None, \
+                            facecolor=facergbaEllipse, \
+                            zorder=5)
+    ax41.add_collection(ecc)
+
+    print("show_du DEBUG - SANITY CHECK:")
+    dumdelt = samples['u_obs'] - upred_med
+    vardelt = np.cov(dumdelt, rowvar=False)
+    w,v = np.linalg.eig(vardelt)
+    print("show_du DEBUG - obs - pred:", vardelt)
+    print("show_du DEBUG - eigenvalues:", w)
+    
+    #ax41.set_xlim(-np.min(ww), np.max(ww))
+    #ax41.set_ylim(-np.min(ww), np.max(ww))
+
+    #print("DBG - ellipses:")
+    #print(ww[0:5])
+    #print(hh[0:5])
+    #print(Covs.covars[0:5])
+    #print(Covs.majors[0:5])
+    
     # If we have the commanded perturbations, show them too
     pert = None
     if 'u_obs' in samples.keys() and 'u_tran' in samples.keys():
-        ##pert = samples['u_obs'] - samples['u_tran']
-        pert = u_obs - upred_med # THIS matches du very well. 
+        pert = samples['u_obs'] - samples['u_tran']
+        # pert = u_obs - upred_med # THIS matches du very well. 
         #pert = samples['perts_u']
+        pert = samples['u_obs']
         dum41_2 = ax41.scatter(pert[bsho,0], pert[bsho,1], \
                                alpha=alpha, c=pcolor, \
-                               zorder=20, s=16)
+                               zorder=7, s=16)
 
         print("show_du DEBUG - median offset in plotted shifts: %.2e, %.2e" \
               % (np.median(pert[bsho,0]-du_med[bsho,0]), \
                  np.median(pert[bsho,1]-du_med[bsho,1]) ) )
         
-    ax41.set_xlabel(r"$\Delta u$")
-    ax41.set_ylabel(r"$\Delta v$")
+    #ax41.set_xlabel(r"$\Delta u$")
+    #ax41.set_ylabel(r"$\Delta v$")
+
+    ax41.set_xlabel(r"$u$")
+    ax41.set_ylabel(r"$v$")
+
+    # Add an entire third axis to show the deltas. Note that we
+    # subtract u[tran] from BOTH (these are deltas from the
+    # obs). Currently written in the order this occurred to me, to be
+    # cleaned up later. So:
+    ax43 = fig4.add_subplot(132)
+    dum43_1 = ax43.errorbar(upred_med[bsho,0]-samples['u_tran'][bsho,0], \
+                            upred_med[bsho,1]-samples['u_tran'][bsho,1], \
+                            #yerr=du_std[bsho,1], xerr=du_std[bsho,0], \
+                            xerr=dutotal_std[bsho,0], \
+                            yerr=dutotal_std[bsho,1], \
+                            fmt='.', alpha=alpha, ms=4, capsize=2, \
+                            color=ucolor, ecolor=errcolor, zorder=10)
+
+    dum3_2 = ax43.scatter(pert[bsho,0] - samples['u_tran'][bsho,0], \
+                           pert[bsho,1] - samples['u_tran'][bsho,1], \
+                           alpha=alpha, c=pcolor, \
+                           zorder=7, s=16)
+
+    
+    ec3 = EllipseCollection(ww[bsho], hh[bsho], posans[bsho], \
+                            units='xy', \
+                            #offsets=dutotal_med[bsho], \
+                            offsets=upred_med[bsho] - samples['u_tran'][bsho], \
+                            transOffset=ax43.transData, \
+                            edgecolor='b', \
+                            #facecolor=None, \
+                            facecolor=facergbaEllipse, \
+                            zorder=5)
+    ax43.add_collection(ec3)
+    
+
+    ax43.set_xlabel(r"$\Delta u$")
+    ax43.set_ylabel(r"$\Delta v$")
     
     # Do we have the base points for quiver plot?
     if not keypos in samples.keys():
@@ -1306,7 +1469,7 @@ def show_du(samples={}, keypos='u_tran', \
 
     uo = samples[keypos]
     
-    ax42 = fig4.add_subplot(122)
+    ax42 = fig4.add_subplot(133)
     dum_42 = ax42.quiver(uo[:,0], uo[:,1], \
                          du_med[:,0], du_med[:,1], \
                          color=ucolor, zorder=10, alpha=alpha)
@@ -1314,7 +1477,8 @@ def show_du(samples={}, keypos='u_tran', \
     # if we have it, overplot the commanded perturbations
     if pert is not None:
         dum_42_b = ax42.quiver(uo[:,0], uo[:,1], \
-                               pert[:,0], pert[:,1], \
+                               pert[:,0] - samples['u_tran'][:,0], \
+                               pert[:,1] - samples['u_tran'][:,1], \
                                color=pcolor, zorder=20, \
                                alpha=alpha)
 
