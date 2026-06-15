@@ -1209,7 +1209,27 @@ def show_du(samples={}, keypos='u_tran', \
     print("show_du INFO - x:", x.shape)
     print("show_du INFO - A:", A.shape)
     print("show_du INFO - u0:", u0.shape)
+    print("show_du INFO - du:", du.shape)
 
+    # multiply row by row
+    print("show_du INFO - re-projecting predictions...")
+    t00 = time.time()
+    upred_samples = np.einsum('ijk,lk->ilj',A, x)
+    print("show_du INFO - done einsum in %.2e seconds" % (time.time()-t00))
+    
+    # is that at all sensible??
+    isho = 10
+    lsho = 100
+    udum = np.matmul(A[isho],x[lsho])
+    print("MULTIUPLY DEBUG:")    
+    print("MULTIPLY DEBUG: einsum: samples[%i,%i]:" % \
+          (isho, lsho), upred_samples[isho, lsho])
+    print("MULTIPLY DEBUG: direct: A[%i].x[%i]:   " % \
+          (isho, lsho), udum)
+    
+    
+    print("show_du INFO - upred_samples:", upred_samples.shape)
+    
     # For the moment let's take the median transformation FIRST:
     A_med = np.median(A, axis=0)
     u0_med = np.median(u0, axis=0)
