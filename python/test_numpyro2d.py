@@ -1217,7 +1217,8 @@ def show_du(samples={}, keypos='u_tran', \
             ucolor='k', errcolor='0.25', \
             pcolor='g', alpha=0.4, \
             show_std=True, fshow = 1.0, \
-            subset_name=None):
+            subset_name=None, \
+            u0_truth=0.25, v0_truth=0.25):
 
     """Utility: shows the samples in du
 
@@ -1321,7 +1322,7 @@ def show_du(samples={}, keypos='u_tran', \
     #    # consider the u0, v0 model parameters
 
     # set up the figure
-    fig4 = plt.figure(4, figsize=(13,4))
+    fig4 = plt.figure(4, figsize=(10,7))
     fig4.clf()
 
     # allow plotting a subset so that we can get into the dense areas
@@ -1345,7 +1346,7 @@ def show_du(samples={}, keypos='u_tran', \
     # observations. That will show if the model plus delta is bringing
     # about an offset!
             
-    ax41 = fig4.add_subplot(131)
+    ax41 = fig4.add_subplot(231)
     if show_std:
 
         # 2026-06-15 commented out while testing overplot of positions
@@ -1433,7 +1434,7 @@ def show_du(samples={}, keypos='u_tran', \
     # subtract u[tran] from BOTH (these are deltas from the
     # obs). Currently written in the order this occurred to me, to be
     # cleaned up later. So:
-    ax43 = fig4.add_subplot(132)
+    ax43 = fig4.add_subplot(234)
     dum43_1 = ax43.errorbar(upred_med[bsho,0]-samples['u_tran'][bsho,0], \
                             upred_med[bsho,1]-samples['u_tran'][bsho,1], \
                             #yerr=du_std[bsho,1], xerr=du_std[bsho,0], \
@@ -1462,6 +1463,56 @@ def show_du(samples={}, keypos='u_tran', \
 
     ax43.set_xlabel(r"$\Delta u$")
     ax43.set_ylabel(r"$\Delta v$")
+
+    # Now, how do just the straight deltas look?
+    ax44 = fig4.add_subplot(235)
+    dum44_1 = ax44.errorbar(du_med[bsho,0], du_med[bsho,1],\
+                            yerr=du_std[bsho,1], xerr=du_std[bsho,0], \
+                            fmt='.', alpha=alpha, ms=4, capsize=2, \
+                            color=ucolor, ecolor=errcolor, zorder=10)
+
+    blah44 = ax44.axvline(0., zorder=20, color='#FFCB05', alpha=0.7)
+    blah44 = ax44.axhline(0., zorder=20, color='#FFCB05', alpha=0.7)
+    
+    ax44.set_title(r'Fitted $\Delta \vec{u}$ only')
+    ax44.set_xlabel(r'$\Delta u$')
+    ax44.set_ylabel(r'$\Delta v$')
+
+    # median
+    med_du_sho = np.median(du_med, axis=0)
+    smed_sho_du = r'$<\Delta \vec{u}>$=[%.2e, %.2e]' \
+        % (med_du_sho[0], med_du_sho[1])
+    dum44 = ax44.annotate(smed_sho_du, (0.96,0.96), \
+                          xycoords='axes fraction', \
+                          ha='right', va='top', fontsize=8, \
+                          backgroundcolor='w', zorder=50, \
+                          alpha=0.8)
+    
+    # Show the u0, v0
+    u0v_truth = np.array([u0_truth, v0_truth])
+    med_du0_sho = np.median(u0 - u0v_truth[None,:], axis=0)
+    smed_sho_du0 = r'$<\Delta \vec{u}_0>$=[%.2e, %.2e]' \
+        % (med_du0_sho[0], med_du0_sho[1])
+    
+    fsampl = 0.1 # show this frawcwtion of the samples
+    bsampl = np.random.rand(u0.shape[0]) <= fsampl
+    ax45 = fig4.add_subplot(236)
+    dum45_1 = ax45.scatter(u0[bsampl,0], u0[bsampl,1], \
+                           s=1, alpha=0.5, color=ucolor, zorder=10)
+
+    dum45_2 = ax45.axvline(u0_truth, zorder=20, color='#FFCB05', alpha=0.7)
+    dum45_2 = ax45.axhline(v0_truth, zorder=20, color='#FFCB05', alpha=0.7)
+
+    dum45 = ax45.annotate(smed_sho_du0, (0.96,0.96), \
+                          xycoords='axes fraction', \
+                          ha='right', va='top', fontsize=8, \
+                          backgroundcolor='w', zorder=50, \
+                          alpha=0.8)
+
+    
+    ax45.set_xlabel(r'$u_0$')
+    ax45.set_ylabel(r'$v_0$')
+    ax45.set_title(r'Sampled [$u_0, v_0$]')
     
     # Do we have the base points for quiver plot?
     if not keypos in samples.keys():
@@ -1469,7 +1520,7 @@ def show_du(samples={}, keypos='u_tran', \
 
     uo = samples[keypos]
     
-    ax42 = fig4.add_subplot(133)
+    ax42 = fig4.add_subplot(232)
     dum_42 = ax42.quiver(uo[:,0], uo[:,1], \
                          du_med[:,0], du_med[:,1], \
                          color=ucolor, zorder=10, alpha=alpha)
@@ -1487,7 +1538,7 @@ def show_du(samples={}, keypos='u_tran', \
     ax42.set_ylabel(r"$v$")
     
     # cosmetics
-    fig4.subplots_adjust(bottom=0.15, left=0.15, hspace=0.30, wspace=0.30)
+    fig4.subplots_adjust(bottom=0.15, left=0.15, hspace=0.35, wspace=0.35)
 
     fig4.savefig('test_postdeltas.png')
     
