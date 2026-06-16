@@ -457,44 +457,22 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False):
 
     xerr = [N,2,2] optional xy uncertainties as covariances   
     
+    fitvar = include diagonal covariance in model parameters
+
 
     """
 
     # fitvar no longer does anything because there's already a
-    # covariance parameter in the background component
+    # covariance parameter in the background component - UPDATE
+    # 2026-06-11: MAKE SURE TO CHECK THAT THIS IS STILL THE CASE.
     
     # priors on bulk parameters as numpyro distributions
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
     s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
-    #u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
-    #v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
-
-    # 2026-06-11 update the prior to make more flexible...
     u0= numpyro.sample("u0", dist.Uniform(-10.0, 10.0))
     v0= numpyro.sample("v0", dist.Uniform(-10.0, 10.0))
 
-    
-    # hyper-parameters for the star-by-star shifts
-    shift_centers = x * 0
-    shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
-    
-    # Prior on mixture fraction and "background" covariance scale. For
-    # the moment we will keep all these things as scalars and wrap
-    # them into jnp arrays, where indicated, below.
-    Q = numpyro.sample("Q", dist.Uniform(0.0, 1.0))
-    # var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3))
-    var_bg = 0.
-    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-1.0, 1.0))
-    #v0_bg = numpyro.sample("v0_bg", dist.Uniform(-1.0, 1.0))
-
-    v0_bg = 0.
-    
-    # 2026-05-21: set the offsets to zero for the moment
-    #u0_bg = 0.
-    #v0_bg = 0.
-    
-    ## COMPUTED MODEL PARAMETERS
-    # cdmatrix components, produce transformed positions
+    # transform the sampled parameters into matrix components.
     b = numpyro.deterministic("b",  s * jnp.cos(theta))
     c = numpyro.deterministic("c",  s * jnp.sin(theta))
     e = numpyro.deterministic("e", -s * jnp.sin(theta))
@@ -502,24 +480,63 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False):
     
     A = jnp.array([[b,c],[e,f]])
 
-    # transformation model prediction, now including offset
-    utran = jnp.einsum('jk,ik -> ij', A, x)
-    upred = utran + jnp.array([u0,v0])[None,:]
-
-    # Now for the covariances
+    # Propagate input-frame covariances via the model paramters
     xycov_tran = A * 0.
     if xerr is not None:
         xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+
+    # allow an optional additional covariance to be applied to all the
+    # objects
+    cov_extra = jnp.zeros((2,2))
+    if fitvar:
+        v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
+        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
+
+    # star-by-star total covariance
+    cov_total = uerr + xycov_tran + cov_extra[None,:,:]
+
+    # Now the mixture model pieces. The (co)variances of the MODEL
+    # components are currently built from scalars (we could make these
+    # vectors later in order to allow covariant priors).
+
+    # The center of the background component is specified as an offset
+    # from the foreground component. This should aid with
+    # identification, and prevents, say, the background from being the
+    # left half of the scene while the foreground is the right half of
+    # the scene. so:
+    var_fg = numpyro.sample("var_fg", dist.LogUniform(1e-12,1e-3))
+    cov_mixmod_fg =  jnp.array([[var_fg,0], [0,var_fg]])
+    cov_total_fg = cov_total + cov_mixmod_fg[None,:,:]
+
+    # Notice that the background variance is always larger than the
+    # foreground variance. This is done to help force the
+    # identification.
+    var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-2) )
+    cov_mixmod_bg = jnp.array([[var_bg,0], [0,var_bg]])
+    cov_total_bg = cov_total_fg  + cov_mixmod_bg[None,:,:]
+
+    # 2026-06-11 wishlist: pass in the hyperparams for the prior
+    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-0.1, 0.1))
+    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-0.1, 0.1))
+
+    # ok NOW we are finally in a position to predict the u,v coords
+    # given the whole-frame model. We already have the transformation
+    # matrix A because we needed it for covariance propagation
+    # above. So:
+    utran = jnp.einsum('jk,ik -> ij', A, x)
+    upred_fg = utran + jnp.array([u0,v0])[None,:]
+    upred_bg = upred_fg + jnp.array([u0_bg, v0_bg])[None,:]
+
+    # hyper-parameters for the star-by-star shifts. Note that we could
+    # now make this different for the foreground and background
+    # components.
+    shift_centers = x * 0
+    shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
+
+    # The mixture model
+    Q = numpyro.sample("Q", dist.Uniform(0.0, 1.0))
+    mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
     
-    # Total covariance (measurement in both frames, optionally)
-    cov_fg = uerr + xycov_tran
-
-    # Model parameters for background component
-    cov_bg = cov_fg + \
-        jnp.array([[var_bg,0],[0,var_bg]])[None,:,:]
-
-    u_bg = utran + jnp.array([u0_bg, v0_bg])[None,:]
-
     # compute the distributions
     with numpyro.plate("data", x.shape[0]):
 
@@ -529,14 +546,14 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False):
                                                     shift_covars) )
 
         # the foreground and background predictions...
-        u_fg = upred + du        
-        u_bg = u_bg + du
+        u_fg = upred_fg + du        
+        u_bg = upred_bg + du
 
-        dist_fg = dist.MultivariateNormal(u_fg, cov_fg)
-        dist_bg = dist.MultivariateNormal(u_bg, cov_bg)
+        dist_fg = dist.MultivariateNormal(u_fg, cov_total_fg)
+        dist_bg = dist.MultivariateNormal(u_bg, cov_total_bg)
         
         # Now form the mixture
-        mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
+        # mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
         mixture = dist.MixtureGeneral(mix, [dist_fg, dist_bg] )
 
         # This I think *should* compute the appropriate mixture model
@@ -875,7 +892,10 @@ def gendata(ndata=25, xsz=2., ysz=2., \
         return xobs, uobs, ucovs, xcovs, ugen
     
     # it helps to show the actual data at this point...
-    fig1 = plt.figure(1, figsize=(5,5))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=UserWarning)
+        fig1 = plt.figure(1, figsize=(5,5))
+        
     fig1.subplots_adjust(hspace=0.5, wspace=0.5, bottom=0.25)
     fig1.clf()
     ax1a = fig1.add_subplot(221)
@@ -1220,7 +1240,7 @@ for a matplotlib ellipse collection.
 
 def show_du(samples={}, keypos='u_tran', \
             ucolor='k', errcolor='0.25', \
-            pcolor='g', alpha=0.4, \
+            pcolor='#75988d', alpha=0.4, \
             facecolorEllipse='b', \
             alphaEllipse=0.05, \
             show_std=True, fshow = 1.0, \
@@ -1738,7 +1758,7 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
                   key_var_u='var_fg', \
                   edgecolorEllipse='#00274C', \
                   facecolorEllipse='#FFCB05', \
-                  zorder=25, \
+                  zorder=55, \
                   which_samples=lellipse, \
                   AAinv=AAinv)
 
@@ -1748,14 +1768,17 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
                   edgecolorEllipse='#9A3324', \
                   facecolorEllipse='#702082', \
                   alphaEllipse=0.01, \
-                  zorder=15, \
+                  zorder=50, \
                   which_samples=lellipse, \
                   AAinv=AAinv)
 
     fig6.savefig('test_mixmod_ellipses.png')
 
     #### QUIVER PLOT COLOR CODED BY MEDIAN MEMBERSHIP PROBABILITY
-    fig8=plt.figure(8, figsize=(10,4))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=UserWarning)
+        fig8=plt.figure(8, figsize=(10,4))
+        
     fig8.clf()
     ax81=fig8.add_subplot(121)    
     ax82=fig8.add_subplot(122)
@@ -2342,7 +2365,10 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     RETURNS
     =======
 
-    dret = {} = dictionary containing the MCMC samples, with arguments that depend on the options that were sent in
+    dret = {} = dictionary containing the MCMC samples, plus some
+    useful diagnostic information like booleans for foregound /
+    "outliers," the truth parameters, etc. (For more information, see
+    the source code or do dret.keys() on this output.)
 
     """
 
@@ -2534,16 +2560,21 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # since the generation has become more complicated now, do a plot
     # here.
     if show_gen:
-        fig5=plt.figure(5, figsize=(6,6))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            fig5=plt.figure(5, figsize=(6,6))
+            fig9=plt.figure(9, figsize=(6,4))
+
         fig5.clf()
+        fig9.clf()
 
         ax5_1 = fig5.add_subplot(221)
         ax5_2 = fig5.add_subplot(222)
         ax5_4 = fig5.add_subplot(224)
 
         # vs-coord plots
-        fig9=plt.figure(9, figsize=(6,4))
-        fig9.clf()
+        # fig9=plt.figure(9, figsize=(6,4))
+        # fig9.clf()
         ax9_1 = fig9.add_subplot(321)
         ax9_2 = fig9.add_subplot(323, sharex=ax9_1)
         ax9_3 = fig9.add_subplot(322, sharey=ax9_1)
@@ -2662,8 +2693,9 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         print("TESTING SHIFT MODEL")
         methmodel = model_2term_shift
 
+    # This is the hierarchical model, WITH star-by-star moves.
     if test_mix:
-        print("TESTING MIX MODEL")
+        print("TESTING MIX MODEL WITH SHIFT")
         methmodel = model_2term_mix
 
     if test_popmix:
@@ -2756,8 +2788,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                              np.log10(samples["v_add"]) )).T
         corner_labels.append(r"$log_{10}(v_{add})$")
         corner_truths.append(None)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=UserWarning)
+        fig3 = plt.figure(3, figsize=(6,6))
         
-    fig3 = plt.figure(3, figsize=(6,6))
     fig3.clf()
     dum = corner.corner(chainz, labels=corner_labels, \
                         truths=corner_truths, \
