@@ -1218,11 +1218,16 @@ def show_du(samples={}, keypos='u_tran', \
             pcolor='g', alpha=0.4, \
             show_std=True, fshow = 1.0, \
             subset_name=None, \
-            u0_truth=0.25, v0_truth=0.25):
+            u0_truth=0.25, v0_truth=0.25, \
+            debug=False):
 
     """Utility: shows the samples in du
 
-    subset = keyname of subset"""
+    subset = keyname of subset
+
+    u0_truth, v0_truth = input values of pointing
+
+    debug = print helpful messages to screen"""
 
     if len(samples.keys()) < 1:
         return
@@ -1242,12 +1247,13 @@ def show_du(samples={}, keypos='u_tran', \
     u_obs = samples['u_obs']
     
     # Predicted position set for every sample
-    print("show_du INFO - sample shapes:")
-    print("show_du INFO - x:", x.shape)
-    print("show_du INFO - A:", A.shape)
-    print("show_du INFO - u0:", u0.shape)
-    print("show_du INFO - du:", du.shape)
-    print("show_du INFO - u_obs:", u_obs.shape)
+    if debug:
+        print("show_du INFO - sample shapes:")
+        print("show_du INFO - x:", x.shape)
+        print("show_du INFO - A:", A.shape)
+        print("show_du INFO - u0:", u0.shape)
+        print("show_du INFO - du:", du.shape)
+        print("show_du INFO - u_obs:", u_obs.shape)
 
     # multiply row by row
     print("show_du INFO - re-projecting predictions...")
@@ -1260,52 +1266,48 @@ def show_du(samples={}, keypos='u_tran', \
 
     # Form statistics on THESE. Our covsNx2x2 object does this,
     # but expects [nsamples 2, ndata]. So we transpose first.
+    print("show_du INFO - computing covars...")
+    t01 = time.time()
     sampls = np.transpose(upred_total, axes=(0,2,1))
     Covs = covarsNx2x2.CovarsNx2x2(xysamples=sampls)
-    print("show_du INFO - upred_total:", upred_total.shape)
-    print("show_du INFO - sampls shape:", sampls.shape)
-    print("show_du INFO - covars shape:", Covs.covars.shape)
+    print("show_du INFO - ... done in %.2e seconds" % \
+          (time.time() - t01))
+    if debug:
+        print("show_du INFO - upred_total:", upred_total.shape)
+        print("show_du INFO - sampls shape:", sampls.shape)
+        print("show_du INFO - covars shape:", Covs.covars.shape)
 
 
     # median along the samples of the upred
     upred_med = np.median(upred_total, axis=0)
 
-    # median along the data of the predictions
-    #pred_cen = np.median(upred_med, axis=0)
-    
     # The deltas about predictions...
     delt_u = u_obs[None,:,:] - upred_total
-    #delt_u = upred_total - pred_cen[None,None,:]
-    
-    print("show_du INFO: delt_u:", delt_u.shape)
 
     dutotal_med = np.median(delt_u, axis=0)
     dutotal_std = np.std(delt_u, axis=0)
 
-    print("DEBUG:", np.median(dutotal_std, axis=0) )
+    if debug:
+        print("show_du INFO: delt_u:", delt_u.shape)
+        print("DEBUG:", np.median(dutotal_std, axis=0) )
     
-    # is that at all sensible??
-    isho = 10
-    lsho = 100
-    udum = np.matmul(A[isho],x[lsho])
-    print("MULTIUPLY DEBUG:")    
-    print("MULTIPLY DEBUG: einsum: samples[%i,%i]:" % \
-          (isho, lsho), upred_samples[isho, lsho])
-    print("MULTIPLY DEBUG: direct: A[%i].x[%i]:   " % \
-          (isho, lsho), udum)
+        # is that at all sensible??
+        isho = 10
+        lsho = 100
+        udum = np.matmul(A[isho],x[lsho])
+        print("MULTIUPLY DEBUG:")    
+        print("MULTIPLY DEBUG: einsum: samples[%i,%i]:" % \
+              (isho, lsho), upred_samples[isho, lsho])
+        print("MULTIPLY DEBUG: direct: A[%i].x[%i]:   " % \
+              (isho, lsho), udum)
 
-    print("show_du DBG: upred_total[%i,%i]: " % \
-          (isho, lsho), upred_total[isho, lsho])
+        print("show_du DBG: upred_total[%i,%i]: " % \
+              (isho, lsho), upred_total[isho, lsho])
     
-    print("show_du INFO - upred_samples:", upred_samples.shape)
-    print("show_du INFO - upred_total:", upred_total.shape)
+        print("show_du INFO - upred_samples:", upred_samples.shape)
+        print("show_du INFO - upred_total:", upred_total.shape)
     
-    ## For the moment let's take the median transformation FIRST:
-    #A_med = np.median(A, axis=0)
-    #u0_med = np.median(u0, axis=0)
-    #upred_med = np.einsum('jk,ik -> ij', A_med, x) + u0_med[None,:]
-
-    print("show_du INFO - upred_med:", upred_med.shape)
+        print("show_du INFO - upred_med:", upred_med.shape)
     
     
     # The bulk-offset samples: [nsamples, 2]
@@ -1322,7 +1324,7 @@ def show_du(samples={}, keypos='u_tran', \
     #    # consider the u0, v0 model parameters
 
     # set up the figure
-    fig4 = plt.figure(4, figsize=(10,7))
+    fig4 = plt.figure(4, figsize=(10,6))
     fig4.clf()
 
     # allow plotting a subset so that we can get into the dense areas
@@ -1373,10 +1375,6 @@ def show_du(samples={}, keypos='u_tran', \
 
 
     # test our ellipses
-    #
-    # I think the exaggeration factor should be 1/sqrt(nsamples)
-    exag = 1.0/np.sqrt(du.shape[0])
-    print("DEBUG - exag:", exag)
     ww, hh, posans = ellipsepars_from_covars(Covs, 1.0)
     facecolorEllipse='b'
     alphaEllipse=0.05
@@ -1393,21 +1391,13 @@ def show_du(samples={}, keypos='u_tran', \
                             zorder=5)
     ax41.add_collection(ecc)
 
-    print("show_du DEBUG - SANITY CHECK:")
-    dumdelt = samples['u_obs'] - upred_med
-    vardelt = np.cov(dumdelt, rowvar=False)
-    w,v = np.linalg.eig(vardelt)
-    print("show_du DEBUG - obs - pred:", vardelt)
-    print("show_du DEBUG - eigenvalues:", w)
-    
-    #ax41.set_xlim(-np.min(ww), np.max(ww))
-    #ax41.set_ylim(-np.min(ww), np.max(ww))
-
-    #print("DBG - ellipses:")
-    #print(ww[0:5])
-    #print(hh[0:5])
-    #print(Covs.covars[0:5])
-    #print(Covs.majors[0:5])
+    if debug:
+        print("show_du DEBUG - SANITY CHECK:")
+        dumdelt = samples['u_obs'] - upred_med
+        vardelt = np.cov(dumdelt, rowvar=False)
+        w,v = np.linalg.eig(vardelt)
+        print("show_du DEBUG - obs - pred:", vardelt)
+        print("show_du DEBUG - eigenvalues:", w)
     
     # If we have the commanded perturbations, show them too
     pert = None
@@ -1420,16 +1410,21 @@ def show_du(samples={}, keypos='u_tran', \
                                alpha=alpha, c=pcolor, \
                                zorder=7, s=16)
 
-        print("show_du DEBUG - median offset in plotted shifts: %.2e, %.2e" \
+        print("show_du INFO - median offset in plotted shifts: %.2e, %.2e" \
               % (np.median(pert[bsho,0]-du_med[bsho,0]), \
                  np.median(pert[bsho,1]-du_med[bsho,1]) ) )
+
+        meanshift = np.mean(samples['u_obs'] - samples['u_tran'], axis=0)
+        print("show_du INFO - mean offset in simulated shifts: %.2e, %.2e" \
+              % (meanshift[0], meanshift[1]))
         
     #ax41.set_xlabel(r"$\Delta u$")
     #ax41.set_ylabel(r"$\Delta v$")
 
     ax41.set_xlabel(r"$u$")
     ax41.set_ylabel(r"$v$")
-
+    ax41.set_title(r'"Observed" and sampled')
+    
     # Add an entire third axis to show the deltas. Note that we
     # subtract u[tran] from BOTH (these are deltas from the
     # obs). Currently written in the order this occurred to me, to be
@@ -1461,9 +1456,10 @@ def show_du(samples={}, keypos='u_tran', \
     ax43.add_collection(ec3)
     
 
-    ax43.set_xlabel(r"$\Delta u$")
-    ax43.set_ylabel(r"$\Delta v$")
-
+    ax43.set_xlabel(r"$u - u_{tran}$")
+    ax43.set_ylabel(r"$v - v_{tran}$")
+    ax43.set_title(r"Sampled model incl. $\Delta \vec{u}$")
+    
     # Now, how do just the straight deltas look?
     ax44 = fig4.add_subplot(235)
     dum44_1 = ax44.errorbar(du_med[bsho,0], du_med[bsho,1],\
@@ -1471,10 +1467,11 @@ def show_du(samples={}, keypos='u_tran', \
                             fmt='.', alpha=alpha, ms=4, capsize=2, \
                             color=ucolor, ecolor=errcolor, zorder=10)
 
-    blah44 = ax44.axvline(0., zorder=20, color='#FFCB05', alpha=0.7)
-    blah44 = ax44.axhline(0., zorder=20, color='#FFCB05', alpha=0.7)
+    for ax in [ax43, ax44]:
+        blah44 = ax.axvline(0., zorder=20, color='#FFCB05', alpha=0.7)
+        blah44 = ax.axhline(0., zorder=20, color='#FFCB05', alpha=0.7)
     
-    ax44.set_title(r'Fitted $\Delta \vec{u}$ only')
+    ax44.set_title(r'Sampled $\Delta \vec{u}$ only')
     ax44.set_xlabel(r'$\Delta u$')
     ax44.set_ylabel(r'$\Delta v$')
 
@@ -1488,7 +1485,8 @@ def show_du(samples={}, keypos='u_tran', \
                           backgroundcolor='w', zorder=50, \
                           alpha=0.8)
     
-    # Show the u0, v0
+    # Show the u0, v0. We will want to bring in the truth parameters
+    # in the samples, but atm that's a task for later...
     u0v_truth = np.array([u0_truth, v0_truth])
     med_du0_sho = np.median(u0 - u0v_truth[None,:], axis=0)
     smed_sho_du0 = r'$<\Delta \vec{u}_0>$=[%.2e, %.2e]' \
@@ -1536,9 +1534,11 @@ def show_du(samples={}, keypos='u_tran', \
     
     ax42.set_xlabel(r"$u$")
     ax42.set_ylabel(r"$v$")
+    ax42.set_title(r'"Observed" and sampled')
+
     
     # cosmetics
-    fig4.subplots_adjust(bottom=0.15, left=0.15, hspace=0.35, wspace=0.35)
+    fig4.subplots_adjust(bottom=0.15, left=0.12, hspace=0.35, wspace=0.4)
 
     fig4.savefig('test_postdeltas.png')
     
