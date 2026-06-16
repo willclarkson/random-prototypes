@@ -443,7 +443,8 @@ shifts as residuals.
         pred_dist = dist.MultivariateNormal(utot, cov_total)
         numpyro.sample("u", pred_dist, obs=u)
 
-def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False):
+def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
+                    Qmin=0., Qmax=1., nclump_min=3):
 
     """Scale, rotation, offset, mixture, individual moves
 
@@ -459,6 +460,12 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False):
     
     fitvar = include diagonal covariance in model parameters
 
+    Qmin = minimum allowed mixture fraction Q
+    
+    Qmax = maximum allowed mixture fraction Q
+
+    nclump_min = minimum clump size (to stop the mixmod from fixating
+    on one object)
 
     """
 
@@ -533,8 +540,16 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False):
     shift_centers = x * 0
     shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
 
-    # The mixture model
-    Q = numpyro.sample("Q", dist.Uniform(0.0, 1.0))
+    # The mixture model NOTE TO SELF - TRY BRINGING IN THIS RANGE A BIT
+
+    # 2026-06-16 it's not immediately obvious how to pass in arguments
+    # to some models and not others for the sampler. In the meantime,
+    # we set these from the data. This will go pathological if
+    # nclump_min > number of points / 2. Find a better way later.
+    Qmin = nclump_min * 1.0 / x.shape[0]
+    Qmax = 1.0 - Qmin
+    
+    Q = numpyro.sample("Q", dist.Uniform(Qmin, Qmax))
     mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
     
     # compute the distributions
