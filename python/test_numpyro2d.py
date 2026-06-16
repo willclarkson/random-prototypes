@@ -1317,7 +1317,8 @@ them. Currently five panels are shown:
     print("show_du INFO - re-projecting predictions...")
     t00 = time.time()
     upred_samples = np.einsum('ijk,lk->ilj',A, x)
-    print("show_du INFO - done einsum in %.2e seconds" % (time.time()-t00))
+    print(f"\033[Fshow_du INFO - done einsum reprojection in %.2e seconds" \
+          % (time.time()-t00))
 
     # now add on the deltas
     upred_total = upred_samples + du + u0[:,None,:]
@@ -1328,8 +1329,8 @@ them. Currently five panels are shown:
     t01 = time.time()
     sampls = np.transpose(upred_total, axes=(0,2,1))
     Covs = covarsNx2x2.CovarsNx2x2(xysamples=sampls)
-    print("show_du INFO - ... done in %.2e seconds" % \
-          (time.time() - t01))
+    print(f"\033[Fshow_du INFO - done covars in %.2e seconds" \
+          % (time.time() - t01))
     if debug:
         print("show_du INFO - upred_total:", upred_total.shape)
         print("show_du INFO - sampls shape:", sampls.shape)
