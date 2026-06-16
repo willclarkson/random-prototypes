@@ -49,6 +49,11 @@ from matplotlib import colors as mpl_colors
 # For dumping samples to disk while developing
 import pickle
 
+# For suppressing warnings when e.g. referring to a figure that's
+# already present
+import warnings
+
+
 # For this, we adopt "x" as the "input" positions, and "u" as the
 # "output". This allows us to use (x,y) and (u,v) later on if that is
 # clearer.
@@ -1216,18 +1221,71 @@ for a matplotlib ellipse collection.
 def show_du(samples={}, keypos='u_tran', \
             ucolor='k', errcolor='0.25', \
             pcolor='g', alpha=0.4, \
+            facecolorEllipse='b', \
+            alphaEllipse=0.05, \
             show_std=True, fshow = 1.0, \
             subset_name=None, \
+            keytruths='truthpars', \
             u0_truth=0.25, v0_truth=0.25, \
-            debug=False):
+            debug=False, \
+            figname='test_postdeltas.png'):
 
-    """Utility: shows the samples in du
+    """Utility: when the star-by-star motions are simulated, this shows
+them. Currently five panels are shown:
+
+    (i) Observed and sampled [u,v] coordinates with sample ellipses
+    overplotted;
+
+    (ii) As (i) but with simulated and median sampled offsets as quiver-plot;
+
+    (iii) As (i) but after subtraction of simulated u_tran (so the
+    *commanded* deltas are shown), with sample ellipses overplotted;
+
+    (iv) The sampled du only, with median shown as annotation;
+
+    (v) the sampled [u0_v0] only, with median shown as annotation.
+
+    This helps to show when the model [u_0, v_0] and star-by-star [du]
+    are compensating for each other.
+
+    INPUTS
+    ======
+
+    samples = {} = dictionary of MCMC samples.
+
+    keypos = keyword name for the transformed positions
+
+    ucolor = color for deltas on plots
+
+    errcolor = color for errors in errorbar plots
+
+    pcolor = color for "observed" (i.e. target) positions
+
+    alpha = transparency for errorbar plot
+
+    facecolorEllipse = facecolor for sample ellipses
+
+    alphaEllipse = transparency for error ellipse *facecolor*
+
+    show_std = show stddevs of samples as errorbars
+
+    fshow = fraction of points to show. Overridden if subset_name is
+    given and found in samples.
+
+    subset_name = name of simulated subset to show
 
     subset = keyname of subset
 
-    u0_truth, v0_truth = input values of pointing
+    keytruths = keyword for truth parameters in samples dictionary
 
-    debug = print helpful messages to screen"""
+    u0_truth, v0_truth = input values of pointing offset. Ignored if
+    the same parameters are found in the input samples via keytruths.
+
+    debug = print helpful messages to screen
+
+    figname = name for figure file saved to disk
+
+    """
 
     if len(samples.keys()) < 1:
         return
@@ -1324,7 +1382,9 @@ def show_du(samples={}, keypos='u_tran', \
     #    # consider the u0, v0 model parameters
 
     # set up the figure
-    fig4 = plt.figure(4, figsize=(10,6))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=UserWarning)
+        fig4 = plt.figure(4, figsize=(10,6))        
     fig4.clf()
 
     # allow plotting a subset so that we can get into the dense areas
@@ -1337,10 +1397,11 @@ def show_du(samples={}, keypos='u_tran', \
         if subset_name.find('b_') == 0:
             bsho = samples[subset_name]
 
-            print("using subset %s: %i" % (subset_name, np.sum(bsho)))
+            print("show_du INFO - looking for subset %s: %i" \
+                  % (subset_name, np.sum(bsho)))
 
             if np.sum(bsho) <1:
-                print("No entries in this subset! Nothing to plot...")
+                print("No entries in this subset! Nothing to plot.")
                 return
 
     # 2026-06-15 I have got tangled in definitions of which delta is
@@ -1376,8 +1437,6 @@ def show_du(samples={}, keypos='u_tran', \
 
     # test our ellipses
     ww, hh, posans = ellipsepars_from_covars(Covs, 1.0)
-    facecolorEllipse='b'
-    alphaEllipse=0.05
     facergbaEllipse = mpl_colors.to_rgba(c=facecolorEllipse, \
                                          alpha=alphaEllipse)
     ecc = EllipseCollection(ww[bsho], hh[bsho], posans[bsho], \
@@ -1402,9 +1461,7 @@ def show_du(samples={}, keypos='u_tran', \
     # If we have the commanded perturbations, show them too
     pert = None
     if 'u_obs' in samples.keys() and 'u_tran' in samples.keys():
-        pert = samples['u_obs'] - samples['u_tran']
-        # pert = u_obs - upred_med # THIS matches du very well. 
-        #pert = samples['perts_u']
+        # this needs cleaning up
         pert = samples['u_obs']
         dum41_2 = ax41.scatter(pert[bsho,0], pert[bsho,1], \
                                alpha=alpha, c=pcolor, \
@@ -1484,10 +1541,19 @@ def show_du(samples={}, keypos='u_tran', \
                           ha='right', va='top', fontsize=8, \
                           backgroundcolor='w', zorder=50, \
                           alpha=0.8)
-    
-    # Show the u0, v0. We will want to bring in the truth parameters
-    # in the samples, but atm that's a task for later...
+
+    # Access the truth parameters of the simulation.
+    if keytruths in samples.keys():
+        dtruths = samples[keytruths]
+        if 'u0' in dtruths.keys() and 'v0' in dtruths.keys():
+            u0_truth = dtruths['u0']
+            v0_truth = dtruths['v0']
+            print("show_du INFO - truth pointing from dict: [%.2f, %.2f]" \
+                  % (u0_truth, v0_truth))
+
+            
     u0v_truth = np.array([u0_truth, v0_truth])
+        
     med_du0_sho = np.median(u0 - u0v_truth[None,:], axis=0)
     smed_sho_du0 = r'$<\Delta \vec{u}_0>$=[%.2e, %.2e]' \
         % (med_du0_sho[0], med_du0_sho[1])
@@ -1515,7 +1581,9 @@ def show_du(samples={}, keypos='u_tran', \
     # Do we have the base points for quiver plot?
     if not keypos in samples.keys():
         return
-
+    
+    # (This variable name is probably duplicative given what comes
+    # above. Fix later.)
     uo = samples[keypos]
     
     ax42 = fig4.add_subplot(232)
@@ -1540,7 +1608,8 @@ def show_du(samples={}, keypos='u_tran', \
     # cosmetics
     fig4.subplots_adjust(bottom=0.15, left=0.12, hspace=0.35, wspace=0.4)
 
-    fig4.savefig('test_postdeltas.png')
+    if len(figname) > 3:
+        fig4.savefig(figname)
     
 def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
                  cmap='plasma_r', extralog=False):
@@ -2698,15 +2767,14 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                         title_kwargs={"fontsize":9}, \
                         label_kwargs={"fontsize":9} )
 
+    fig3.subplots_adjust(left=0.15, bottom=0.15)
     fig3.savefig('simulated_cornerplot.png')
     
     # return the samples so that we can play with them. Smuggle the
     # transformed positions in the samples as well
     dret = samples.copy()
-    dret['u_gen'] = ugen
     dret['u_tran'] = utran
     dret['u_obs'] = u_obs
-    dret['perts_u'] = perts_u # I've lost track of what is what
     dret['x'] = x
 
     dret['methmodel'] = methmodel.__name__
@@ -2719,9 +2787,14 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     dret['b_shif'] = bshif
     dret['b_contam'] = bcontam
     dret['b_clumps'] = bclumps
-    
-    fig3.subplots_adjust(left=0.15, bottom=0.15)
 
+    # Truth parameters. Not sure quite what the best way to do this is
+    # going to be, but we only have a single number per parameter so
+    # perhaps flexibility is better. For the moment, wrap these into a
+    # dictionary.
+    truthpars = {'s':s, 'theta':theta, 'u0':u0, 'v0':v0}
+    dret['truthpars'] = truthpars
+    
     # dump the samples to disk for the moment
     with open('test_samples.pickle', 'wb') as wobj:
         pickle.dump(dret, wobj)
