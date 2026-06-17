@@ -444,7 +444,7 @@ shifts as residuals.
         numpyro.sample("u", pred_dist, obs=u)
 
 def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
-                    Qmin=0., Qmax=1., nclump_min=3):
+                    Qmin=0., Qmax=1., nclump_min=10):
 
     """Scale, rotation, offset, mixture, individual moves
 
@@ -523,9 +523,13 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
     cov_total_bg = cov_total_fg  + cov_mixmod_bg[None,:,:]
 
     # 2026-06-11 wishlist: pass in the hyperparams for the prior
-    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-0.1, 0.1))
-    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-0.1, 0.1))
+    #u0_bg = numpyro.sample("u0_bg", dist.Uniform(-0.1, 0.1))
+    #v0_bg = numpyro.sample("v0_bg", dist.Uniform(-0.1, 0.1))
 
+    u0_bg = numpyro.sample("u0_bg", dist.Normal(0., 0.05))
+    v0_bg = numpyro.sample("v0_bg", dist.Normal(0., 0.05))
+
+    
     # ok NOW we are finally in a position to predict the u,v coords
     # given the whole-frame model. We already have the transformation
     # matrix A because we needed it for covariance propagation
