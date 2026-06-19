@@ -161,7 +161,8 @@ def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False):
         pred_dist = dist.MultivariateNormal(upred, cov_total)
         numpyro.sample("u", pred_dist, obs=u)
 
-def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, wid_u0=2.):
+def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, wid_u0=2., \
+                       Qmin=0., Qmax=1.):
 
     """Fits mixture model to the positions, but does not fit individual star-by-star shifts. 
 
@@ -179,6 +180,10 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, wid_u0=2.):
     fitvar = include diagonal covariance in model parameters
 
     wid_u0 = prior width for u0 parameters
+
+    Qmin = minimum mixture fraction
+
+    Qmax = maximum mixture fraction
 
 """
 
@@ -253,9 +258,8 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, wid_u0=2.):
     # sure yet how to stop this going to 1/Npoints... try imposing a
     # lower and upper limit.
     #
-    # 2026-06-12 try also enforcing Q as the majority component. This
-    # has been the case for the simulations I have tried, but WATCHOUT...
-    Q = numpyro.sample("Q", dist.Uniform(0.05, 0.95))
+    # 2026-06-19 bounds on Q now supplied as input arguments
+    Q = numpyro.sample("Q", dist.Uniform(Qmin, Qmax))
     mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
 
     # The usual plate incantation
@@ -550,8 +554,8 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
     # to some models and not others for the sampler. In the meantime,
     # we set these from the data. This will go pathological if
     # nclump_min > number of points / 2. Find a better way later.
-    Qmin = nclump_min * 1.0 / x.shape[0]
-    Qmax = 1.0 - Qmin
+    #Qmin = nclump_min * 1.0 / x.shape[0]
+    #Qmax = 1.0 - Qmin
     
     Q = numpyro.sample("Q", dist.Uniform(Qmin, Qmax))
     mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
@@ -1777,16 +1781,18 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
                   key_var_u='var_fg', \
                   edgecolorEllipse='#00274C', \
                   facecolorEllipse='#FFCB05', \
+                  edgealphaEllipse=0.2, \
                   zorder=55, \
                   which_samples=lellipse, \
                   AAinv=AAinv)
 
+    # background
     show_ellipses(dsamples, ax=ax64, fig=fig6, \
                   key_cen_u='u0_bg', key_cen_v='v0_bg', \
                   key_var_u='var_bg', \
                   edgecolorEllipse='#9A3324', \
                   facecolorEllipse='#702082', \
-                  alphaEllipse=0.01, \
+                  alphaEllipse=0.001, \
                   zorder=50, \
                   which_samples=lellipse, \
                   AAinv=AAinv)
@@ -1855,6 +1861,7 @@ def show_ellipses(dsamples={}, ax=None, fig=None, \
                   zorder=5, \
                   plotMedian=True, \
                   AAinv=None, \
+                  ignore_corrections=False, \
                   residuals_include_offsets=True):
 
     """Overplots samples from covariance ellipses on the current
@@ -1905,6 +1912,8 @@ current axes. Currently every model component is assumed to be scalar (so two ke
     the differential frame transformation when plotting each
     ellipse. Ignored if None.
     
+    ignore_corrections = ignore correction matrices
+
     residuals_include_offsets - True if the residuals include the offsets [u0, v0] in the model.
 
     """
@@ -1973,7 +1982,7 @@ current axes. Currently every model component is assumed to be scalar (so two ke
         uv -= np.median(uv, axis=0)[None,:]
 
     # Apply corrections here if supplied. Written out for transparency
-    if AAinv is not None:
+    if AAinv is not None and not ignore_corrections:
         U = AAinv
         UT = np.transpose(AAinv,axes=(0,2,1))
 
@@ -2294,6 +2303,8 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     rot_in=1., rot_ou=0.05, rot_pow=-3., \
                     rtrue=1., betadeg=0., \
                     add_clumps=False, \
+                    minsize_component = 10, \
+                    Qmin=None, Qmax=None, \
                     tell_perts=True):
 
     """Sets up 2-term mapping where the objects can move after the
@@ -2378,6 +2389,12 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
     betadeg = axis deviation from perpendicular, in degrees (note that
     the 2-term scale rotation model assumes betadeg=0.)
+
+    minsize_component = minimum population size for mixture component (to
+    discourage a mixture model from piling up on a single datapoint)
+
+    Qmin, Qmax = minmax mixture model fractions. Override
+    minsize_component if BOTH are not None.
 
     tell_perts = report to screen which perturbations are being generated
 
@@ -2702,6 +2719,34 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     
     # For the moment, try our "working" method, just to make sure our
     # syntax is sensible.
+
+    # 2026-06-19 - bounds on mixture fraction for any mixture model we
+    # will be using. (Should probably refactor this out into something
+    # a bit more flexible. To be done later.)
+    if test_mix or test_popmix:
+        if Qmin is None and Qmax is None:
+            Qmin = minsize_component * 1.0 / x.shape[0]
+            if Qmin > 0.5:
+                Qmin = 1.0 - Qmin
+            Qmax = 1.0 - Qmin
+        
+            # only actually report this out if we're doing a mixture model
+            # (and thus would actually use it).
+            print("test2term_moves INFO - minsize %i/%i --> Q = [%.2f, %.2f]" \
+                  % (minsize_component, x.shape[0], Qmin, Qmax))
+        else:
+            print("test2term_moves INFO - using supplied Q [%.2f, %.2f]" \
+                  % (Qmin, Qmax))
+
+        # sanity check on the limits
+        if Qmin < 0. or Qmax > 1.:
+            print("test2term_moves WARN - bad Q limits. Re-check!")
+            return
+            
+    # 2026-06-19 - try supplying additional arguments to the model
+    # function in a general way... does this work with jax and
+    # numpyro?
+    extra_args = {}
     
     methmodel = model_2term_bells
     if test_moves:
@@ -2717,9 +2762,13 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         print("TESTING MIX MODEL WITH SHIFT")
         methmodel = model_2term_mix
 
+        extra_args={'Qmin':Qmin, 'Qmax':Qmax}
+        
     if test_popmix:
         print("TESTING MIXMOD")
         methmodel = model_2term_mixmod
+
+        extra_args={'Qmin':Qmin, 'Qmax':Qmax}
         
     sampler = infer.MCMC(
         infer.NUTS(methmodel),
@@ -2729,9 +2778,10 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         progress_bar=True)
 
     t0 = time.time()
-    
+
+    # Try passing extra arguments to the function for the sampler.
     sampler.run(jax.random.key(seed), x, ucov, u=u_obs, xerr=None, \
-                fitvar=fit_var)
+                fitvar=fit_var, **extra_args)
 
     # for screen printing
     var_names=["s", "theta"]
