@@ -448,7 +448,14 @@ shifts as residuals.
         numpyro.sample("u", pred_dist, obs=u)
 
 def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
-                    Qmin=0., Qmax=1., nclump_min=10):
+                    wid_u0=2., Qmin=0., Qmax=1., nclump_min=10, \
+                    uniform_prior_u0=True, \
+                    prior_u0_cen=jnp.array([0.250, 0.250]), \
+                    prior_u0_std=jnp.array([0.01,0.01]), \
+                    uniform_prior_u0_bg=True, \
+                    prior_u0_bg_cen=0., \
+                    prior_u0_bg_std=0.1, \
+                    prior_var_bg_min=1.0e-12):
 
     """Scale, rotation, offset, mixture, individual moves
 
@@ -464,12 +471,29 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
     
     fitvar = include diagonal covariance in model parameters
 
+    wid_u0 = prior width for u0 parameters
+
     Qmin = minimum allowed mixture fraction Q
     
     Qmax = maximum allowed mixture fraction Q
 
     nclump_min = minimum clump size (to stop the mixmod from fixating
-    on one object)
+    on one datapoints for its mixture component)
+
+    uniform_prior_u0 = use uniform prior on the main pointing
+
+    prior_u0_cen = [2] = [u0,v0] prior center (if using 2d normal,
+    ignored if uniform prior on the main pointing)
+
+    prior_u0_std = [2] = u0,v0 prior stddev on [u0,v0] *separately* -
+    we are not yet doing a 2D prior for both together. Ignored if
+    using uniform prior on the main pointing)
+
+    uniform_prior_u0_bg = uniform prior on background component center
+
+    prior_u0_bg_std = width parameter for prior on background u0
+
+    prior_var_bg_min = minimum variance of model background component
 
     """
 
@@ -480,9 +504,29 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
     # priors on bulk parameters as numpyro distributions
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
     s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
-    u0= numpyro.sample("u0", dist.Uniform(-10.0, 10.0))
-    v0= numpyro.sample("v0", dist.Uniform(-10.0, 10.0))
 
+    # Prior on center - can make this informative. We can make this
+    # multidimensional later.
+    if uniform_prior_u0:
+        priordist_u0=dist.Uniform(-wid_u0, wid_u0)
+        priordist_v0=dist.Uniform(-wid_u0, wid_u0)
+
+    else:
+        #priordist_uv0 = dist.MultivariateNormal(prior_u0_cen, prior_u0_cov)
+        #uv0 = numpyro.sample("uv0", priordist_uv0)
+
+        # No - start off 2x1d because that's what the uniform (and
+        # everything else) currently is. Return later to generalize.
+        priordist_u0 = dist.Normal(prior_u0_cen[0], prior_u0_std[0])
+        priordist_v0 = dist.Normal(prior_u0_cen[1], prior_u0_std[1])
+        
+    u0= numpyro.sample("u0", priordist_u0)
+    v0= numpyro.sample("v0", priordist_v0)
+        
+    #u0= numpyro.sample("u0", dist.Uniform(-wid_u0, wid_u0))
+    #v0= numpyro.sample("v0", dist.Uniform(-wid_u0, wid_u0))
+
+        
     # transform the sampled parameters into matrix components.
     b = numpyro.deterministic("b",  s * jnp.cos(theta))
     c = numpyro.deterministic("c",  s * jnp.sin(theta))
@@ -522,16 +566,29 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
     # Notice that the background variance is always larger than the
     # foreground variance. This is done to help force the
     # identification.
-    var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-2) )
+    var_bg = numpyro.sample("var_bg", \
+                            dist.LogUniform(prior_var_bg_min, 1e-2) )
     cov_mixmod_bg = jnp.array([[var_bg,0], [0,var_bg]])
     cov_total_bg = cov_total_fg  + cov_mixmod_bg[None,:,:]
 
     # 2026-06-11 wishlist: pass in the hyperparams for the prior
+    # 2026-06-20: replicates the vanilla mixture model for the moment
+    # 2026-06-22: pass model and hyperparameters as arguments
+    if uniform_prior_u0_bg:
+        priordist_u0_bg = dist.Uniform(-prior_u0_bg_std, \
+                                        prior_u0_bg_std)
+    else:
+        priordist_u0_bg = dist.Normal(prior_u0_bg_cen, \
+                                      prior_u0_bg_std)
+
+    u0_bg = numpyro.sample("u0_bg", priordist_u0_bg)
+    v0_bg = numpyro.sample("v0_bg", priordist_u0_bg)
+        
     #u0_bg = numpyro.sample("u0_bg", dist.Uniform(-0.1, 0.1))
     #v0_bg = numpyro.sample("v0_bg", dist.Uniform(-0.1, 0.1))
 
-    u0_bg = numpyro.sample("u0_bg", dist.Normal(0., 0.05))
-    v0_bg = numpyro.sample("v0_bg", dist.Normal(0., 0.05))
+    ##u0_bg = numpyro.sample("u0_bg", dist.Normal(0., 0.05))
+    ##v0_bg = numpyro.sample("v0_bg", dist.Normal(0., 0.05))
 
     
     # ok NOW we are finally in a position to predict the u,v coords
@@ -1779,9 +1836,10 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
     show_ellipses(dsamples, ax=ax64, fig=fig6, \
                   key_cen_u='u0', key_cen_v='v0', \
                   key_var_u='var_fg', \
-                  edgecolorEllipse='#00274C', \
+                  #edgecolorEllipse='#00274C', \
+                  edgecolorEllipse='#FFCB05', \
                   facecolorEllipse='#FFCB05', \
-                  edgealphaEllipse=0.2, \
+                  edgealphaEllipse=0.3, \
                   zorder=55, \
                   which_samples=lellipse, \
                   AAinv=AAinv)
@@ -2305,6 +2363,9 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     add_clumps=False, \
                     minsize_component = 10, \
                     Qmin=None, Qmax=None, \
+                    tight_prior_mix=False, \
+                    tight_prior_bg=False, \
+                    prior_var_bg_min=1.0e-12, \
                     tell_perts=True):
 
     """Sets up 2-term mapping where the objects can move after the
@@ -2395,6 +2456,17 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
     Qmin, Qmax = minmax mixture model fractions. Override
     minsize_component if BOTH are not None.
+
+    tight_prior_mix = try tight prior on the mixture center
+    [u0,v0]. This also tests passing an informative prior to the
+    model. Currently implemented only for the mixture model plus
+    individual movements.
+
+    tight_prior_bg = try tight prior on the background component to
+    the mixture model.
+
+    prior_var_bg_min = minimum variance of any background mixture
+    model (currently only used when testing the full model)
 
     tell_perts = report to screen which perturbations are being generated
 
@@ -2581,8 +2653,10 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # report the fraction assigned outlier or shift or contam
     bbg = boutly + bshif + bcontam + bclumps
     if tell_perts:
-        print("test2term_moves INFO - assigned perturbed: %i of %i = %.2e" \
-              % (np.sum(bbg), np.size(bbg), 1.0*np.sum(bbg)/np.size(bbg)))
+        oneminusQ = 1.0*np.sum(bbg)/np.size(bbg)
+        print("test2term_moves INFO - assigned perturbed: %i of %i = %.2e --> simulated Q=%.2f" \
+              % (np.sum(bbg), np.size(bbg), \
+                 oneminusQ, 1.0-oneminusQ) )
             
     # ok now THIS is our observed sample
     u_obs = utran + perts_u
@@ -2763,6 +2837,24 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         methmodel = model_2term_mix
 
         extra_args={'Qmin':Qmin, 'Qmax':Qmax}
+        extra_args['prior_var_bg_min']=prior_var_bg_min
+        extra_args['uniform_prior_u0']=True
+        extra_args['uniform_prior_u0_bg']=True
+
+        if tight_prior_mix:
+            print("test2term_moves INFO - testing very tight prior on u0:")
+            extra_args['uniform_prior_u0'] = False
+            extra_args['prior_u0_cen'] = jnp.array([0.250, 0.250])
+            extra_args['prior_u0_std'] = jnp.array([1e-4, 1e-4])
+
+        if tight_prior_bg:
+            print("test2term_moves INFO - testing tight prior on u0_bg:")
+            extra_args['uniform_prior_u0_bg']=True
+            extra_args['prior_u0_bg_std'] = 0.005
+            
+        print("test2term_moves INFO - extra arguments to %s:" \
+              % (methmodel.__name__), extra_args)
+        print(" ")
         
     if test_popmix:
         print("TESTING MIXMOD")
@@ -2785,17 +2877,24 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
     # for screen printing
     var_names=["s", "theta"]
-    if fit_var:
-        var_names.append("v_add")
-    inf_data = az.from_numpyro(sampler)
-    #print(az.summary(inf_data, var_names=var_names))
-    print(az.summary(inf_data))
+    ##inf_data = az.from_numpyro(sampler)
+    ##print(az.summary(inf_data, var_names=var_names))
+    #print(az.summary(inf_data))
 
-    t1 = time.time()
-    print("Time sampling and printing summary: %.2e sec" % (t1 - t0))
+    #t1 = time.time()
+    #print("Time sampling: %.2e sec" % (t1 - t0))
     
     # Set up the corner plot as usual
     samples = sampler.get_samples()
+
+    # Move the time statement here: something subterranean makes the
+    # time sample incorrect otherwise (before the samples have
+    # finished running).
+    t1 = time.time()
+    print("test2term_moves INFO - Time sampling: %.2e sec" % (t1 - t0))
+
+    
+    # Gather samples for visualizations like corner plots
     chainz = np.vstack(( samples["s"], np.degrees(samples["theta"]) )).T
     
     # some particulars for the corner plot
@@ -2812,6 +2911,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         corner_truths.append(u0) # won't always be right
         corner_truths.append(v0)
 
+        # For arviz and screen printing
+        var_names.append("u0")
+        var_names.append("v0")
+
+    # variable names for mixture model
     if "Q" in samples.keys():
         chainz = np.vstack(( chainz.T, \
                              samples["var_fg"], \
@@ -2832,7 +2936,14 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         corner_truths.append(sigm_outly**2)
         corner_truths.append(1.0-frac_outly) # Q
 
-    
+        # For summary statistics and screen printing. Same order as
+        # corner plot for now
+        var_names.append("var_fg")
+        var_names.append("u0_bg")
+        var_names.append("v0_bg")
+        var_names.append("var_bg")
+        var_names.append("Q")
+        
     # additional deltas? (This is a bit awkward, since will be ignored
     # if we fit extra variance. For the moment that's OK, but watchout
     # later.)
@@ -2851,13 +2962,30 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         corner_truths.append(perts_u[0,1])
         #corner_truths.append(shift_u)
         #corner_truths.append(shift_v)
+
+        # For screen output and summary DOESN'T WORK - comment out for
+        #now while I learn how to just output the first couple of
+        #lines...
+        #var_names.append("du[0,0]")
+        #var_names.append("du[0,1]")
         
     if fit_var:
         chainz = np.vstack(( chainz.T, \
                              np.log10(samples["v_add"]) )).T
         corner_labels.append(r"$log_{10}(v_{add})$")
         corner_truths.append(None)
+        var_names.append("v_add")
 
+    # postpone screen printing to here, since we've now done the work
+    # of assembling the variable names to show. These are the original
+    # names and not quite the ones to use in figure labels (and thus
+    # tex formatted, etc.).
+    inf_data = az.from_numpyro(sampler)
+    print(az.summary(inf_data, var_names=var_names))
+    t2 = time.time()
+    print("test2term_moves INFO - Time assembling and summarizing: %.2e sec" \
+          % (t2-t1))
+        
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
         fig3 = plt.figure(3, figsize=(6,6))
