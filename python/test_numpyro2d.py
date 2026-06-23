@@ -53,6 +53,9 @@ import pickle
 # already present
 import warnings
 
+# for logistic regression on mixture probabilities
+from scipy.special import expit
+from sklearn.linear_model import LogisticRegression
 
 # For this, we adopt "x" as the "input" positions, and "u" as the
 # "output". This allows us to use (x,y) and (u,v) later on if that is
@@ -1752,6 +1755,89 @@ them. Currently five panels are shown:
 
     if len(figname) > 3:
         fig4.savefig(figname)
+
+def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
+              xprime=4.):
+
+    """Show membership probabilities from an MCMC run.
+
+    INPUTS
+    ======
+
+    dsamples = {} - dictionary of samples
+
+    key_fg = key in samples giving "truth" of whether object was foreground
+
+    key_lnprob = key in samples indicating ln(prob) of being attached
+    to foreground
+
+    creg = logistic regression constant
+
+    xprime = target for judging when the logistic regression hits
+    approximately 1.0, in the sense expit(xprime) approx 1. For
+    reference, expit(4.) = 0.982
+
+    """
+
+    # key for identifier stating which objects are true inliers
+    if not key_fg in dsamples.keys():
+        print("show_pmem WARN - key %s not present in supplied samples.")
+        return
+
+    if not key_lnprob in dsamples.keys():
+        print("show_pmem WARN - lnP key %s not present in samples." \
+              % (key_lnprob))
+        return
+
+    # views of the categories
+    isfg_sim = dsamples[key_fg] * 1.0
+    lnp = dsamples[key_lnprob]
+
+    # take the median across the samples, for just the foreground
+    isfg_post = 10.0**(np.median(lnp, axis=0)[:,0])
+
+    print(isfg_post.min(), isfg_post.max())
+    
+    # Set up logistic regression object
+    print("show_pmem INFO - fitting logistic regression...")
+    t0=time.time()
+    clf = LogisticRegression(C=creg)
+    clf.fit(isfg_post[:, None], isfg_sim)
+    t1 = time.time()
+    print(f"\033[Fshow_pmem INFO - ... done logistic regression in %.2e seconds" \
+          % (t1-t0))
+
+    # when does this hit about 1.0?
+    xtarg = (xprime - clf.intercept_)/clf.coef_[0]
+    
+    print(clf.coef_)
+    print(clf.intercept_)
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=UserWarning)
+        fig10 = plt.figure(10, figsize=(5,4))
+        
+    fig10.clf()
+    ax10 = fig10.add_subplot(111)
+    xfine = np.linspace(np.min(isfg_post), 1., 100)
+    yfine = expit(xfine * clf.coef_ + clf.intercept_).ravel()
+
+    dum10 = ax10.scatter(isfg_post, isfg_sim, alpha=0.5, \
+                        label='responsibilities')
+
+    reg10 = ax10.plot(xfine, yfine, c='#75988d', zorder=10, alpha=0.7, \
+                      ls='-', lw=1, \
+                      label='logistic regression')
+    leg = ax10.legend(fontsize=8)
+
+    # show where this gets close to 1.
+    dum3 = ax10.axvline(xtarg, ls='--', color='0.5', alpha=0.5, lw=1)
+
+    slabel = 'fg'
+    ax10.set_xlabel('p(is %s), MCMC' % (slabel))
+    ax10.set_ylabel('Simulated as %s' % (slabel))
+
+    fig10.savefig('test_pmem.png')
     
 def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
                  cmap='plasma_r', extralog=False):
