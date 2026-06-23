@@ -161,10 +161,17 @@ def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False):
         pred_dist = dist.MultivariateNormal(upred, cov_total)
         numpyro.sample("u", pred_dist, obs=u)
 
-def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, wid_u0=2., \
-                       Qmin=0., Qmax=1.):
+def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, \
+                       wid_u0=2., Qmin=0., Qmax=1., \
+                       uniform_prior_u0=True, \
+                       prior_u0_cen=jnp.array([0.250, 0.250]), \
+                       prior_u0_std=jnp.array([0.01,0.01]), \
+                       uniform_prior_u0_bg=True, \
+                       prior_u0_bg_cen=0., \
+                       prior_u0_bg_std=0.1, \
+                       prior_var_bg_min=1.0e-12):
 
-    """Fits mixture model to the positions, but does not fit individual star-by-star shifts. 
+    """Fits mixture model to the positions, but does not fit individual star-by-star shifts. Allows hyperparameters for prior(s) on the mixture.
 
 
     INPUTS:
@@ -185,16 +192,40 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, wid_u0=2., \
 
     Qmax = maximum mixture fraction
 
-"""
+    uniform_prior_u0 = use uniform prior on the main pointing
+
+    prior_u0_cen = [2] = [u0,v0] prior center (if using 2d normal,
+    ignored if uniform prior on the main pointing)
+
+    prior_u0_std = [2] = u0,v0 prior stddev on [u0,v0] *separately* -
+    we are not yet doing a 2D prior for both together. Ignored if
+    using uniform prior on the main pointing)
+
+    uniform_prior_u0_bg = uniform prior on background component center
+
+    prior_u0_bg_std = width parameter for prior on background u0
+
+    prior_var_bg_min = minimum variance of model background component
+
+    """
 
     # our two-term model again:
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
     s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
 
-    # 2026-06-11 widen the priors
-    u0= numpyro.sample("u0", dist.Uniform(-wid_u0, wid_u0))
-    v0= numpyro.sample("v0", dist.Uniform(-wid_u0, wid_u0))
-    
+    # 2026-06-23 more flexible prior on the pointing center. Taken
+    # from the mixture plus moves where this was first implemented.
+    if uniform_prior_u0:
+        priordist_u0=dist.Uniform(-wid_u0, wid_u0)
+        priordist_v0=dist.Uniform(-wid_u0, wid_u0)
+    else:
+        priordist_u0 = dist.Normal(prior_u0_cen[0], prior_u0_std[0])
+        priordist_v0 = dist.Normal(prior_u0_cen[1], prior_u0_std[1])
+
+    # Prior (samples) on pointing u0, v0, however we computed it
+    u0= numpyro.sample("u0", priordist_u0)
+    v0= numpyro.sample("v0", priordist_v0)
+            
     # transform the sampled parameters into matrix components
     b = numpyro.deterministic("b",  s * jnp.cos(theta))
     c = numpyro.deterministic("c",  s * jnp.sin(theta))
@@ -236,22 +267,37 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, wid_u0=2., \
     cov_mixmod_fg =  jnp.array([[var_fg,0], [0,var_fg]])
     cov_total_fg = cov_total + cov_mixmod_fg[None,:,:]
     
-    # background component (2026-06-13 narrowed prior and made this a
-    # delta over u0, v0)
-    u0_bg = numpyro.sample("u0_bg", dist.Uniform(-0.1, 0.1))
-    v0_bg = numpyro.sample("v0_bg", dist.Uniform(-0.1, 0.1))
+    # background component (2026-06-23 updated this to follow the same
+    # more flexible approach as the full model)
+    #u0_bg = numpyro.sample("u0_bg", dist.Uniform(-0.1, 0.1))
+    #v0_bg = numpyro.sample("v0_bg", dist.Uniform(-0.1, 0.1))
 
-    # maybe this prior should be tightened to avoid piling up on one object
-    #var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3) )
-    var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-2) )
+    if uniform_prior_u0_bg:
+        priordist_u0_bg = dist.Uniform(-prior_u0_bg_std, \
+                                        prior_u0_bg_std)
+    else:
+        priordist_u0_bg = dist.Normal(prior_u0_bg_cen, \
+                                      prior_u0_bg_std)
+
+    u0_bg = numpyro.sample("u0_bg", priordist_u0_bg)
+    v0_bg = numpyro.sample("v0_bg", priordist_u0_bg)
 
     # Model background covariance. Try making this ALWAYS bigger than
     # the fg variance to assist with component identification...
+    
+    # maybe this prior should be tightened to avoid piling up on one object
+    #var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-3) )
+    #var_bg = numpyro.sample("var_bg", dist.LogUniform(1e-12,1e-2) )
+
+    # 2026-06-23 generalized the prior on the background variance
+    # slightly.
+    var_bg = numpyro.sample("var_bg", \
+                            dist.LogUniform(prior_var_bg_min, 1e-2) )
     cov_mixmod_bg = jnp.array([[var_bg,0], [0,var_bg]])
-    # cov_total_bg = cov_total  + cov_mixmod_bg[None,:,:]
     cov_total_bg = cov_total_fg  + cov_mixmod_bg[None,:,:]
     
-    # predicted positions assuming assigned to bg component. NOTE that these are now smaller deltas over the foreground component.
+    # predicted positions assuming assigned to bg component. NOTE that
+    # these are now smaller deltas over the foreground component.
     upred_bg = utran + jnp.array([u0_bg + u0,v0_bg + v0])[None,:]
     
     # The mixture components. Let Q be the outlier probability. Not
@@ -288,11 +334,11 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, wid_u0=2., \
         # screen with debug statements every time through. Some magic
         # to do with suppressing screen output (probably when the
         # progress bar is switched on)
-        print("DEBUG: y_, log_probs, dist_fg.batch, dist_fg.event, dist_bg.batch, dist_bg.event, p", \
-              y_.shape, log_probs.shape, \
-              dist_fg.batch_shape, dist_fg.event_shape, \
-              dist_bg.batch_shape, dist_bg.event_shape, \
-              p.shape)
+        ##print("DEBUG: y_, log_probs, dist_fg.batch, dist_fg.event, dist_bg.batch, dist_bg.event, p", \
+        ##      y_.shape, log_probs.shape, \
+        ##      dist_fg.batch_shape, dist_fg.event_shape, \
+        ##      dist_bg.batch_shape, dist_bg.event_shape, \
+        ##      p.shape)
         #, \
         #      log_probs[0])
 
@@ -354,7 +400,8 @@ def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False):
     # Hyper-parameters for the star-by-star shifts. Try a tight prior
     shift_centers = x * 0
     #shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
-    shift_covars = jnp.array([[1.0e-6,0.], [0., 1.0e-6] ])
+    shift_covars = jnp.array([[prior_du_var,0.], \
+                              [0., prior_du_var] ])
 
     
     # priors broader than about 1e-5 tend to run into problems,
@@ -448,14 +495,15 @@ shifts as residuals.
         numpyro.sample("u", pred_dist, obs=u)
 
 def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
-                    wid_u0=2., Qmin=0., Qmax=1., nclump_min=10, \
+                    wid_u0=2., Qmin=0., Qmax=1., \
                     uniform_prior_u0=True, \
                     prior_u0_cen=jnp.array([0.250, 0.250]), \
                     prior_u0_std=jnp.array([0.01,0.01]), \
                     uniform_prior_u0_bg=True, \
                     prior_u0_bg_cen=0., \
                     prior_u0_bg_std=0.1, \
-                    prior_var_bg_min=1.0e-12):
+                    prior_var_bg_min=1.0e-12, \
+                    prior_du_var=1.0e-6):
 
     """Scale, rotation, offset, mixture, individual moves
 
@@ -477,9 +525,6 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
     
     Qmax = maximum allowed mixture fraction Q
 
-    nclump_min = minimum clump size (to stop the mixmod from fixating
-    on one datapoints for its mixture component)
-
     uniform_prior_u0 = use uniform prior on the main pointing
 
     prior_u0_cen = [2] = [u0,v0] prior center (if using 2d normal,
@@ -494,6 +539,8 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
     prior_u0_bg_std = width parameter for prior on background u0
 
     prior_var_bg_min = minimum variance of model background component
+
+    prior_du_var = prior *variance* for star-by-star moves, target plane
 
     """
 
@@ -603,17 +650,11 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
     # now make this different for the foreground and background
     # components.
     shift_centers = x * 0
-    shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
+    # shift_covars = jnp.array([[1.0e-5,0.], [0., 1.0e-5] ])
+    shift_covars = jnp.array([[prior_du_var,0.], \
+                              [0., prior_du_var] ])
 
-    # The mixture model NOTE TO SELF - TRY BRINGING IN THIS RANGE A BIT
-
-    # 2026-06-16 it's not immediately obvious how to pass in arguments
-    # to some models and not others for the sampler. In the meantime,
-    # we set these from the data. This will go pathological if
-    # nclump_min > number of points / 2. Find a better way later.
-    #Qmin = nclump_min * 1.0 / x.shape[0]
-    #Qmax = 1.0 - Qmin
-    
+    # The mixture model
     Q = numpyro.sample("Q", dist.Uniform(Qmin, Qmax))
     mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
     
@@ -1806,10 +1847,14 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
     ax63 = fig6.add_subplot(223)
     ax64 = fig6.add_subplot(224)
 
-    dum = ax61.hist(np.log10(Q), bins=100, alpha=0.5, zorder=10)
+    #dum = ax61.hist(np.log10(Q), bins=100, alpha=0.5, zorder=10)
+    dum = ax61.hist(Q, bins=100, alpha=0.5, zorder=10)
+
     #blah = ax61.axvline(np.log10(1.0/ndata), ls='--', color='k', \
     #                    zorder=20, label=r'$\log_{10}(N_{\rm data}^{-1})$')
-    ax61.set_xlabel(r'$\log_{10}Q$')
+    #ax61.set_xlabel(r'$\log_{10}Q$')
+    ax61.set_xlabel(r'$Q$')
+
     # leg = ax61.legend()
 
     # predicted
@@ -2365,7 +2410,9 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     Qmin=None, Qmax=None, \
                     tight_prior_mix=False, \
                     tight_prior_bg=False, \
+                    prior_u0_cen=jnp.array([0.250, 0.250]), \
                     prior_var_bg_min=1.0e-12, \
+                    prior_du_var=1.0e-6, \
                     tell_perts=True):
 
     """Sets up 2-term mapping where the objects can move after the
@@ -2465,8 +2512,12 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     tight_prior_bg = try tight prior on the background component to
     the mixture model.
 
+    prior_u0_cen = [2] - u0 cen if using tight prior on the foreground model
+
     prior_var_bg_min = minimum variance of any background mixture
     model (currently only used when testing the full model)
+
+    prior_du_var = prior variance for star-by-star moves
 
     tell_perts = report to screen which perturbations are being generated
 
@@ -2515,13 +2566,13 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     if add_clumps:
 
         # For the moment, let's come up with some parameters
-        fclumps = [0.15, 0.1, 0.15]
-        du_clumps = [0.009, 0.004, -0.003]
-        dv_clumps = [-0.006, 0.004, 0.003]
+        fclumps = [0.15, 0.1]#, 0.15]
+        du_clumps = [0.009, 0.004]#, -0.003]
+        dv_clumps = [-0.006, 0.004]#, 0.003]
 
-        sigu_clumps = [2e-4, 1e-4, 5e-4]
-        sigv_clumps = [2e-4, 1e-5, 8e-4]
-        corrxy_clumps = [0.0, 0.2, -0.2]
+        sigu_clumps = [2e-4, 1e-4]#, 5e-4]
+        sigv_clumps = [2e-4, 1e-5]#, 8e-4]
+        corrxy_clumps = [0.0, 0.2]#, -0.2]
         
         perts_clumps, which_clump \
             = clumps_du(utran, fclumps, \
@@ -2809,7 +2860,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
             print("test2term_moves INFO - minsize %i/%i --> Q = [%.2f, %.2f]" \
                   % (minsize_component, x.shape[0], Qmin, Qmax))
         else:
-            print("test2term_moves INFO - using supplied Q [%.2f, %.2f]" \
+            print("test2term_moves INFO - supplied Q prior [%.2f, %.2f]" \
                   % (Qmin, Qmax))
 
         # sanity check on the limits
@@ -2837,31 +2888,50 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         methmodel = model_2term_mix
 
         extra_args={'Qmin':Qmin, 'Qmax':Qmax}
-        extra_args['prior_var_bg_min']=prior_var_bg_min
+        extra_args['prior_var_bg_min'] = prior_var_bg_min
+        extra_args['prior_du_var'] = prior_du_var
         extra_args['uniform_prior_u0']=True
         extra_args['uniform_prior_u0_bg']=True
 
         if tight_prior_mix:
             print("test2term_moves INFO - testing very tight prior on u0:")
             extra_args['uniform_prior_u0'] = False
-            extra_args['prior_u0_cen'] = jnp.array([0.250, 0.250])
+            extra_args['prior_u0_cen'] = prior_u0_cen
             extra_args['prior_u0_std'] = jnp.array([1e-4, 1e-4])
 
         if tight_prior_bg:
             print("test2term_moves INFO - testing tight prior on u0_bg:")
-            extra_args['uniform_prior_u0_bg']=True
+            extra_args['uniform_prior_u0_bg']=False
             extra_args['prior_u0_bg_std'] = 0.005
             
-        print("test2term_moves INFO - extra arguments to %s:" \
-              % (methmodel.__name__), extra_args)
-        print(" ")
-        
     if test_popmix:
         print("TESTING MIXMOD")
         methmodel = model_2term_mixmod
 
         extra_args={'Qmin':Qmin, 'Qmax':Qmax}
-        
+        extra_args['prior_var_bg_min'] = prior_var_bg_min
+        extra_args['uniform_prior_u0']=True
+        extra_args['uniform_prior_u0_bg']=True
+
+        # Allow tighter prior parameters on the mixture model
+        if tight_prior_mix:
+            print("test2term_moves INFO - testing very tight prior on u0:")
+            extra_args['uniform_prior_u0'] = False
+            extra_args['prior_u0_cen'] = prior_u0_cen
+            extra_args['prior_u0_std'] = jnp.array([1e-4, 1e-4])
+
+        if tight_prior_bg:
+            print("test2term_moves INFO - testing tight prior on u0_bg:")
+            extra_args['uniform_prior_u0_bg']=False
+            extra_args['prior_u0_bg_std'] = 0.005
+
+    # Promoted this since there are now >1 cases in which this will be
+    # useful
+    print("test2term_moves INFO - extra arguments to %s:" \
+          % (methmodel.__name__), extra_args)
+    print(" ")
+            
+    ### Set up the sampler
     sampler = infer.MCMC(
         infer.NUTS(methmodel),
         num_warmup=2000,
@@ -3000,7 +3070,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                         title_kwargs={"fontsize":9}, \
                         label_kwargs={"fontsize":9} )
 
-    fig3.subplots_adjust(left=0.15, bottom=0.15)
+    fig3.subplots_adjust(left=0.15, bottom=0.15, top=0.95, right=0.95)
     fig3.savefig('simulated_cornerplot.png')
     
     # return the samples so that we can play with them. Smuggle the
