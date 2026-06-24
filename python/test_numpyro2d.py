@@ -1328,6 +1328,8 @@ sample, to support assessment of mixture models.
 
 def logistic_on_lnp(isfg_sim=None, lnp=None, \
                     quantiles=[0.5], \
+                    use_quantiles=True, \
+                    nsamples=150, \
                     xprime=4., \
                     creg=1e5):
 
@@ -1341,6 +1343,12 @@ def logistic_on_lnp(isfg_sim=None, lnp=None, \
     lnp = [nsamples, N] -- ln(p) values from MCMC run
 
     quantiles = quantiles (over the sampes) of the lnp to use
+
+    use_quantiles = control variable. Use quantiles rather than
+    looping over samples.
+
+    nsamples - if a positive integer, does this many samples instead
+    of quantiles.
 
     xprime = target for judging when the logistic regression hits
     approximately 1.0, in the sense expit(xprime) approx 1. For
@@ -1365,9 +1373,17 @@ def logistic_on_lnp(isfg_sim=None, lnp=None, \
         print("logistic_on_lnp WARN - isfg_sim and/or lnp is None")
         return None, None, None
 
-    # Find the quantiles object-per-object of the lnp mems, and set up
-    # the coefficients arrays using the quantiles as guide
-    lnpmems_post = np.quantile(lnp,quantiles, axis=0)
+    # Break the samples either into quantiles, or take the first
+    # nsamples samples.
+    if use_quantiles:
+        lnpmems_post = np.quantile(lnp,quantiles, axis=0)
+    else:
+        # draw a random sample size nsample rather than the first
+        # nsample samples
+        xdum = np.random.rand(lnp.shape[0])
+        lsor = np.argsort(xdum)[0:nsamples]
+        lnpmems_post = lnp[lsor]
+    
     clf_coefs = np.zeros(lnpmems_post.shape[0])
     clf_intercepts = np.copy(clf_coefs)
     xtargs = np.copy(clf_intercepts)
@@ -1378,8 +1394,9 @@ def logistic_on_lnp(isfg_sim=None, lnp=None, \
     # set up the clf object
     t0=time.time()
     clf=LogisticRegression(C=creg)
-    print("logistic_on_lnp INFO - fitting logistic regression...")
-    
+    print("logistic_on_lnp INFO - doing logistic regressions...")
+
+
     # Now go through each of the sets of pmem
     for iset in range(lnpmems_post.shape[0]):
         isfg_post = 10.0**lnpmems_post[iset]
@@ -1392,7 +1409,7 @@ def logistic_on_lnp(isfg_sim=None, lnp=None, \
         xtargs[iset] = xtarg.squeeze()
         
     t1 = time.time()
-    print(f"\033[Flogistic_on_lnp INFO - ... done logistic regression in %.2e seconds" \
+    print(f"\033[Flogistic_on_lnp INFO - ... done logistic regressions in %.2e seconds" \
           % (t1-t0))
 
         
@@ -1827,8 +1844,12 @@ them. Currently five panels are shown:
     if len(figname) > 3:
         fig4.savefig(figname)
 
-def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
-              xprime=4.):
+def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e3, \
+              xprime=4., loop_samples=True, nsamples=1000, \
+              show_quants=True, \
+              show_hists=True, cmap_hists='magma', \
+              color_samples='0.2', \
+              color_quantiles='#9A3324'):
 
     """Show membership probabilities from an MCMC run.
 
@@ -1847,6 +1868,21 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
     xprime = target for judging when the logistic regression hits
     approximately 1.0, in the sense expit(xprime) approx 1. For
     reference, expit(4.) = 0.982
+
+    loop_samples = loop through samples and compute the quantiles
+    AFTER running the regressions
+
+    nsamples = number of samples to loop through
+
+    show_quants = show regression on quantiles
+
+    show_hists = show histograms of samples
+
+    cmap_hists = colormap to use when showing histograms
+
+    color_samples = color to plot individual regressions on each sample
+
+    color_quantiles = color to plot regression on quantiles
 
     RETURNS
     =======
@@ -1874,7 +1910,9 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
     coefs, intercepts, xtargs = \
         logistic_on_lnp(isfg_sim, lnp[...,0], \
                         quants, \
-                        xprime, creg)
+                        use_quantiles = not(loop_samples),\
+                        nsamples=nsamples,\
+                        xprime=xprime, creg=creg)
     
     ## take the median across the samples, for just the foreground
     isfg_post_med = 10.0**(np.median(lnp, axis=0)[:,0])
@@ -1902,49 +1940,180 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
-        fig10 = plt.figure(10, figsize=(5,4))
+        fig10 = plt.figure(10, figsize=(7,5))
         
     fig10.clf()
     ax10 = fig10.add_subplot(111)
     xfine = np.linspace(np.min(isfg_post_med), 1., 100)
     #yfine = expit(xfine * clf.coef_ + clf.intercept_).ravel()
     yfine = expit(xfine * coefs[0] + intercepts[0]).ravel()
-    
-    dum10 = ax10.scatter(isfg_post_med, isfg_sim, alpha=0.5, \
-                        label='responsibilities')
 
-    reg10 = ax10.plot(xfine, yfine, c='#75988d', zorder=10, alpha=0.7, \
-                      ls='-', lw=1, \
-                      label='logistic regression')
-    leg = ax10.legend(fontsize=8)
+    # If we did the loops but have not yet computed the ranges, do that here.
+    yyfine = None
+    if coefs.size > 3:
+        yyfine = expit(xfine[None,:] * coefs[:,None] + intercepts[:,None])
+        # now do quantiles of THIS
+        yyquant = np.quantile(yyfine, quants, axis=0)    
 
-    # if we have more than one quantile, overplot them!
-    if len(quants) > 1 and len(quants) < 5:
-        for isho in range(1, len(quants)):
-            ythis = expit(xfine * coefs[isho] + intercepts[isho]).ravel()
+        # find xtarg with this, numerically
+        ytarg = expit(xprime)
+        idum = np.argmin(np.abs(yyquant[0]-ytarg))
+        xtargs[0] = xfine[idum]
+        print("show_pmem INFO - recalculated <xtarg>=%.3f" \
+              % (xtargs[0]))
+
+        
+        
+    # Do the plots
+    colors_resps = 'k'
+    alpha_h = 0.5
+    # can we set the colors deterministically?
+    if show_hists:
+        ccm = plt.get_cmap(cmap_hists)
+        colors_resps = ccm(np.linspace(0,1,np.size(isfg_post_med)))
+
+        alpha_h = np.random.uniform(size=isfg_post_med.size)*0.5+0.3
+        alpha_h[0] = 1.
+        
+    dum10 = ax10.scatter(isfg_post_med, isfg_sim, \
+                         alpha=alpha_h, \
+                         label='median responsibilities (N=%i)' % \
+                         (isfg_post_med.size), \
+                         c=colors_resps, \
+                         zorder=58)
+
+    # show all the samples??
+    if yyfine is None:
+        if not show_quants:
+            reg10 = ax10.plot(xfine, yfine, c='#75988d', \
+                              zorder=10, alpha=0.7, \
+                              ls='-', lw=1, \
+                              label='logistic regression')
+    else:
+        # transparency for nifty plot
+        alpha_individ = 0.05
+        if nsamples > 100:
+            alpha_individ = 0.01 # yes I know...
+
+        nshow = np.min([yyfine.shape[0],400])
+            
+        for idum in range(nshow):
+            dumdum = ax10.plot(xfine, yyfine[idum], \
+                               ls='-', color=color_samples, \
+                               lw=1, zorder=6,\
+                               alpha=alpha_individ)
+
+        # show the quantiles over the samples
+        dumdum = ax10.plot(xfine, yyquant[0], \
+                           ls='-', color=color_samples, \
+                           lw=2, zorder=8, \
+                           alpha=0.7, \
+                           label='quantiles of %i regressions' % (nsamples))
+
+        # and the two quantiles
+        if yyquant.shape[0] > 2:
+            for iquant in range(1,3):
+                dumdum = ax10.plot(xfine, yyquant[iquant], \
+                                   ls='-', color=color_samples, \
+                                   lw=2, zorder=8, \
+                                   alpha=0.7)
+
+        
+    # I think it's always useful to show the logistic regression on
+    # the quantiles, and it's quick to compute. So do it here. No need
+    # to repeat if already done, though.
+    if not loop_samples or nsamples < 1:
+        coefs_quants = np.copy(coefs)
+        intercepts_quants = np.copy(intercepts)
+        xtargs_quants = np.copy(xtargs)
+    else:
+        coefs_quants, intercepts_quants, xtargs_quants = \
+            logistic_on_lnp(isfg_sim, lnp[...,0], \
+                            quants, \
+                            use_quantiles = True, \
+                            nsamples=0, \
+                            xprime=xprime, creg=creg)
+        
+    # If we did the quantiles before regression, then we can plot the
+    # ranges after plotting the medians. Do that here.
+    if coefs_quants.size == 3 and show_quants:
+        lss = ['--', '--', '--']
+        lws = [2,2,2]
+        labels = ['regression on quantiles', None, None]
+        for isho in range(len(lss)):
+            ythis = expit(xfine * coefs_quants[isho] \
+                          + intercepts_quants[isho]).ravel()
             reg10 = ax10.plot(xfine, ythis, \
-                              c='#75988d', zorder=10, alpha=0.7, \
-                              ls='-.', lw=1)
+                              c=color_quantiles, \
+                              zorder=11, alpha=0.7, \
+                              ls=lss[isho], \
+                              lw=lws[isho], label=labels[isho])
 
         # Create asymmetric "errorbars" to indicate the range of pmem
         # for each object
-        if len(quants) is 3:
+        if len(quants) == 3 and not show_hists:
             qq = 10.0**(np.quantile(lnp[...,0],quants, axis=0))
             exlo = qq[0,:] - qq[1,:]
             exhi = qq[2,:] - qq[0,:]
             errx = np.vstack((exlo, exhi))
 
             # vertical offset to help with visualization
-            yoff = np.random.uniform(size=exlo.size)*0.01
+            # yoff = np.random.uniform(size=exlo.size)*0.01
             
-            dum10_1 = ax10.errorbar(qq[0,:], isfg_sim+yoff, \
+            dum10_1 = ax10.errorbar(qq[0,:], isfg_sim, \
                                     alpha=0.3,\
                                     xerr=errx, linestyle=None, \
                                     capsize=2, fmt='.')
+
+    # Show sample histogram of some objects simulated to be
+    # nonmembers. This first line deserves a comment: *all* points
+    # currently pass this selection. Set this to 1 (from 2) to select
+    # only the simulated background objects.
+    lnon = np.where(isfg_sim < 2)[0] 
+    if show_hists:        
+        xbins = np.hstack([0., np.logspace(-2.5, -0.30, 50)])
+        xbins = np.unique(np.sort( np.hstack((xbins, 1.0-xbins)) ))
+        ymax = 0.15 # for display
+
+        # use transparency to help distinguish histograms
+        llabel = '%i samples in p(fg)' % (lnp.shape[0])
+        for inon in range(np.size(lnon)):
+            pthis = 10.0**(lnp[:,lnon[inon],0])
+            hist, edges = np.histogram(pthis, xbins, density=True)
+
+            # scale the histogram
+            sf = ymax / float(np.max(hist))
+            edgemid = 0.5*(edges[0:-1] + edges[1::])
+
+            # Even nicer, we can plot only the parts above zero
+            bnz = hist*sf > 1e-3
+
+            yoff = isfg_sim[lnon[inon]] * 1.05  # to allow fg and bg
+            dum10_2 = ax10.plot(edgemid[bnz], \
+                                hist[bnz]*sf + yoff, \
+                                alpha=alpha_h[inon], \
+                                zorder=5, lw=1, \
+                                label=llabel, \
+                                color=colors_resps[lnon[inon]] )
+            #)#, \
+            #    a                #color='#75988d')
+
+            llabel=None
+
+            # just to double-check:
+            #imax = np.argmax(hist)
+            #print("HIST CHECK:", \
+            #      xbins[imax], np.median(pthis), isfg_post_med[lnon[inon]] )
             
     # show where this gets close to 1.
-    dum3 = ax10.axvline(xtargs[0], ls='--', color='0.5', alpha=0.5, lw=1)
+    dum3 = ax10.axvline(xtargs[0], ls='--', color='0.5', \
+                        alpha=0.5, lw=1, zorder=80, \
+                        label='Indicated p(fg) threshold')
 
+    # Finally, show the legend
+    leg = ax10.legend(fontsize=7, loc=7)
+
+    
     slabel = 'fg'
     ax10.set_xlabel('p(is %s), MCMC' % (slabel))
     ax10.set_ylabel('Simulated as %s' % (slabel))
@@ -2863,7 +3032,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
         duv_contam = apply_vortex(ugen, AA, rot_cen) - ugen
 
-        # ... and select out a sample to apply
+        # ... and select out a sample to apply        
         bcontam = np.random.rand(ugen.shape[0]) <= frac_contam
         perts_contam[bcontam] = duv_contam[bcontam]
 
