@@ -1326,7 +1326,78 @@ sample, to support assessment of mixture models.
    
     return AAinv, A_med
 
+def logistic_on_lnp(isfg_sim=None, lnp=None, \
+                    quantiles=[0.5], \
+                    xprime=4., \
+                    creg=1e5):
 
+    """Performs logistic regression on pmem under various circumstances.
+
+    INPUTS
+    ======
+
+    isfg_sim = [N] - truth values (1/0)
+
+    lnp = [nsamples, N] -- ln(p) values from MCMC run
+
+    quantiles = quantiles (over the sampes) of the lnp to use
+
+    xprime = target for judging when the logistic regression hits
+    approximately 1.0, in the sense expit(xprime) approx 1. For
+    reference, expit(4.) = 0.982
+
+    creg = Regression regularization coefficient
+
+
+    RETURNS
+    =======
+
+    clf_coefs = coefficient(s) for expit
+    
+    clf_intercepts = intercept(s) for expit
+
+    xtargs = pmem(s) corresponding to xprime for expit, at each quantile
+
+    """
+
+    # input parsing
+    if isfg_sim is None or lnp is None:
+        print("logistic_on_lnp WARN - isfg_sim and/or lnp is None")
+        return None, None, None
+
+    # Find the quantiles object-per-object of the lnp mems, and set up
+    # the coefficients arrays using the quantiles as guide
+    lnpmems_post = np.quantile(lnp,quantiles, axis=0)
+    clf_coefs = np.zeros(lnpmems_post.shape[0])
+    clf_intercepts = np.copy(clf_coefs)
+    xtargs = np.copy(clf_intercepts)
+    
+    print("logistic_on_lnp INFO - lnpmems shape:", \
+          lnpmems_post.shape, clf_coefs.shape)
+    
+    # set up the clf object
+    t0=time.time()
+    clf=LogisticRegression(C=creg)
+    print("logistic_on_lnp INFO - fitting logistic regression...")
+    
+    # Now go through each of the sets of pmem
+    for iset in range(lnpmems_post.shape[0]):
+        isfg_post = 10.0**lnpmems_post[iset]
+        clf.fit(isfg_post[:, None], isfg_sim)
+        xtarg = (xprime - clf.intercept_)/clf.coef_[0]
+
+        # pass these to the holding arrays
+        clf_coefs[iset] = clf.coef_[0].squeeze()
+        clf_intercepts[iset] = clf.intercept_.squeeze()
+        xtargs[iset] = xtarg.squeeze()
+        
+    t1 = time.time()
+    print(f"\033[Flogistic_on_lnp INFO - ... done logistic regression in %.2e seconds" \
+          % (t1-t0))
+
+        
+    return clf_coefs, clf_intercepts, xtargs
+    
 
 def ellipsepars_from_covars(covars=None, exagfac=1.):
 
@@ -1798,26 +1869,33 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
     isfg_sim = dsamples[key_fg] * 1.0
     lnp = dsamples[key_lnprob]
 
-    # take the median across the samples, for just the foreground
-    isfg_post = 10.0**(np.median(lnp, axis=0)[:,0])
-
-    print(isfg_post.min(), isfg_post.max())
+    # Try calling our prototype finder
+    quants = [0.5, 0.16, 0.84]
+    coefs, intercepts, xtargs = \
+        logistic_on_lnp(isfg_sim, lnp[...,0], \
+                        quants, \
+                        xprime, creg)
     
-    # Set up logistic regression object
-    print("show_pmem INFO - fitting logistic regression...")
-    t0=time.time()
-    clf = LogisticRegression(C=creg)
-    clf.fit(isfg_post[:, None], isfg_sim)
-    t1 = time.time()
-    print(f"\033[Fshow_pmem INFO - ... done logistic regression in %.2e seconds" \
-          % (t1-t0))
+    ## take the median across the samples, for just the foreground
+    isfg_post_med = 10.0**(np.median(lnp, axis=0)[:,0])
 
-    # when does this hit about 1.0?
-    xtarg = (xprime - clf.intercept_)/clf.coef_[0]
-    xtarg = xtarg.squeeze()
+    #print(isfg_post.min(), isfg_post.max())
     
-    print("show_pmem INFO - sensible p(fg) threshold approx %.3f" \
-          % (xtarg))
+    ## Set up logistic regression object
+    #print("show_pmem INFO - fitting logistic regression...")
+    #t0=time.time()
+    #clf = LogisticRegression(C=creg)
+    #clf.fit(isfg_post[:, None], isfg_sim)
+    #t1 = time.time()
+    #print(f"\033[Fshow_pmem INFO - ... done logistic regression in %.2e seconds" \
+   #       % (t1-t0))
+
+    ## when does this hit about 1.0?
+    #xtarg = (xprime - clf.intercept_)/clf.coef_[0]
+    #xtarg = xtarg.squeeze()
+    
+    #print("show_pmem INFO - sensible p(fg) threshold approx %.3f" \
+    #      % (xtarg))
     
     #print(clf.coef_)
     #print(clf.intercept_)
@@ -1828,10 +1906,11 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
         
     fig10.clf()
     ax10 = fig10.add_subplot(111)
-    xfine = np.linspace(np.min(isfg_post), 1., 100)
-    yfine = expit(xfine * clf.coef_ + clf.intercept_).ravel()
-
-    dum10 = ax10.scatter(isfg_post, isfg_sim, alpha=0.5, \
+    xfine = np.linspace(np.min(isfg_post_med), 1., 100)
+    #yfine = expit(xfine * clf.coef_ + clf.intercept_).ravel()
+    yfine = expit(xfine * coefs[0] + intercepts[0]).ravel()
+    
+    dum10 = ax10.scatter(isfg_post_med, isfg_sim, alpha=0.5, \
                         label='responsibilities')
 
     reg10 = ax10.plot(xfine, yfine, c='#75988d', zorder=10, alpha=0.7, \
@@ -1839,8 +1918,32 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
                       label='logistic regression')
     leg = ax10.legend(fontsize=8)
 
+    # if we have more than one quantile, overplot them!
+    if len(quants) > 1 and len(quants) < 5:
+        for isho in range(1, len(quants)):
+            ythis = expit(xfine * coefs[isho] + intercepts[isho]).ravel()
+            reg10 = ax10.plot(xfine, ythis, \
+                              c='#75988d', zorder=10, alpha=0.7, \
+                              ls='-.', lw=1)
+
+        # Create asymmetric "errorbars" to indicate the range of pmem
+        # for each object
+        if len(quants) is 3:
+            qq = 10.0**(np.quantile(lnp[...,0],quants, axis=0))
+            exlo = qq[0,:] - qq[1,:]
+            exhi = qq[2,:] - qq[0,:]
+            errx = np.vstack((exlo, exhi))
+
+            # vertical offset to help with visualization
+            yoff = np.random.uniform(size=exlo.size)*0.01
+            
+            dum10_1 = ax10.errorbar(qq[0,:], isfg_sim+yoff, \
+                                    alpha=0.3,\
+                                    xerr=errx, linestyle=None, \
+                                    capsize=2, fmt='.')
+            
     # show where this gets close to 1.
-    dum3 = ax10.axvline(xtarg, ls='--', color='0.5', alpha=0.5, lw=1)
+    dum3 = ax10.axvline(xtargs[0], ls='--', color='0.5', alpha=0.5, lw=1)
 
     slabel = 'fg'
     ax10.set_xlabel('p(is %s), MCMC' % (slabel))
@@ -1848,7 +1951,7 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
 
     fig10.savefig('test_pmem.png')
 
-    return xtarg
+    return xtargs[0]
     
 def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
                  cmap='plasma_r', extralog=False, pthresh=None):
