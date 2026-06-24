@@ -1777,17 +1777,22 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
     approximately 1.0, in the sense expit(xprime) approx 1. For
     reference, expit(4.) = 0.982
 
+    RETURNS
+    =======
+
+    xtarg = probability threshold corresponding roughly to foreground
+
     """
 
     # key for identifier stating which objects are true inliers
     if not key_fg in dsamples.keys():
         print("show_pmem WARN - key %s not present in supplied samples.")
-        return
+        return None
 
     if not key_lnprob in dsamples.keys():
         print("show_pmem WARN - lnP key %s not present in samples." \
               % (key_lnprob))
-        return
+        return None
 
     # views of the categories
     isfg_sim = dsamples[key_fg] * 1.0
@@ -1809,9 +1814,13 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
 
     # when does this hit about 1.0?
     xtarg = (xprime - clf.intercept_)/clf.coef_[0]
+    xtarg = xtarg.squeeze()
     
-    print(clf.coef_)
-    print(clf.intercept_)
+    print("show_pmem INFO - sensible p(fg) threshold approx %.3f" \
+          % (xtarg))
+    
+    #print(clf.coef_)
+    #print(clf.intercept_)
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
@@ -1838,9 +1847,11 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e5, \
     ax10.set_ylabel('Simulated as %s' % (slabel))
 
     fig10.savefig('test_pmem.png')
+
+    return xtarg
     
 def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
-                 cmap='plasma_r', extralog=False):
+                 cmap='plasma_r', extralog=False, pthresh=None):
 
     """One-liner to show some of the results from an MCMC run.
 
@@ -1856,6 +1867,9 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
     probability
 
     extralog = do log10(log(pmem))?
+
+    pthresh = threshold on pmem for "foreground" membership. Ignored
+    if None.
 
     """
 
@@ -1950,9 +1964,20 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
     dum63 = ax63.hist(pmem, alpha=0.5, color='g')
     
     # residuals
-    dum64 = ax64.scatter(uresid_med[:,0], uresid_med[:,1], \
+    #
+    # now using threshold. Note that the pmems are log10(prob fg)
+    bfg = np.isfinite(uresid_med[:,0])
+    if pthresh is not None:
+        bfg = pmem >= np.log10(pthresh)
+    dum64 = ax64.scatter(uresid_med[bfg,0], uresid_med[bfg,1], \
                          s=4, c='k', zorder=30)
+    if np.sum(~bfg) > 0:
+        dum64b = ax64.scatter(uresid_med[~bfg,0], uresid_med[~bfg,1], \
+                              s=6, c='w', zorder=28, edgecolor='k', \
+                              label=r'$p_{fg} < %.2f$' % (pthresh))
 
+        leg64 = ax64.legend(fontsize=8)
+    
     
     fig6.subplots_adjust(hspace=0.3, wspace=0.3)
 
@@ -2019,10 +2044,28 @@ def show_samples(dsamples={}, ellipses=True, n_ellipses=50, \
                          shade, cmap=cmap)
 
     # scatterplot of deltas
-    dum_81 = ax81.scatter(uresid_med[:,0], uresid_med[:,1], \
-                          c=shade, cmap=cmap, s=16, \
-                          edgecolor='0.5')
-    
+    #
+    vmin = np.min(shade)
+    vmax = np.max(shade)
+    if pthresh is not None:
+        vmax = np.max(shade)
+        vmin = np.log10(pthresh * 0.5) # yes I know... :/
+        
+    dum_81 = ax81.scatter(uresid_med[bfg,0], uresid_med[bfg,1], \
+                          c=shade[bfg], cmap=cmap, s=9, \
+                          edgecolor='0.5', \
+                          vmin=vmin, vmax=vmax, \
+                          alpha=0.8, marker='o')
+
+    if np.sum(~bfg) > 0:
+        dum_81 = ax81.scatter(uresid_med[~bfg,0], uresid_med[~bfg,1], \
+                              c=shade[~bfg], cmap=cmap, s=9, \
+                              edgecolor='0.3', \
+                              vmin=vmin, vmax=vmax, \
+                              alpha=0.8, marker='s', \
+                              label=r'$p_{fg} < %.2f$' % (pthresh))
+        leg81 = ax81.legend(fontsize=8)
+        
     cbar81 = fig8.colorbar(dum_81, ax=ax81)
     cbar82 = fig8.colorbar(dum_82, ax=ax82, label=label_pmem)
 
