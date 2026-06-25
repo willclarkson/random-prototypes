@@ -769,6 +769,53 @@ INPUTS:
     with numpyro.plate("data", x.shape[0]):    
         numpyro.sample("u", pred_dist, obs=u)
 
+def random_subset(x, frac=0., seed=None):
+
+    """Selects a random subset of a given array.
+
+    INPUTS
+    ======
+
+    x = [N, ...] array to take random sample
+
+    frac = fraction to sample. If > 1 is treated as the number to
+    sample.
+
+    seed = random number seed (for reproducibility)
+
+    RETURNS
+    =======
+
+    bsample = boolean giving samples.
+
+    """
+
+    # Put this into a method so that we can do things in a slightly
+    # more leisurely manner...
+
+    if x is None:
+        return None
+
+    # View of the size of the input array, leading dimension
+    nrows = x.shape[0]
+    if nrows < 1:
+        return np.array([])
+    bsample = np.zeros(nrows, dtype='bool')
+
+    # number of samples to take. If frac > 1, assume it WAS nsamples
+    if frac > 1:
+        nsamples = min([int(frac), nrows])
+    else:
+        nsamples = int(nrows * frac)
+        
+    rng = np.random.default_rng(seed)
+    ldum = np.argsort( rng.uniform(size=nrows) )
+
+    bsample[ldum[0:nsamples]] = True
+
+    return bsample
+
+    
 def vortex_matrices(uv=None, \
                     rotdeg_in=0., rotdeg_out=0., xc=0., yc=0., \
                     r_out=None, rpow=1., scal=1.):
@@ -1623,8 +1670,9 @@ them. Currently five panels are shown:
     # allow plotting a subset so that we can get into the dense areas
     bsho = np.repeat(True, du_med.shape[0])
     if fshow < 1.0:
-        bsho = np.random.rand(du_med.shape[0]) <= fshow
-
+        #bsho = np.random.rand(du_med.shape[0]) <= fshow
+        bsho = random_subset(du_med, fshow)
+        
     # ... or we can quote by subset
     if subset_name in samples.keys():
         if subset_name.find('b_') == 0:
@@ -1792,7 +1840,8 @@ them. Currently five panels are shown:
         % (med_du0_sho[0], med_du0_sho[1])
     
     fsampl = 0.1 # show this frawcwtion of the samples
-    bsampl = np.random.rand(u0.shape[0]) <= fsampl
+    #bsampl = np.random.rand(u0.shape[0]) <= fsampl
+    bsampl = random_subset(u0, fsampl)
     ax45 = fig4.add_subplot(236)
     dum45_1 = ax45.scatter(u0[bsampl,0], u0[bsampl,1], \
                            s=1, alpha=0.5, color=ucolor, zorder=10)
@@ -1993,7 +2042,7 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e3, \
         # transparency for nifty plot
         alpha_individ = 0.05
         if nsamples > 100:
-            alpha_individ = 0.01 # yes I know...
+            alpha_individ = 0.02 # yes I know...
 
         nshow = np.min([yyfine.shape[0],400])
             
@@ -3033,7 +3082,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         duv_contam = apply_vortex(ugen, AA, rot_cen) - ugen
 
         # ... and select out a sample to apply        
-        bcontam = np.random.rand(ugen.shape[0]) <= frac_contam
+        #bcontam = np.random.rand(ugen.shape[0]) <= frac_contam
+        bcontam = random_subset(ugen, frac_contam)
         perts_contam[bcontam] = duv_contam[bcontam]
 
         if tell_perts:
@@ -3069,7 +3119,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         
     # add outliers (gaussian with big deviations) here
     covs_outly, perts_outly = getcovs(np.repeat(sigm_outly, x.shape[0]))
-    boutly = np.random.rand(perts_u.shape[0]) <= frac_outly
+    # boutly = np.random.rand(perts_u.shape[0]) <= frac_outly
+    boutly = random_subset(perts_u, frac_outly)
     perts_u[boutly] += perts_outly[boutly]
 
     # Report to screen that the outliers were apploed?
@@ -3091,7 +3142,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                   % (shift_u, shift_v))
         
     else:
-        bshif = np.random.rand(perts_u.shape[0]) <= frac_shift
+        # bshif = np.random.rand(perts_u.shape[0]) <= frac_shift
+        bshif = random_subset(perts_u, frac_shift)
         perts_u[bshif,0] += shift_u
         perts_u[bshif,1] += shift_v
 
