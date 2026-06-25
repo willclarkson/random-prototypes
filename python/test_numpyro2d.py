@@ -2073,7 +2073,7 @@ def show_pmem(dsamples={}, key_fg='b_inly', key_lnprob='p', creg=1.0e3, \
     if show_hists:        
         xbins = np.hstack([0., np.logspace(-2.5, -0.30, 50)])
         xbins = np.unique(np.sort( np.hstack((xbins, 1.0-xbins)) ))
-        ymax = 0.15 # for display
+        ymax = 0.12 # for display
 
         # use transparency to help distinguish histograms
         llabel = '%i samples in p(fg)' % (lnp.shape[0])
