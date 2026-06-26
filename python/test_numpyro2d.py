@@ -28,6 +28,7 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import distributions as dist, infer
+from numpyro.infer.util import log_likelihood
 
 # CPU count
 numpyro.set_host_device_count(2)
@@ -56,6 +57,11 @@ import warnings
 # for logistic regression on mixture probabilities
 from scipy.special import expit
 from sklearn.linear_model import LogisticRegression
+
+# For finding the minimum of tabulated ln likelihoods when
+# interrogating our functions
+from scipy.interpolate import RegularGridInterpolator
+from scipy.optimize import minimize
 
 # For this, we adopt "x" as the "input" positions, and "u" as the
 # "output". This allows us to use (x,y) and (u,v) later on if that is
@@ -681,7 +687,9 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
         mixture = dist.MixtureGeneral(mix, [dist_fg, dist_bg] )
 
         # This I think *should* compute the appropriate mixture model
-        y_ = numpyro.sample("u", mixture, obs=u)
+        #
+        # 2026-06-25 cargo-cult comparison: "u" --> "obs"
+        y_ = numpyro.sample("obs", mixture, obs=u)
 
         # track the membership probabilities
         log_probs = mixture.component_log_probs(y_)
@@ -769,7 +777,7 @@ INPUTS:
     with numpyro.plate("data", x.shape[0]):    
         numpyro.sample("u", pred_dist, obs=u)
 
-def random_subset(x, frac=0., seed=None):
+def random_subset(x=None, frac=0., seed=None):
 
     """Selects a random subset of a given array.
 
@@ -1461,8 +1469,199 @@ def logistic_on_lnp(isfg_sim=None, lnp=None, \
 
         
     return clf_coefs, clf_intercepts, xtargs
-    
 
+def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r'):
+
+    """Shows pair plot of the likelihood surface of two parameters.
+
+    INPUTS
+    ======
+
+    dsamples = dictionary of samples, including the input data, truth
+    parameters, model name
+
+    nlevels = number of contour levels to compute
+
+    cmap = color map for contours
+
+    RETURNS
+    =======
+
+    levels = [nlevels] array of contour levels
+
+    """
+
+    # Uses the dictionary of samples for input for the moment because
+    # that already has the dataset and truth parameters packaged. This
+    # actually does have a couple of advantages: since we have run the
+    # sampler, we know what sort of range was covered by them (and
+    # thus we have some idea of parameter ranges to show).
+
+    # input and comparison.
+    X = dsamples['x']
+    y = dsamples['u_obs']
+
+    # get the model name and truth parameters
+    modname = dsamples['methmodel']
+    truthpars = dsamples['truthpars']
+
+    # we first try making a copy of the original truth parameters, and
+    # then only make one of the truth parameters an array. This SHOULD
+    # fail with inconsistent dimensions.
+    parsamples = {}
+    for key in truthpars.keys():
+        parsamples[key] = np.copy(truthpars[key])
+
+    # don't forget that the model expects radians but we wrote out the
+    # truth parameters in degrees. Sigh...
+    parsamples['theta'] = np.radians(parsamples['theta'])
+
+    # We will construct a grid in s, theta. Our limits are guided by
+    # the results of a sampler run for now.
+    bounds_theta = np.array([0.002, 0.012])+30.
+    bounds_sz = np.array([-5e-7, 1.0e-6])+0.01
+    vtheta = np.linspace(bounds_theta[0], bounds_theta[1], 30, \
+                         endpoint=True)
+    vsz = np.linspace(bounds_sz[0], bounds_sz[1], 20, endpoint=True)
+
+    # generate a grid of these points and ravel them
+    ss, tt = np.meshgrid(vsz, vtheta, indexing='ij')
+    
+    # Now we update the parsamples
+    parsamples['theta'] = np.radians(tt).ravel()
+    parsamples['s'] = ss.ravel()
+    leavealone = ['theta', 's']
+    
+    ## now what samples are we sending in? For our tests, try varying
+    ## just one of the parameters...
+    #thetadeg = np.linspace(0.004, 0.010, 20, endpoint=True)+30.
+    #thetarad = np.radians(thetadeg)
+    #parsamples['theta'] = np.copy(thetarad)
+
+    # Ensure the held-constant parameters are replicated to have the
+    # same length as the rest of the parameters.
+    for key in parsamples.keys():
+        if key in leavealone:
+            continue
+        parsamples[key] = np.repeat(parsamples[key], parsamples['theta'].size)
+
+    # look up how to do name resolution properly later. (This might
+    # well all be in an object anyway)
+    dmod = {'model_2term_bells':model_2term_bells}
+    
+    model = dmod[modname]
+    
+    # now let's see if numpyro can compute the likelihood at the truth
+    # parameters, which is probably about the simplest thing we can do
+
+    # keyword arguments to the model
+    kwargs = {'u':dsamples['u_obs'], 'xerr':None, 'fitvar':False}
+    
+    ll = log_likelihood(model = model, \
+                        posterior_samples = parsamples, \
+                        x = dsamples['x'], \
+                        uerr = dsamples['u_err'], \
+                        batch_ndims=1, \
+                        **kwargs)
+
+    # sum log-likelihoods along the data axis [nsamples, ndata]:
+    sumloglike = np.sum(ll['u'],axis=-1)
+
+    # reshape sumloglike into [M,N] array for minimization and for
+    # contour plotting below.
+    zz = np.reshape(sumloglike, ss.shape)
+
+    # We want to be able to approximate the peak of this function,
+    # taking advantage of the grid structure of the points. Do that
+    # here. This is useful enough that it may be worth refactoring
+    # into a separate method, which would need: vsz, vtheta, zz.
+    print("show_pairplot INFO - attempting to find maximum:")
+    interp_func = RegularGridInterpolator( (vsz, np.radians(vtheta)), \
+                                           zz, method='cubic',\
+                                           bounds_error=False, \
+                                           fill_value=None)
+    
+    # Initial guess and bounds for the optimizer
+    max_idx = np.unravel_index(np.argmax(zz), zz.shape)
+    initial_guess = [vsz[max_idx[0]], np.radians(vtheta[max_idx[1]])]
+
+    bounds = [bounds_sz, np.radians(bounds_theta)]
+
+    # Run the optimizer (objective_4min is defined below and pushes
+    # the interpolator into scope for the optimizer).
+    result = minimize(objective_4min, x0=initial_guess, \
+                      method='Nelder-mead', \
+                      args=(interp_func), \
+                      bounds=bounds)
+    
+    print("show_pairplot INFO - interpolation success:", result.success)
+    if result.success:
+        print("show_pairplot INFO - maximum at (%f, %f) w/ fun %f:" \
+              % (np.degrees(result.x[1]), result.x[0], 0.-result.fun))
+    else:
+        # If the optimizer failed, show more diagnostic information
+        print("show_pairplot INFO: optimizer failed:")
+        print(result)
+        
+    # Some debugging print statements while writing this
+    #print(ll.keys(), ll['u'].shape)
+    ## print(ll['u'][0:3])
+    #print(sumloglike.shape)
+    ##print(sumloglike)
+    ## print("%.2e" % (sumloglike))
+
+    # it looks like we can plot something... let's try:
+    fig10 = plt.figure(10)
+    fig10.clf()
+    ax10 = fig10.add_subplot(111)
+
+    # Walk before we can run - try single parameter plot...
+    # dum10 = ax10.scatter(np.degrees(parsamples['theta']), sumloglike)
+    # ax10.set_xlabel(r'$\theta$')
+    #ax10.set_ylabel(r'$\Sigma \ln(L)$')
+
+    # Try enforcing standard color limits
+    vmin = np.min(sumloglike)
+    vmax = np.max(sumloglike)
+
+    # contour plot is irritating - while working out how to do that,
+    # try a scatter plot first.
+    dum10_s = ax10.scatter(np.degrees(parsamples['theta']), \
+                           parsamples['s'], c=sumloglike, \
+                           vmin = vmin, vmax=vmax, alpha=0.3, \
+                           zorder=1, cmap=cmap, s=4)
+
+    # The sumloglike samples were already reshaped above, we needed
+    # them for the maximum-finding.
+    contours = ax10.contour(tt, ss, zz, \
+                            vmin=vmin, vmax=vmax, \
+                            zorder=10, cmap=cmap, \
+                            levels=nlevels)
+    
+    # If the interpolation was successful, show it
+    if result.success:
+        dum = ax10.scatter(np.degrees(result.x[1]), result.x[0], \
+                           c=0.-result.fun, marker='x', s=36, \
+                           zorder=25)
+    
+    ax10.set_xlabel(r'$\theta$')
+    ax10.set_ylabel(r'$s$')
+
+    # add colorbar so we understand the sense of how this is working
+    cbar = fig10.colorbar(dum10_s, ax=ax10)
+    cbar.solids.set(alpha=1.0)
+
+    # save the figure to disk
+    fig10.savefig('test_pairplot.png')
+
+    return contours.levels
+    
+def objective_4min(coords, interp=None):
+
+    """Wrapper for interpolator when finding maximum value of gridded data"""
+
+    return -interp(coords)[0]
+    
 def ellipsepars_from_covars(covars=None, exagfac=1.):
 
     """Utility - given a CovarsNx2x2 object, returns the parameters needed
@@ -3527,11 +3726,16 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     fig3.savefig('simulated_cornerplot.png')
     
     # return the samples so that we can play with them. Smuggle the
-    # transformed positions in the samples as well
+    # transformed positions in the samples as well. In fact, ensure
+    # enough information is included so that the likelihood can be
+    # plotted for the model (which means generated uncertainties also
+    # have to be included). So:
     dret = samples.copy()
     dret['u_tran'] = utran
     dret['u_obs'] = u_obs
+    dret['u_err'] = ucov
     dret['x'] = x
+    dret['extra_args'] = extra_args
 
     dret['methmodel'] = methmodel.__name__
     
