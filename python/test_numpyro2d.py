@@ -1470,13 +1470,18 @@ def logistic_on_lnp(isfg_sim=None, lnp=None, \
         
     return clf_coefs, clf_intercepts, xtargs
 
-def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r', \
+def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
                   sz_min=-2e-6, sz_max=1.0e-6, \
                   sz_zpt=0.01, sz_n=20, \
                   theta_min=-0.015, theta_max=0.015, \
                   theta_zpt=30., theta_n=30, \
                   use_xerr=True, xvar_gen=0.1, \
-                  show_delta_lnL=True):
+                  show_delta_lnL=True, \
+                  vlims_from_contours=False, \
+                  clinestyles=['--','-', '-'], \
+                  clinewidths=[1,1,2], \
+                  show_scatt=True, \
+                  show_truth=False):
 
     """Shows pair plot of the likelihood surface of two parameters.
 
@@ -1486,7 +1491,10 @@ def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r', \
     dsamples = dictionary of samples, including the input data, truth
     parameters, model name
 
-    nlevels = number of contour levels to compute
+    clevels = contour levels. Same behavior as levels argument to
+    plt.contour: if an integer, contour computes this many levels. If
+    a list or array (must be monotonically increasing), contour will
+    draw contours at these levels.
 
     cmap = color map for contours
 
@@ -1502,6 +1510,18 @@ def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r', \
 
     show_delta_lnL = show differences from maximum ln L instead of ln
     L themselves
+
+    vlims_from_contours = if clevels set, use them to set the shading
+    limits.
+
+    clinestyles = linestyles for contours. Trust plt.contour to handle
+    length issues.
+
+    clinewidths = linewidths for contours.
+
+    show_scatt = show the underlying scatterplot
+
+    show_truth = show the "truth" parameters
 
     RETURNS
     =======
@@ -1684,34 +1704,65 @@ def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r', \
     vmin = np.min(z_sho)
     vmax = np.max(z_sho)
 
+    # If contour levels were supplied, use these to enforce our
+    # limits? (Try this, it might not look great)
+    if np.size(clevels) > 0 and vlims_from_contours:
+        vmin = np.min(clevels)-1.
+        vmax = np.max(clevels)+1.        
     
     # contour plot is irritating - while working out how to do that,
     # try a scatter plot first.
-    dum10_s = ax10.scatter(np.degrees(parsamples['theta']), \
-                           parsamples['s'], c=z_sho, \
-                           vmin = vmin, vmax=vmax, alpha=0.3, \
+    alpha_scatt = 0.3
+    if not show_scatt:
+        alpha_scatt = 0.
+
+    dum10_s = ax10.scatter(parsamples['s'], \
+                           np.degrees(parsamples['theta']), \
+                           #parsamples['s'], \
+                           c=z_sho, \
+                           vmin = vmin, vmax=vmax, \
+                           alpha=alpha_scatt, \
                            zorder=1, cmap=cmap, s=4)
 
     # The sumloglike samples were already reshaped above, we needed
-    # them for the maximum-finding.
-    contours = ax10.contour(tt, ss, zz_sho, \
+    # them for the maximum-finding. AWKWARD - have transposed this so
+    # that the parameter ordering matches that of corner, for easier
+    # visual comparison
+    contours = ax10.contour(ss.T, tt.T, zz_sho.T, \
                             vmin=vmin, vmax=vmax, \
                             zorder=10, cmap=cmap, \
-                            levels=nlevels)
+                            levels=clevels, \
+                            linestyles=clinestyles,\
+                            linewidths=clinewidths)
+
+    # if clevels were supplied, assume we want to see the labels on
+    # the graph
+    if len(clevels) > 1:
+        dumcl = ax10.clabel(contours, contours.levels, \
+                            fontsize=9, fmt='%.3f')
     
     # If the interpolation was successful, show it
     if result.success:
-        dum = ax10.scatter(np.degrees(result.x[1]), result.x[0], \
+        dum = ax10.scatter(result.x[0], np.degrees(result.x[1]),\
+                           #, result.x[0], \
                            c=vzer, marker='x', s=36, \
                            zorder=25)
-    
-    ax10.set_xlabel(r'$\theta$')
-    ax10.set_ylabel(r'$s$')
+
+    if show_truth:
+        dum2 = ax10.scatter(truthpars['s'], \
+                            truthpars['theta'], \
+                            marker='o', zorder=30, c='w', \
+                            edgecolor='#4682b4')
+        
+    ax10.set_ylabel(r'$\theta$')
+    ax10.set_xlabel(r'$s$')
 
     # add colorbar so we understand the sense of how this is working
     cbar = fig10.colorbar(dum10_s, ax=ax10, label=labelz)
     cbar.solids.set(alpha=1.0)
 
+    fig10.subplots_adjust(left=0.2, bottom=0.15)
+    
     # save the figure to disk
     fig10.savefig('test_pairplot.png')
 
