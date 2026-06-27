@@ -1006,7 +1006,7 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
     sigy = uncertainty in x[:,1] as stddev
 
-    perturbxy = perturb x as well as u
+    perturb_xy = perturb x as well as u
 
     showdata = plot the data before returning
 
@@ -1475,7 +1475,7 @@ def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
                   sz_zpt=0.01, sz_n=20, \
                   theta_min=-0.015, theta_max=0.015, \
                   theta_zpt=30., theta_n=30, \
-                  use_xerr=True, xvar_gen=0.1, \
+                  use_xerr=True, xvar_gen=None, \
                   show_delta_lnL=True, \
                   vlims_from_contours=False, \
                   clinestyles=['--','-', '-'], \
@@ -3145,6 +3145,9 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     u0=0., v0=0., \
                     sigu=1e-4, sigv=1e-4, \
                     du_lo=1e-4, du_hi=1e-3, \
+                    perturb_xy=False,\
+                    sigx=1e-4, sigy=1e-4, \
+                    propag_errxy=True, \
                     num_chains=2, \
                     num_samples=2000, \
                     fit_var=True, \
@@ -3199,7 +3202,15 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
     du_lo = additional variance in u, lower bound
 
-    du_hi = additional variance in v, lower bound
+    du_hi = additional variance in u, upper bound
+
+    perturb_xy = perturb in xy plane as well as uv?
+
+    propag_errxy = propagate uncty in x (if specified) when sampling
+
+    sigx = stddev in x if perturbing
+
+    sigy = stddev in y if perturbing
 
     num_chains = number of MCMC chains
 
@@ -3312,6 +3323,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                                          betadeg_true=betadeg, \
                                          u0=u0, v0=v0, \
                                          sigu=sigu, sigv=sigv, \
+                                         perturb_xy=perturb_xy, \
+                                         sigx=sigx, sigy=sigy,\
                                          showdata=True)
 
     # Note: ucov, xcov are what the experimenter "thinks" the
@@ -3705,9 +3718,32 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
     t0 = time.time()
 
-    # Try passing extra arguments to the function for the sampler.
-    sampler.run(jax.random.key(seed), x, ucov, u=u_obs, xerr=None, \
-                fitvar=fit_var, **extra_args)
+    # All the models take xerr as an argument. Whether we use it
+    # depends on whether it is specified, and whether we have asked
+    # the sampler to do so.
+    
+    # 2026-06-27 the way numpyro and/or jax handles None is not clear
+    # to me. If None is passed as an argument in the sampler.run line
+    # below, all is fine. But if it is passed a variable we define
+    # here as None, then jax fails to interpret it. So, "xerr=None"
+    # works fine, while "xerr=x_err" breaks if x_err=None).
+
+    # There's probably something going on under the hood about just
+    # what jax does when given None (python None vs special jax
+    # None?), that is not transparent. For the moment, though, and
+    # since it's only the xerr that we need this for, let's just put
+    # in a whole conditional for just whether or not we are using the
+    # x error. Like so:
+    if propag_errxy and xcov is not None:
+        print("test2term_moves INFO - propagating xy uncertainties, e.g.")
+        print(xcov[0])
+        sampler.run(jax.random.key(seed), x, ucov, u=u_obs, xerr=xcov, \
+                    fitvar=fit_var, **extra_args)
+    else:
+        # Run the sampler, explicitly ignoring xy uncertainties (this
+        # was the default behavior)
+        sampler.run(jax.random.key(seed), x, ucov, u=u_obs, xerr=None, \
+                    fitvar=fit_var, **extra_args)
 
     # for screen printing
     var_names=["s", "theta"]
