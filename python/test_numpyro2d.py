@@ -1470,7 +1470,13 @@ def logistic_on_lnp(isfg_sim=None, lnp=None, \
         
     return clf_coefs, clf_intercepts, xtargs
 
-def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r'):
+def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r', \
+                  sz_min=-2e-6, sz_max=1.0e-6, \
+                  sz_zpt=0.01, sz_n=20, \
+                  theta_min=-0.015, theta_max=0.015, \
+                  theta_zpt=30., theta_n=30, \
+                  use_xerr=True, xvar_gen=0.1, \
+                  show_delta_lnL=True):
 
     """Shows pair plot of the likelihood surface of two parameters.
 
@@ -1483,6 +1489,19 @@ def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r'):
     nlevels = number of contour levels to compute
 
     cmap = color map for contours
+
+    sz_min, sz_max, sz_zpt, sz_n = size grid parameters, in the
+    sense sz = np.linspace(sz_min, sz_max, size=sz_n)+sz_zpt
+
+    theta_min, theta_max, theta_zpt, theta_n = theta grid
+    parameters, similar meanings as the sz equivalents
+
+    use_xerr = pass x uncties to the model function
+
+    xvar_gen = generate x uncertainties with this variance
+
+    show_delta_lnL = show differences from maximum ln L instead of ln
+    L themselves
 
     RETURNS
     =======
@@ -1501,6 +1520,27 @@ def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r'):
     X = dsamples['x']
     y = dsamples['u_obs']
 
+    xcov = None
+    if use_xerr:
+        if xvar_gen is not None:
+            xcov = np.zeros((X.shape[0],2,2))
+            xcov[:,0,0] = xvar_gen
+            xcov[:,1,1] = xvar_gen
+            print("show_pairplot INFO - using generated x_err covariance:")
+            print(xcov[0])
+
+        # This parsing is ugly, maybe refactor out?
+        if xcov is None and 'x_err' in dsamples.keys():
+            if dsamples['x_err'] is not None:
+                print("show_pairplot INFO - using x_err from samples")
+                if np.size(dsamples['x_err'].shape) == 3:
+                    xcov = np.copy(dsamples['x_err'])
+                else:
+                    print("show_pairplot WARN - ignoring bad-shape xerr:", \
+                          dsamples['x_err'].shape)
+            else:
+                print("show_pairplot WARN - supplied xerr None. Ignoring.")
+            
     # get the model name and truth parameters
     modname = dsamples['methmodel']
     truthpars = dsamples['truthpars']
@@ -1518,11 +1558,11 @@ def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r'):
 
     # We will construct a grid in s, theta. Our limits are guided by
     # the results of a sampler run for now.
-    bounds_theta = np.array([0.002, 0.012])+30.
-    bounds_sz = np.array([-5e-7, 1.0e-6])+0.01
-    vtheta = np.linspace(bounds_theta[0], bounds_theta[1], 30, \
+    bounds_theta = np.array([theta_min, theta_max]) + theta_zpt
+    bounds_sz = np.array([sz_min, sz_max]) + sz_zpt
+    vtheta = np.linspace(bounds_theta[0], bounds_theta[1], theta_n, \
                          endpoint=True)
-    vsz = np.linspace(bounds_sz[0], bounds_sz[1], 20, endpoint=True)
+    vsz = np.linspace(bounds_sz[0], bounds_sz[1], sz_n, endpoint=True)
 
     # generate a grid of these points and ravel them
     ss, tt = np.meshgrid(vsz, vtheta, indexing='ij')
@@ -1556,6 +1596,9 @@ def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r'):
 
     # keyword arguments to the model
     kwargs = {'u':dsamples['u_obs'], 'xerr':None, 'fitvar':False}
+
+    if xcov is not None:
+        kwargs['xerr'] = xcov
     
     ll = log_likelihood(model = model, \
                         posterior_samples = parsamples, \
@@ -1593,15 +1636,20 @@ def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r'):
                       method='Nelder-mead', \
                       args=(interp_func), \
                       bounds=bounds)
+
+    # initialize the maxium lnL value
+    lnL_max = np.max(zz)
     
     print("show_pairplot INFO - interpolation success:", result.success)
     if result.success:
         print("show_pairplot INFO - maximum at (%f, %f) w/ fun %f:" \
               % (np.degrees(result.x[1]), result.x[0], 0.-result.fun))
+        lnL_max = 0.-result.fun
     else:
         # If the optimizer failed, show more diagnostic information
         print("show_pairplot INFO: optimizer failed:")
         print(result)
+
         
     # Some debugging print statements while writing this
     #print(ll.keys(), ll['u'].shape)
@@ -1620,20 +1668,33 @@ def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r'):
     # ax10.set_xlabel(r'$\theta$')
     #ax10.set_ylabel(r'$\Sigma \ln(L)$')
 
+    # what are we plotting?
+    z_sho = np.copy(sumloglike)
+    zz_sho = np.copy(zz)
+    vzer = lnL_max
+    labelz = r'$\ln(L)$'
+    
+    if show_delta_lnL:
+        z_sho -= lnL_max
+        zz_sho -= lnL_max
+        vzer = 0.
+        labelz = r'$\Delta \ln(L)$'
+        
     # Try enforcing standard color limits
-    vmin = np.min(sumloglike)
-    vmax = np.max(sumloglike)
+    vmin = np.min(z_sho)
+    vmax = np.max(z_sho)
 
+    
     # contour plot is irritating - while working out how to do that,
     # try a scatter plot first.
     dum10_s = ax10.scatter(np.degrees(parsamples['theta']), \
-                           parsamples['s'], c=sumloglike, \
+                           parsamples['s'], c=z_sho, \
                            vmin = vmin, vmax=vmax, alpha=0.3, \
                            zorder=1, cmap=cmap, s=4)
 
     # The sumloglike samples were already reshaped above, we needed
     # them for the maximum-finding.
-    contours = ax10.contour(tt, ss, zz, \
+    contours = ax10.contour(tt, ss, zz_sho, \
                             vmin=vmin, vmax=vmax, \
                             zorder=10, cmap=cmap, \
                             levels=nlevels)
@@ -1641,14 +1702,14 @@ def show_pairplot(dsamples={}, nlevels=6, cmap='magma_r'):
     # If the interpolation was successful, show it
     if result.success:
         dum = ax10.scatter(np.degrees(result.x[1]), result.x[0], \
-                           c=0.-result.fun, marker='x', s=36, \
+                           c=vzer, marker='x', s=36, \
                            zorder=25)
     
     ax10.set_xlabel(r'$\theta$')
     ax10.set_ylabel(r'$s$')
 
     # add colorbar so we understand the sense of how this is working
-    cbar = fig10.colorbar(dum10_s, ax=ax10)
+    cbar = fig10.colorbar(dum10_s, ax=ax10, label=labelz)
     cbar.solids.set(alpha=1.0)
 
     # save the figure to disk
@@ -3735,6 +3796,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     dret['u_obs'] = u_obs
     dret['u_err'] = ucov
     dret['x'] = x
+    dret['x_err'] = xcov # what the experimenter *thinks* the
+                         # uncertainties are
     dret['extra_args'] = extra_args
 
     dret['methmodel'] = methmodel.__name__
