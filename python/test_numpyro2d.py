@@ -1737,7 +1737,7 @@ def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
 
     # if clevels were supplied, assume we want to see the labels on
     # the graph
-    if len(clevels) > 1:
+    if np.size(clevels) > 1:
         dumcl = ax10.clabel(contours, contours.levels, \
                             fontsize=9, fmt='%.3f')
     
@@ -3421,6 +3421,9 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # we'll make these diagonal for ease of specification, can relax
     # later. So - first we generate the arrays of low, hi
     # perturbations...
+
+    # covar added if we know it
+    log10_median_covar_added = None
     if add_covar:
         stdds_u = np.random.uniform(du_lo, du_hi, size=x.shape[0])
         stdds_v = np.copy(stdds_u)
@@ -3428,9 +3431,12 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         # now generate covariances and samples from these perturbations
         covs, perts_u = getcovs(stdds_u, stdds_v)
 
+        # For reporting out later
+        log10_median_covar_added = np.log10(np.median(stdds_u**2))
+        
         if tell_perts:
-            print("test2term_moves INFO - added (uv) covariances: %.2e to %.2e" \
-                  % (du_lo, du_hi))
+            print("test2term_moves INFO - added (uv) covariances: %.2e to %.2e, log10(median) %.2e" \
+                  % (du_lo, du_hi, log10_median_covar_added))
         
     else:
         # Otherwise there are no perturbations to add HERE.
@@ -3843,7 +3849,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         chainz = np.vstack(( chainz.T, \
                              np.log10(samples["v_add"]) )).T
         corner_labels.append(r"$log_{10}(v_{add})$")
-        corner_truths.append(None)
+        corner_truths.append(log10_median_covar_added)
         var_names.append("v_add")
 
     # postpone screen printing to here, since we've now done the work
@@ -3852,6 +3858,9 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # tex formatted, etc.).
     inf_data = az.from_numpyro(sampler)
     print(az.summary(inf_data, var_names=var_names))
+
+    # try printing the shape of the entire summary
+    print("test2term_moves INFO - summary shape:", az.summary(inf_data).shape)
     t2 = time.time()
     print("test2term_moves INFO - Time assembling and summarizing: %.2e sec" \
           % (t2-t1))
