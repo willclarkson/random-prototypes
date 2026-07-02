@@ -4147,6 +4147,10 @@ model
 
         # fresh copy of the seed
         seed = np.copy(seed0)+int(iset)
+
+        print("wrap_demo_undercover INFO - #### %i / %i ### seed %i" \
+              % (iset, nsets, seed))
+
         
         # The arguments here are a bit of a mess because this was
         # built up trial by trial on the command line. Can clean up
