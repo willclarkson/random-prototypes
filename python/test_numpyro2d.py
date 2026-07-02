@@ -18,6 +18,9 @@
 # Our usual imports
 import time
 
+# for wrapper filename carpentry
+import os
+
 import numpy as np
 import matplotlib.pylab as plt
 plt.ion()
@@ -67,7 +70,7 @@ from scipy.optimize import minimize
 # "output". This allows us to use (x,y) and (u,v) later on if that is
 # clearer.
 
-def model_scalerot(x,uerr, u=None):
+def model_scalerot(x,uerr, u=None, s_min=1e-5, s_max=0.1):
 
     """Two-parameter scale and rotation model. 
 
@@ -79,11 +82,17 @@ def model_scalerot(x,uerr, u=None):
 
     u = [N,2] optional output positions
 
+    Hyperparameters
+
+    s_min = min scale factor
+
+    s_max = max scale factor
+
     """
 
     # Define the priors as numpyro distributions. 
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
-    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
 
     # Convert the theta, scale parameters into the CDMATRIX
     # parameters. These will be tracked. The CDMATRIX is {{b,c}.{e,f}}
@@ -114,7 +123,8 @@ def model_scalerot(x,uerr, u=None):
     with numpyro.plate("data", x.shape[0]):    
         numpyro.sample("u", pred_dist, obs=u)
 
-def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False):
+def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False, \
+                      s_min=1e-5, s_max=0.1):
 
     """Scale, rotation model but with some bells and whistles to test.
 
@@ -130,12 +140,18 @@ def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False):
 
     fitvar = include diagonal covariance in model parameters
     
+    Hyperparams for the prior:
+
+    s_min = minimum value for scale factor s
+
+    s_max = maximum value for scale factor s
+
 
 """
 
     # Define the priors as numpyro distributions. 
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
-    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
 
     # cdmatrix components, produce transformed positions
     b = numpyro.deterministic("b",  s * jnp.cos(theta))
@@ -149,8 +165,9 @@ def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False):
 
     xycov_tran = A * 0.
     if xerr is not None:
-        xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+        xycov_tran = jnp.matmul(jnp.matmul(A, xerr), A.T)
 
+        
     # additional covariance in target frame
     cov_extra = jnp.zeros((2,2))
     if fitvar:
@@ -178,7 +195,8 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, \
                        uniform_prior_u0_bg=True, \
                        prior_u0_bg_cen=0., \
                        prior_u0_bg_std=0.1, \
-                       prior_var_bg_min=1.0e-12):
+                       prior_var_bg_min=1.0e-12, \
+                       s_min=1e-5, s_max=0.1):
 
     """Fits mixture model to the positions, but does not fit individual star-by-star shifts. Allows hyperparameters for prior(s) on the mixture.
 
@@ -216,11 +234,17 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, \
 
     prior_var_bg_min = minimum variance of model background component
 
+    Some more hyperparameters:
+    
+    s_min = model s min
+
+    s_max = model s max
+
     """
 
     # our two-term model again:
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
-    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
 
     # 2026-06-23 more flexible prior on the pointing center. Taken
     # from the mixture plus moves where this was first implemented.
@@ -359,7 +383,8 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, \
         # jax.debug.print("{x}", x=log_probs[0])
         
         
-def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False):
+def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False, \
+                      s_min=1e-5, s_max=0.1):
 
     """Scale and rotation, plus object-by-object moves
 
@@ -375,12 +400,17 @@ def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False):
 
     fitvar = include diagonal covariance in model parameters
 
+    Hyperparameters:
+
+    s_min = model sz min
+
+    s_max = model sz max
 
     """
 
     # Define the priors as numpyro distributions. 
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
-    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
 
     # cdmatrix components, produce transformed positions
     b = numpyro.deterministic("b",  s * jnp.cos(theta))
@@ -428,7 +458,8 @@ def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False):
         pred_dist = dist.MultivariateNormal(utot, cov_total)
         numpyro.sample("u", pred_dist, obs=u)
 
-def model_2term_shift(x, uerr, u=None, xerr=None, fitvar=False):
+def model_2term_shift(x, uerr, u=None, xerr=None, fitvar=False, \
+                      s_min=1e-5, s_max=0.1):
 
     """Rotation, scale, and offset, plus (optionally) individual object
 shifts as residuals. 
@@ -445,12 +476,18 @@ shifts as residuals.
 
     fitvar = include diagonal covariance in model parameters
 
+    Model hyperparameters:
+
+    s_min = min scale factor
+
+    s_max = max scale factor
+
 
     """
 
     # priors on bulk parameters as numpyro distributions
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
-    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
     #u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
     #v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
 
@@ -512,7 +549,8 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
                     prior_u0_bg_cen=0., \
                     prior_u0_bg_std=0.1, \
                     prior_var_bg_min=1.0e-12, \
-                    prior_du_var=1.0e-6):
+                    prior_du_var=1.0e-6, \
+                    s_min=1e-5, s_max=0.1):
 
     """Scale, rotation, offset, mixture, individual moves
 
@@ -551,6 +589,12 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
 
     prior_du_var = prior *variance* for star-by-star moves, target plane
 
+    hyperparams
+
+    s_min = minimum scale factor
+
+    s_max = max scale factor
+
     """
 
     # fitvar no longer does anything because there's already a
@@ -559,7 +603,7 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
     
     # priors on bulk parameters as numpyro distributions
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
-    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
 
     # Prior on center - can make this informative. We can make this
     # multidimensional later.
@@ -698,7 +742,8 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
             jax.nn.logsumexp(log_probs, axis=-1, keepdims=True) \
         )
         
-def model_6term(x, uerr, u=None, xerr=None, fitvar=False):
+def model_6term(x, uerr, u=None, xerr=None, fitvar=False, \
+                s_min=1e-5, s_max=0.1):
 
     """Offset and general linear transformation, parameterized in human
 terms
@@ -715,11 +760,17 @@ INPUTS:
 
     fitvar = include diagonal covariance in model parameters
 
+    hyperparameters
+
+    s_min = min scale factor
+
+    s_max = max scale factor
+
     """
 
     # Define the priors as numpyro distributions. 
     theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
-    s = numpyro.sample("s", dist.LogUniform(1e-5,1.))
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
     beta = numpyro.sample("beta", dist.Uniform(-0.5*jnp.pi, 0.5*jnp.pi))
     r = numpyro.sample("r", dist.Normal(1,1))
     u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
@@ -1481,7 +1532,8 @@ def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
                   clinestyles=['--','-', '-'], \
                   clinewidths=[1,1,2], \
                   show_scatt=True, \
-                  show_truth=False):
+                  show_truth=False, \
+                  title_xerr=True):
 
     """Shows pair plot of the likelihood surface of two parameters.
 
@@ -1523,6 +1575,8 @@ def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
 
     show_truth = show the "truth" parameters
 
+    title_xerr = indicate with the title if xerr was included
+
     RETURNS
     =======
 
@@ -1555,6 +1609,8 @@ def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
                 print("show_pairplot INFO - using x_err from samples")
                 if np.size(dsamples['x_err'].shape) == 3:
                     xcov = np.copy(dsamples['x_err'])
+                    print("show_pairplot INFO - first plane of err array:")
+                    print(xcov[0])
                 else:
                     print("show_pairplot WARN - ignoring bad-shape xerr:", \
                           dsamples['x_err'].shape)
@@ -1761,6 +1817,13 @@ def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
     cbar = fig10.colorbar(dum10_s, ax=ax10, label=labelz)
     cbar.solids.set(alpha=1.0)
 
+    if title_xerr:
+        stitle = 'Ignoring any xy uncertainty'
+        if kwargs['xerr'] is not None:
+            stitle = 'Propagating xy uncertainty'
+
+        ax10.set_title(stitle)
+        
     fig10.subplots_adjust(left=0.2, bottom=0.15)
     
     # save the figure to disk
@@ -1880,12 +1943,12 @@ them. Currently five panels are shown:
     if len(samples.keys()) < 1:
         return
 
-    # The star-by-star samples: [nsamples stars, 2]
-    du = samples['du']
+    ## The star-by-star samples: [nsamples stars, 2]
+    # du = samples['du']
 
-    # should be a [nsamples, nstars, 2] array.
-    du_med = np.median(du, axis=0)
-    du_std = np.std(du, axis=0)
+    # # should be a [nsamples, nstars, 2] array.
+    #du_med = np.median(du, axis=0)
+    #du_std = np.std(du, axis=0)
 
     # To put du in context, we also need to see the rest of the
     # model. So get that here.
@@ -1893,6 +1956,29 @@ them. Currently five panels are shown:
     A = cdmatrices_from_samples(samples)
     x = samples['x']
     u_obs = samples['u_obs']
+
+    # It's so useful to see the reprojections that we retain this even
+    # if the du were not actually sampled. If that's the case, we
+    # simply use zeros.
+    if 'du' in samples.keys():
+        # The star-by-star samples: [nsamples, nstars, 2]
+        du = samples['du']
+    else:
+        # if the du were NOT sampled, we populate the pieces later
+        # parts will need so we can use this method, but make them
+        # zeros.
+        du = np.zeros((A.shape[0], x.shape[0], 2))
+        print("show_du INFO - du not supplied: zero-array:", du.shape)
+
+    # Same with u0:
+    if u0 is None:
+        u0 = np.zeros((A.shape[0],2))
+        print("show_du INFO - u0 not in samples, reset to zero.")
+
+    # Computation of medians deferred to here.
+    # du should be a [nsamples, nstars, 2] array.
+    du_med = np.median(du, axis=0)
+    du_std = np.std(du, axis=0)
     
     # Predicted position set for every sample
     if debug:
@@ -1908,7 +1994,7 @@ them. Currently five panels are shown:
     t00 = time.time()
     upred_samples = np.einsum('ijk,lk->ilj',A, x)
     print(f"\033[Fshow_du INFO - done einsum reprojection in %.2e seconds" \
-          % (time.time()-t00))
+          % (time.time()-t00), upred_samples.shape)
 
     # now add on the deltas
     upred_total = upred_samples + du + u0[:,None,:]
@@ -3177,7 +3263,11 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     prior_u0_cen=jnp.array([0.250, 0.250]), \
                     prior_var_bg_min=1.0e-12, \
                     prior_du_var=1.0e-6, \
-                    tell_perts=True):
+                    s_min=1e-5, \
+                    s_max=0.1, \
+                    tell_perts=True, \
+                    file_samples='test_samples.pickle', \
+                    file_cornerplot='simulated_cornerplot.png'):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
@@ -3291,7 +3381,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
     prior_du_var = prior variance for star-by-star moves
 
+    s_min, s_max = min max scale factors in prior
+
     tell_perts = report to screen which perturbations are being generated
+
+    file_samples = filename for samples file when dumped to disk
 
     RETURNS
     =======
@@ -3655,6 +3749,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # function in a general way... does this work with jax and
     # numpyro?
     extra_args = {}
+
+    # 2026-07-02 all the models now accept priors on s_min and
+    # s_max. So pass them.
+    extra_args['s_min'] = s_min
+    extra_args['s_max'] = s_max
     
     methmodel = model_2term_bells
     if test_moves:
@@ -3880,7 +3979,9 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                         label_kwargs={"fontsize":9} )
 
     fig3.subplots_adjust(left=0.15, bottom=0.15, top=0.95, right=0.95)
-    fig3.savefig('simulated_cornerplot.png')
+    if len(file_cornerplot) > 3:
+        fig3.savefig(file_cornerplot)
+    #fig3.savefig('simulated_cornerplot.png')
     
     # return the samples so that we can play with them. Smuggle the
     # transformed positions in the samples as well. In fact, ensure
@@ -3915,8 +4016,9 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     dret['truthpars'] = truthpars
     
     # dump the samples to disk for the moment
-    with open('test_samples.pickle', 'wb') as wobj:
-        pickle.dump(dret, wobj)
+    if len(file_samples) > 3:
+        with open(file_samples, 'wb') as wobj:
+            pickle.dump(dret, wobj)
     
     return dret
 
@@ -3997,3 +4099,77 @@ def test_clumps(ndata=100):
     dum = ax7.scatter(perts[:,0], perts[:,1], c=whichclump, s=9, alpha=0.5)
     ax7.set_xlabel(r'$\Delta u$')
     ax7.set_xlabel(r'$\Delta v$')
+
+
+def wrap_demo_undercover(nsets=10, nstars=25, \
+                         nchains=1, nsamples=16000, \
+                         propag_errxy=False, \
+                         fit_var=False, \
+                         s_max=0.02):
+
+    """Wrapper to run nsets of simulations at nstars and assess whether we
+demonstrate undercoverage by not propagating the uncertainties in the
+model
+
+    WARNING - THIS DOES NOT WORK THE WAY IT SHOULD - there seems to be some state information leaking through from loop to loop. The first run is fine, but all the others show high r_hat and no convergence. Try by-hand?
+
+    """
+
+    # set the initial seed for reproducibility
+    seed0 = 123456
+
+    sdir = 'uncover'
+    sdir = '%s_nch%i_nsamples%i' % (sdir, nchains, nsamples)
+    
+    #sdir='undr_1ch_16000'
+    if propag_errxy:
+        # sdir='undr_propag_1ch_16000'
+        sdir = '%s_propag' % (sdir)
+        
+    if fit_var:
+        sdir='%s_fitvar' % (sdir)
+
+    if not os.access(sdir, os.R_OK):
+        print("wrap_demo_undercover WARN - output directory not found: %s" \
+              % (sdir) )
+        return
+        
+    for iset in range(nsets):
+
+        # Construct filenames and set up the run
+        snum = str(iset).zfill(3)
+        file_stem='./%s/test_2par_xy_%s' % (sdir, snum)
+        path_pickle = '%s_samples.pickle' % (file_stem)
+        path_corner = '%s_cornerplot.png' % (file_stem)
+        
+        print("wrap_demo_undercover INFO - #### %i / %i" \
+              % (iset, nsets))
+
+        # fresh copy of the seed
+        seed = np.copy(seed0)+int(iset)
+        
+        # The arguments here are a bit of a mess because this was
+        # built up trial by trial on the command line. Can clean up
+        # later.
+        dthis = test2term_moves(nstars, fit_var=fit_var, \
+                                seed=seed, \
+                                shift_u=0., shift_v=0., \
+                                num_samples=nsamples, \
+                                num_chains=nchains, \
+                                xsz=400., ysz=400., \
+                                frac_outly=0.0, frac_shift=0.0, \
+                                sigm_outly=4e-3, add_covar=False, \
+                                du_lo=1.0e-4, du_hi=1.0e-3, \
+                                frac_contam=0.35, add_contam=False, \
+                                only_show=False, test_shift=False, \
+                                test_popmix=False, test_mix=False, \
+                                add_clumps=False, \
+                                u0=0., v0=0., \
+                                sigx=1e-2, sigy=1e-2, \
+                                perturb_xy=True, \
+                                propag_errxy=propag_errxy, \
+                                sigu=1e-4, sigv=1e-4, \
+                                file_samples=path_pickle, \
+                                file_cornerplot=path_corner, \
+                                s_max=s_max)
+    
