@@ -3286,6 +3286,7 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     propag_errxy=True, \
                     num_chains=2, \
                     num_samples=2000, \
+                    num_warmup=2000, \
                     fit_var=True, \
                     test_moves=False, \
                     seed=123, \
@@ -3357,6 +3358,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     num_chains = number of MCMC chains
 
     num_samples = number of samples per chain
+
+    num_warmup = number of warmup samples
 
     fit_var = fit additional variance as a model parameter
 
@@ -3874,7 +3877,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     ### Set up the sampler
     sampler = infer.MCMC(
         infer.NUTS(methmodel),
-        num_warmup=2000,
+        num_warmup=num_warmup,
         num_samples=num_samples,
         num_chains=num_chains,
         progress_bar=True)
@@ -4072,6 +4075,9 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # dictionary.
     truthpars = {'s':s, 'theta':theta, 'u0':u0, 'v0':v0}
     dret['truthpars'] = truthpars
+
+    # Include the summary statistics (will be useful)
+    dret['az_summary'] = az.summary(inf_data) 
     
     # dump the samples to disk for the moment
     if len(file_samples) > 3:
@@ -4161,8 +4167,10 @@ def test_clumps(ndata=100):
 
 def wrap_demo_undercover(nsets=10, nstars=25, \
                          nchains=1, nsamples=16000, \
+                         nwarmup=2000, \
                          propag_errxy=False, \
                          fit_var=False, \
+                         s_min=0.002, \
                          s_max=0.02, \
                          thetadeg_min = 20., \
                          thetadeg_max = 40.):
@@ -4220,6 +4228,7 @@ model
                                 shift_u=0., shift_v=0., \
                                 num_samples=nsamples, \
                                 num_chains=nchains, \
+                                num_warmup=nwarmup, \
                                 xsz=400., ysz=400., \
                                 frac_outly=0.0, frac_shift=0.0, \
                                 sigm_outly=4e-3, add_covar=False, \
@@ -4235,6 +4244,7 @@ model
                                 sigu=1e-4, sigv=1e-4, \
                                 file_samples=path_pickle, \
                                 file_cornerplot=path_corner, \
+                                s_min=s_min, \
                                 s_max=s_max, \
                                 thetadeg_min = thetadeg_min, \
                                 thetadeg_max = thetadeg_max )
