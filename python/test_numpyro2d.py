@@ -70,7 +70,9 @@ from scipy.optimize import minimize
 # "output". This allows us to use (x,y) and (u,v) later on if that is
 # clearer.
 
-def model_scalerot(x,uerr, u=None, s_min=1e-5, s_max=0.1):
+def model_scalerot(x,uerr, u=None, s_min=1e-5, s_max=0.1, \
+                   thetarad_min = -jnp.pi, \
+                   thetarad_max =  jnp.pi):
 
     """Two-parameter scale and rotation model. 
 
@@ -88,10 +90,14 @@ def model_scalerot(x,uerr, u=None, s_min=1e-5, s_max=0.1):
 
     s_max = max scale factor
 
+    thetarad_min = minimum rotation
+
+    thetarad_max = maximum rotation
+
     """
 
     # Define the priors as numpyro distributions. 
-    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
     s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
 
     # Convert the theta, scale parameters into the CDMATRIX
@@ -124,7 +130,9 @@ def model_scalerot(x,uerr, u=None, s_min=1e-5, s_max=0.1):
         numpyro.sample("u", pred_dist, obs=u)
 
 def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False, \
-                      s_min=1e-5, s_max=0.1):
+                      s_min=1e-5, s_max=0.1, \
+                      thetarad_min = -jnp.pi, \
+                      thetarad_max =  jnp.pi):
 
     """Scale, rotation model but with some bells and whistles to test.
 
@@ -146,11 +154,18 @@ def model_2term_bells(x, uerr, u=None, xerr=None, fitvar=False, \
 
     s_max = maximum value for scale factor s
 
+    thetarad_min = minimum PA in radians
+
+    thetarad_max = maximum PA in radians
+
 
 """
 
-    # Define the priors as numpyro distributions. 
-    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    # Define the priors as numpyro distributions.
+    
+    # theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
+
     s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
 
     # cdmatrix components, produce transformed positions
@@ -196,7 +211,9 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, \
                        prior_u0_bg_cen=0., \
                        prior_u0_bg_std=0.1, \
                        prior_var_bg_min=1.0e-12, \
-                       s_min=1e-5, s_max=0.1):
+                       s_min=1e-5, s_max=0.1, \
+                       thetarad_min = -jnp.pi, \
+                       thetarad_max =  jnp.pi):
 
     """Fits mixture model to the positions, but does not fit individual star-by-star shifts. Allows hyperparameters for prior(s) on the mixture.
 
@@ -240,10 +257,16 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, \
 
     s_max = model s max
 
+    thetarad_min = min rotation angle
+
+    thetarad_max = max rotation angle
+
     """
 
     # our two-term model again:
-    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    #theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
+    
     s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
 
     # 2026-06-23 more flexible prior on the pointing center. Taken
@@ -384,7 +407,9 @@ def model_2term_mixmod(x, uerr, u=None, xerr=None, fitvar=False, \
         
         
 def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False, \
-                      s_min=1e-5, s_max=0.1):
+                      s_min=1e-5, s_max=0.1, \
+                      thetarad_min = -jnp.pi, \
+                      thetarad_max =  jnp.pi):
 
     """Scale and rotation, plus object-by-object moves
 
@@ -406,10 +431,14 @@ def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False, \
 
     s_max = model sz max
 
+    thetarad_min = minimum rotation angle
+
+    thetarad_max = maximum rotation angle
+
     """
 
     # Define the priors as numpyro distributions. 
-    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
     s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
 
     # cdmatrix components, produce transformed positions
@@ -459,7 +488,9 @@ def model_2term_moves(x, uerr, u=None, xerr=None, fitvar=False, \
         numpyro.sample("u", pred_dist, obs=u)
 
 def model_2term_shift(x, uerr, u=None, xerr=None, fitvar=False, \
-                      s_min=1e-5, s_max=0.1):
+                      s_min=1e-5, s_max=0.1, \
+                      thetarad_min = -jnp.pi, \
+                      thetarad_max =  jnp.pi):
 
     """Rotation, scale, and offset, plus (optionally) individual object
 shifts as residuals. 
@@ -482,11 +513,16 @@ shifts as residuals.
 
     s_max = max scale factor
 
+    thetarad_min = minimum rotation angle, radians
+
+    thetarad_max = maximum rotation angle, radians
 
     """
 
     # priors on bulk parameters as numpyro distributions
-    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    #theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
+
     s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
     #u0= numpyro.sample("u0", dist.Uniform(-1.0, 1.0))
     #v0= numpyro.sample("v0", dist.Uniform(-1.0, 1.0))
@@ -550,7 +586,9 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
                     prior_u0_bg_std=0.1, \
                     prior_var_bg_min=1.0e-12, \
                     prior_du_var=1.0e-6, \
-                    s_min=1e-5, s_max=0.1):
+                    s_min=1e-5, s_max=0.1, \
+                    thetarad_min = -jnp.pi, \
+                    thetarad_max =  jnp.pi):
 
     """Scale, rotation, offset, mixture, individual moves
 
@@ -595,6 +633,10 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
 
     s_max = max scale factor
 
+    thetarad_min = min position angle, radians
+
+    thetarad_max = max position angle, radians
+
     """
 
     # fitvar no longer does anything because there's already a
@@ -602,7 +644,8 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
     # 2026-06-11: MAKE SURE TO CHECK THAT THIS IS STILL THE CASE.
     
     # priors on bulk parameters as numpyro distributions
-    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
+
     s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
 
     # Prior on center - can make this informative. We can make this
@@ -743,7 +786,9 @@ def model_2term_mix(x, uerr, u=None, xerr=None, fitvar=False, \
         )
         
 def model_6term(x, uerr, u=None, xerr=None, fitvar=False, \
-                s_min=1e-5, s_max=0.1):
+                s_min=1e-5, s_max=0.1, \
+                thetarad_min = -jnp.pi, \
+                thetarad_max =  jnp.pi):
 
     """Offset and general linear transformation, parameterized in human
 terms
@@ -766,10 +811,15 @@ INPUTS:
 
     s_max = max scale factor
 
+    thetarad_min = min rotation angle, radians
+
+    thetarad_max = max rotation angle, radians
+
     """
 
     # Define the priors as numpyro distributions. 
-    theta = numpyro.sample("theta", dist.Uniform(-1.0*jnp.pi, 1.0*jnp.pi))
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
+
     s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
     beta = numpyro.sample("beta", dist.Uniform(-0.5*jnp.pi, 0.5*jnp.pi))
     r = numpyro.sample("r", dist.Normal(1,1))
@@ -3265,6 +3315,8 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     prior_du_var=1.0e-6, \
                     s_min=1e-5, \
                     s_max=0.1, \
+                    thetadeg_min = -180., \
+                    thetadeg_max =  180., \
                     tell_perts=True, \
                     file_samples='test_samples.pickle', \
                     file_cornerplot='simulated_cornerplot.png'):
@@ -3382,6 +3434,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     prior_du_var = prior variance for star-by-star moves
 
     s_min, s_max = min max scale factors in prior
+
+    thetadeg_min, thetadeg_max = minmax rotation angle prior, degrees
 
     tell_perts = report to screen which perturbations are being generated
 
@@ -3754,6 +3808,10 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # s_max. So pass them.
     extra_args['s_min'] = s_min
     extra_args['s_max'] = s_max
+
+    # Radians conversion using jnp.pi to get scalar and not array
+    extra_args['thetarad_min'] = thetadeg_min * jnp.pi/180.
+    extra_args['thetarad_max'] = thetadeg_max * jnp.pi/180.
     
     methmodel = model_2term_bells
     if test_moves:
@@ -4105,7 +4163,9 @@ def wrap_demo_undercover(nsets=10, nstars=25, \
                          nchains=1, nsamples=16000, \
                          propag_errxy=False, \
                          fit_var=False, \
-                         s_max=0.02):
+                         s_max=0.02, \
+                         thetadeg_min = 20., \
+                         thetadeg_max = 40.):
 
     """Wrapper to run nsets of simulations at nstars and assess whether we
 demonstrate undercoverage by not propagating the uncertainties in the
@@ -4175,5 +4235,7 @@ model
                                 sigu=1e-4, sigv=1e-4, \
                                 file_samples=path_pickle, \
                                 file_cornerplot=path_corner, \
-                                s_max=s_max)
+                                s_max=s_max, \
+                                thetadeg_min = thetadeg_min, \
+                                thetadeg_max = thetadeg_max )
     
