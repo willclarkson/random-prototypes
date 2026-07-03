@@ -1749,6 +1749,10 @@ def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
                                            zz, method='cubic',\
                                            bounds_error=False, \
                                            fill_value=None)
+
+    # Use the interpolator to return the lnlike at the truth parameters
+    truth_in = np.array([truthpars['s'], np.radians(truthpars['theta']) ])
+    zest_truth = interp_func(truth_in)
     
     # Initial guess and bounds for the optimizer
     max_idx = np.unravel_index(np.argmax(zz), zz.shape)
