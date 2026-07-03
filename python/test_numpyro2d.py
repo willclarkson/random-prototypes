@@ -1769,7 +1769,7 @@ def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
 
     # initialize the maxium lnL value
     lnL_max = np.max(zz)
-    
+
     print("show_pairplot INFO - interpolation success:", result.success)
     if result.success:
         print("show_pairplot INFO - maximum at (%f, %f) w/ fun %f:" \
@@ -1845,6 +1845,17 @@ def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
                             linestyles=clinestyles,\
                             linewidths=clinewidths)
 
+    # Evaluate whether each contour encloses the truth. This I think
+    # is as simple as just comparing the levels
+    compar_truth = np.copy(zest_truth)
+    if show_delta_lnL:
+        compar_truth = zest_truth - lnL_max
+    bEncloses_truth = contours.levels < compar_truth
+
+    print("show_pairplot INFO - levels, enclose 'truth':")
+    print(contours.levels)
+    print(bEncloses_truth)
+    
     # if clevels were supplied, assume we want to see the labels on
     # the graph
     if np.size(clevels) > 1:
