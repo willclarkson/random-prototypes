@@ -1571,6 +1571,68 @@ def logistic_on_lnp(isfg_sim=None, lnp=None, \
         
     return clf_coefs, clf_intercepts, xtargs
 
+def lift_contour_vertices(fig=None):
+
+    """Gets the contour vertices from a cornerplot
+
+    INPUT
+
+    fig = figure object that should already hold the corner plot
+
+    RETURNS
+
+    dcontours = dictionary with contour vertices
+
+    """
+
+    # initialize return dictionary
+    dcon = {}
+    
+    if fig is None:
+        return dcon
+
+    # number of axes, ad hoc test for is_square
+    nax = len(fig.get_axes())
+    if nax**0.5 != int(nax**0.5):
+        print("lift_contour_vertices WARN - non-square axes")
+        return dcon
+
+    # Now we access each of the cornerplot axes. This borrows from the
+    # corner.corner documentation of dfm et al.
+    ndim = int(nax**0.5)
+    axes = np.array(fig.axes).reshape((ndim, ndim))
+
+    for yi in range(ndim):
+        for xi in range(yi):
+            ax = axes[yi, xi]
+
+            # simple index - we will use this as the label
+            indx1 = np.ravel_multi_index([yi,xi], (ndim, ndim))
+            scont = str(indx1).zfill(3)
+
+            # Set up the contours dictionary and its identifying info,
+            # along with a couple of other attributes that will be
+            # useful when debugging later.
+            dcon[scont] = {}
+            dcon[scont]['id_1d'] = indx1 
+            dcon[scont]['id_2d'] = [yi,xi]
+            dcon[scont]['xlabel'] = ax.get_xlabel()
+            dcon[scont]['ylabel'] = ax.get_ylabel()
+            
+            # The collection with contour levels seems to be the last
+            coll = ax.collections[-1]
+
+            # get the levels and the vertices
+            dcon[scont]['levels'] = coll.levels
+
+            # Let's just loop through the sets of vertices
+            dcon[scont]['vertices'] = []
+            pathset = coll.get_paths()
+            for ipath in range(len(pathset)):
+                dcon[scont]['vertices'].append(pathset[ipath].vertices)
+            
+    return dcon
+            
 def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
                   sz_min=-2e-6, sz_max=1.0e-6, \
                   sz_zpt=0.01, sz_n=20, \
@@ -4287,8 +4349,15 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     truthpars = {'s':s, 'theta':theta, 'u0':u0, 'v0':v0}
     dret['truthpars'] = truthpars
 
-    # Include the summary statistics (will be useful)
+    # Include the summary statistics (will be useful for rhat if
+    # nothing else)
     dret['az_summary'] = az.summary(inf_data) 
+
+    # Lift the parameter-pair contours from the contour plot
+    dret['contours'] = lift_contour_vertices(fig3)
+
+    # record the time elapsed
+    dret['seconds_elapsed'] = time.time()-t0
     
     # dump the samples to disk for the moment
     if len(file_samples) > 3:
@@ -4384,7 +4453,8 @@ def wrap_demo_undercover(nsets=10, nstars=25, \
                          s_min=0.002, \
                          s_max=0.02, \
                          thetadeg_min = 20., \
-                         thetadeg_max = 40.):
+                         thetadeg_max = 40., \
+                         sigx=0.01, sigy=0.01):
 
     """Wrapper to run nsets of simulations at nstars and assess whether we
 demonstrate undercoverage by not propagating the uncertainties in the
@@ -4449,7 +4519,7 @@ model
                                 test_popmix=False, test_mix=False, \
                                 add_clumps=False, \
                                 u0=0., v0=0., \
-                                sigx=1e-2, sigy=1e-2, \
+                                sigx=sigx, sigy=sigy, \
                                 perturb_xy=True, \
                                 propag_errxy=propag_errxy, \
                                 sigu=1e-4, sigv=1e-4, \
