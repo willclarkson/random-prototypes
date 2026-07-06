@@ -2015,7 +2015,7 @@ def match_truths_summary(dsamples={}, \
                                  
 def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
                    samples_tail='samples.pickle', \
-                   rhat_max=1.1):
+                   rhat_max=1.1, tell_paths=False):
 
     """Wrapper - given a run of samples from simulations, assemble the chi statistics from each, per-variable over the trials.
 
@@ -2028,6 +2028,8 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
 
     rhat_max = maximum rhat for ANY of the kept variables.
 
+    tell_paths = report paths to screen (useful opportunity to debug)
+    
     RETURNS
 
     dstats = dictionary containing at least {'chi', 'truthpars'}, indexed by varname
@@ -2073,11 +2075,13 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
         # reject the entire table if any of the variables show bad
         # rhat
         rmax = float(df['r_hat'].max())
+        if tell_paths:
+            print(path, rmax)
         if rmax > rhat_max:
             print("collect_truths INFO - at least one bad rhat for %s: %.2f" \
                   % (path, rmax))
             continue
-
+        
         # if here, then we have a run we think we can trust. Assemble
         # it.
         for varname in df.index:
