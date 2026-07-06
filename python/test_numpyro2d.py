@@ -19,7 +19,7 @@
 import time
 
 # for wrapper filename carpentry
-import os
+import os, glob
 
 import numpy as np
 import matplotlib.pylab as plt
@@ -1901,7 +1901,199 @@ def objective_4min(coords, interp=None):
     """Wrapper for interpolator when finding maximum value of gridded data"""
 
     return -interp(coords)[0]
+
+def match_truths_summary(dsamples={}, \
+                         key_truths='truthpars', \
+                         key_summary='az_summary', \
+                         col_mean='mean', col_sd='sd', \
+                         col_resid='chi'):
+
+    """Utility - given a samples arviz summary object, and truths, match
+    them. 
+
+    INPUTS
     
+    dsamples = dictionary containing sampling information. 
+
+    key_truths = key referencing parameters of interest (assumed
+    itself to be a dictionary)
+
+    key_summary = key referencing arviz summary statistics
+
+    col_mean = column for the centroid of interest
+
+    col_sd = column for stddev of samples
+
+    col_resid = column for computed (mean - truth)/stddev
+
+    RETURNS
+
+    dftruths = pandas dataframe containing the subset of samples that had matches in the "truths" array, the truth values, and the "chi" statistic = (truth - mean)/stddev 
+
+    """
+
+    # We go through parameter by parameter because we may well not
+    # have samples for every truth parameter (or the other way round,
+    # particularly later on when testing models that are different
+    # from the ones used to simulate the data).
+    
+    # This is maybe a little lazy since we could / should compute
+    # these things from the samples themselves... But on the other
+    # hand, this does give access to diagnostic statistics like rhat
+    # etc.
+
+    # I need to think a bit more about how we will best handle the
+    # star-by-star motions. Probably programmatically, note that arviz
+    # includes the index of multidimensional parameters in the summary
+    # parameter name.
+    
+    # nothing clever here...
+    for key in [key_truths, key_summary]:
+        if not key in dsamples.keys():
+            print("match_truths_summary WARN - missing keyword %s" \
+                  % (key))
+            return None
+    
+    # the arviz summary stats form a pandas dataframe object, whose
+    # "row names" are given by its "index" attribute
+    df = dsamples[key_summary]
+
+    # Form a list of keys in the dataframe that also have truth parameters
+    labels_truths = []
+    values_truths = []
+
+    # We recompute the centroids and stddevs here, because arviz seems
+    # to be storing them as strings otherwise.
+    means = np.array([])
+    medns = np.array([])
+    stdds = np.array([])
+    
+    for key in dsamples[key_truths].keys():
+        if key in df.index:
+            labels_truths.append(str(key))
+
+            # ugh
+            valu_truth = np.float64(dsamples[key_truths][key])
+            if key.find('theta') > -1:
+                valu_truth = np.radians(valu_truth)                            
+            values_truths.append(valu_truth)
+
+            # recompute the centroids here, ASSUMING the sample
+            # is in the dictionary...
+            if not key in dsamples.keys():
+                continue
+
+            samps = dsamples[key]
+            means = np.hstack(( means, np.mean(samps)   ))
+            medns = np.hstack(( medns, np.median(samps) ))
+            stdds = np.hstack(( stdds, np.std(samps) ))
+            
+    # Now we construct the summary table copy. No second bracket
+    # needed since  labels_truths is already a list.
+    df_matched = df.loc[labels_truths]
+
+    # ... add on the recomputed centroids
+    df_matched['c_means'] = means
+    df_matched['c_medns'] = medns
+    df_matched['c_stdds'] = stdds
+    
+    # ... add on the truths column. Inherit the truth paramters key
+    df_matched[key_truths] = values_truths
+
+    # OBSOLETED BY RECOMPUTED CENTROIDS, FORCED TO BE FLOAT64
+    #
+    # Compute the residuals. The arviz summary stores some of the
+    # values as strings, so we force conversion to float here.
+    #df_matched[col_resid] = \
+    #    (df_matched[key_truths] - np.float64(df_matched[col_mean])) / np.float64(df_matched[col_sd])
+
+    df_matched[col_resid] = (df_matched[key_truths] - df_matched['c_means']) / df_matched['c_stdds']
+        
+    
+    return df_matched
+
+                                 
+def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
+                   samples_tail='samples.pickle', \
+                   rhat_max=1.1):
+
+    """Wrapper - given a run of samples from simulations, assemble the chi statistics from each, per-variable over the trials.
+
+    INPUTS
+
+    dirsamples = subdirectory in which the samples.pickle files are to
+    be found
+
+    samples_tail = search string for samples files
+
+    rhat_max = maximum rhat for ANY of the kept variables.
+
+    RETURNS
+
+    dstats = dictionary containing at least {'chi', 'truthpars'}, indexed by varname
+
+    """
+
+    # Trusting the user to have uniform senses of their truth
+    # variables (e.g. all the pickle files in the subdirectory have
+    # truthpars ['s', 'theta'] and so forth. If not, this could be
+    # enforced as an argument to this method, but it's probably better
+    # not to need to specify that up-front if we can avoid it.
+    
+    if not os.access(dirsamples, os.R_OK):
+        print("collect_truths WARN - samples directory not readable: %s" \
+              % (dirsamples))
+        return
+
+    if len(samples_tail) < 3:
+        print("collect_truths WARN - search string must be >3 characters")
+        return
+    
+    # gather matching files
+    lpaths = sorted(glob.glob('%s/*%s' % (dirsamples, samples_tail)))
+
+    # Since we don't know yet which variables we will keep, build up a
+    # dictionary of results.
+    dchi = {}
+    dtruth = {} # useful to check 
+    
+    for path in lpaths:
+        if not os.access(path, os.R_OK):
+            continue
+        with open(path, 'rb') as robj:
+            dthis = pickle.load(robj)
+
+        # The default arguments should produce a sensible df
+        df = match_truths_summary(dthis)
+
+        # Nothing to do if None returned.
+        if df is None:
+            continue
+        
+        # reject the entire table if any of the variables show bad
+        # rhat
+        rmax = float(df['r_hat'].max())
+        if rmax > rhat_max:
+            print("collect_truths INFO - at least one bad rhat for %s: %.2f" \
+                  % (path, rmax))
+            continue
+
+        # if here, then we have a run we think we can trust. Assemble
+        # it.
+        for varname in df.index:
+            this_chi = df['chi'][varname]
+            this_truth = df['truthpars'][varname]
+            if varname not in dchi.keys():
+                dchi[varname] = np.array([this_chi])
+                dtruth[varname] = np.array([this_truth])
+            else:
+                dchi[varname] = np.hstack(( dchi[varname], this_chi ))
+                dtruth[varname] = np.hstack(( dtruth[varname], this_truth ))
+
+    # package the results into a dictionary to return
+    dret = {'chi':dchi, 'truthpars':dtruth}
+    return dret
+                
 def ellipsepars_from_covars(covars=None, exagfac=1.):
 
     """Utility - given a CovarsNx2x2 object, returns the parameters needed
