@@ -2184,22 +2184,28 @@ def collect_contours(lpaths=[]):
 
     lpaths = list of paths to *samples.pickle files
 
-    """
+    RETURNS
 
-    # In each original dictionary, the contours are arranged as
-    # follows, e.g. the vertices of the SECOND level of the first
-    # subplot would be accessed as
-    #
-    # ['002']['vertices'][1]
-    #
-    # and we probably want to insert a by-path level, something like
-    #
-    # ['002'][iset]['vertices'][1]
-    #
-    # ... which I think is the most transparent way to do this. It's
-    # fairly wasteful but these are not usually large collections of
-    # numbers (certainly not compared to the MCMC samples!) so it's OK
-    # for the moment.
+    dcontours = dictionary of sets. 
+
+    ====
+
+    In each original dictionary, the contours are arranged as follows,
+    e.g. the vertices of the SECOND level of the first subplot would
+    be accessed as
+    
+    ['002']['vertices'][1]
+    
+    and we probably want to insert a by-path level, something like
+    
+    ['002'][iset]['vertices'][1]
+    
+     ... which I think is the most transparent way to do this. It's
+     fairly wasteful but these are not usually large collections of
+     numbers (certainly not compared to the MCMC samples!) so it's OK
+     for the moment.
+
+    """
 
     if len(lpaths) < 1:
         print("collect_contours WARN - contours collection paths empty")
