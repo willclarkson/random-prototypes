@@ -1585,6 +1585,10 @@ def lift_contour_vertices(fig=None):
 
     """
 
+    # since matplotlib collections here are in data coordinates, we
+    # could just send the collections themselves into the dictionary
+    # and whatever reads them in could then simply plot them.
+    
     # initialize return dictionary
     dcon = {}
     
@@ -1614,6 +1618,7 @@ def lift_contour_vertices(fig=None):
             # along with a couple of other attributes that will be
             # useful when debugging later.
             dcon[scont] = {}
+            dcon[scont]['ndim'] = ndim # for convenient subplot
             dcon[scont]['id_1d'] = indx1 
             dcon[scont]['id_2d'] = [yi,xi]
             dcon[scont]['xlabel'] = ax.get_xlabel()
@@ -2107,11 +2112,11 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
     if not os.access(dirsamples, os.R_OK):
         print("collect_truths WARN - samples directory not readable: %s" \
               % (dirsamples))
-        return
+        return {}
 
     if len(samples_tail) < 3:
         print("collect_truths WARN - search string must be >3 characters")
-        return
+        return {}
     
     # gather matching files
     lpaths = sorted(glob.glob('%s/*%s' % (dirsamples, samples_tail)))
@@ -2121,6 +2126,9 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
     dchi = {}
     dtruth = {} # useful to check 
     drhat = {} # ditto
+
+    # it'll be useful to keep the paths that were acceptable
+    lpaths_ok = []
     
     for path in lpaths:
         if not os.access(path, os.R_OK):
@@ -2145,6 +2153,8 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
             print("collect_truths INFO - at least one bad rhat for %s: %.2f" \
                   % (path, rmax))
             continue
+
+        lpaths_ok.append(path)
         
         # if here, then we have a run we think we can trust. Assemble
         # it.
@@ -2161,9 +2171,66 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
                 dtruth[varname] = np.hstack(( dtruth[varname], this_truth ))
                 drhat[varname] = np.hstack(( drhat[varname], this_rhat ))
                 
-    # package the results into a dictionary to return
-    dret = {'chi':dchi, 'truthpars':dtruth, 'rhat':drhat}
+    # package the results into the return dictionary
+    dret = {'chi':dchi, 'truthpars':dtruth, \
+            'rhat':drhat, 'paths':lpaths_ok}
     return dret
+
+def collect_contours(lpaths=[]):
+
+    """Collects contours from sets of pickle files
+
+    INPUTS
+
+    lpaths = list of paths to *samples.pickle files
+
+    """
+
+    # In each original dictionary, the contours are arranged as
+    # follows, e.g. the vertices of the SECOND level of the first
+    # subplot would be accessed as
+    #
+    # ['002']['vertices'][1]
+    #
+    # and we probably want to insert a by-path level, something like
+    #
+    # ['002'][iset]['vertices'][1]
+    #
+    # ... which I think is the most transparent way to do this. It's
+    # fairly wasteful but these are not usually large collections of
+    # numbers (certainly not compared to the MCMC samples!) so it's OK
+    # for the moment.
+
+    if len(lpaths) < 1:
+        print("collect_contours WARN - contours collection paths empty")
+        return
+
+    dcontours = {}
+    for path in lpaths:
+        if not os.access(path, os.R_OK):
+            continue
+
+        with open(path, 'rb') as robj:
+            dthis = pickle.load(robj)
+
+        if not 'contours' in dthis.keys():
+            print("collect_contours WARN - contours not in file: %s" \
+                  % (path) )
+            continue
+
+        # view of the contours for this pickle file
+        dcon = dthis['contours']
+
+        # one set per axis...
+        for key_axis in dcon.keys():
+
+            # initialise for this axis if not already set
+            if not key_axis in dcontours.keys():
+                dcontours[key_axis] = []
+            dcontours[key_axis].append(dcon[key_axis])
+
+    return dcontours
+
                 
 def ellipsepars_from_covars(covars=None, exagfac=1.):
 
