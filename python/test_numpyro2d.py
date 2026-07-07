@@ -1583,30 +1583,38 @@ def lift_contour_vertices(fig=None):
 
     dcontours = dictionary with contour vertices
 
+    dhist = dictionary with histogram plot data
+
     """
 
     # since matplotlib collections here are in data coordinates, we
     # could just send the collections themselves into the dictionary
     # and whatever reads them in could then simply plot them.
     
-    # initialize return dictionary
+    # initialize return dictionary for contours
     dcon = {}
+
+    # Initialize return dictionary for histograms
+    dhist = {}
     
     if fig is None:
-        return dcon
+        return dcon, dhist
 
     # number of axes, ad hoc test for is_square
     nax = len(fig.get_axes())
     if nax**0.5 != int(nax**0.5):
         print("lift_contour_vertices WARN - non-square axes")
-        return dcon
+        return dcon, dhist
 
     # Now we access each of the cornerplot axes. This borrows from the
     # corner.corner documentation of dfm et al.
     ndim = int(nax**0.5)
     axes = np.array(fig.axes).reshape((ndim, ndim))
 
+    # Loop over the side length
     for yi in range(ndim):
+
+        # Loop over the sub-diagonal panes to get the contours...
         for xi in range(yi):
             ax = axes[yi, xi]
 
@@ -1636,8 +1644,30 @@ def lift_contour_vertices(fig=None):
             pathset = coll.get_paths()
             for ipath in range(len(pathset)):
                 dcon[scont]['vertices'].append(pathset[ipath].vertices)
-            
-    return dcon
+
+        # ... and since we're here, let's get the diagonals as
+        # well. These are the marginal histograms.
+        ax_diag = axes[yi,yi]
+
+        # Housekeeping information for the histogram dictionary as
+        # well
+        indxd = np.ravel_multi_index([yi,yi], (ndim, ndim)) + 1
+        shist = str(indxd).zfill(3)
+        dhist[shist] = {}
+        dhist[shist]['ndim'] = ndim
+        dhist[shist]['id_1d'] = indxd
+        dhist[shist]['id_2d'] = [yi, yi]
+        dhist[shist]['xlabel'] = ax_diag.get_title()
+        dhist[shist]['ylabel'] = r'N(%s)' % (dhist[shist]['xlabel'])
+
+        # Try saving the polygon object itself. That's not quite as
+        # easy as it looks because the Artist needs to know about the
+        # parent figure. All we really care about though is the data,
+        # so - we save the vertices instead.
+        #dhist[shist]['Polygon'] = ax_diag.patches[-1]
+        dhist[shist]['vertices'] = ax_diag.patches[-1].xy
+        
+    return dcon, dhist
             
 def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
                   sz_min=-2e-6, sz_max=1.0e-6, \
@@ -4432,8 +4462,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # nothing else)
     dret['az_summary'] = az.summary(inf_data) 
 
-    # Lift the parameter-pair contours from the contour plot
-    dret['contours'] = lift_contour_vertices(fig3)
+    # Lift the parameter-pair contours AND the marginal histograms
+    # from the corner plot
+    dcons, dhists = lift_contour_vertices(fig3)
+    dret['corner_contours'] = dcons
+    dret['corner_hists'] = dhists
 
     # record the time elapsed
     dret['seconds_elapsed'] = time.time()-t0
