@@ -2077,7 +2077,7 @@ def match_truths_summary(dsamples={}, \
                                  
 def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
                    samples_tail='samples.pickle', \
-                   rhat_max=1.1, tell_paths=False):
+                   rhat_max=1.1, tell_paths=True):
 
     """Wrapper - given a run of samples from simulations, assemble the chi statistics from each, per-variable over the trials.
 
@@ -2120,6 +2120,7 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
     # dictionary of results.
     dchi = {}
     dtruth = {} # useful to check 
+    drhat = {} # ditto
     
     for path in lpaths:
         if not os.access(path, os.R_OK):
@@ -2138,7 +2139,8 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
         # rhat
         rmax = float(df['r_hat'].max())
         if tell_paths:
-            print(path, rmax)
+            print(f"\033[Fcollect_truths INFO - path: %s, rmax %.2f "\
+                  % (path, rmax))
         if rmax > rhat_max:
             print("collect_truths INFO - at least one bad rhat for %s: %.2f" \
                   % (path, rmax))
@@ -2149,15 +2151,18 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
         for varname in df.index:
             this_chi = df['chi'][varname]
             this_truth = df['truthpars'][varname]
+            this_rhat = float(df['r_hat'][varname])
             if varname not in dchi.keys():
                 dchi[varname] = np.array([this_chi])
                 dtruth[varname] = np.array([this_truth])
+                drhat[varname] = np.array([this_rhat])
             else:
                 dchi[varname] = np.hstack(( dchi[varname], this_chi ))
                 dtruth[varname] = np.hstack(( dtruth[varname], this_truth ))
-
+                drhat[varname] = np.hstack(( drhat[varname], this_rhat ))
+                
     # package the results into a dictionary to return
-    dret = {'chi':dchi, 'truthpars':dtruth}
+    dret = {'chi':dchi, 'truthpars':dtruth, 'rhat':drhat}
     return dret
                 
 def ellipsepars_from_covars(covars=None, exagfac=1.):
