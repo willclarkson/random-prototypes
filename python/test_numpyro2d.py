@@ -1610,8 +1610,9 @@ def lift_contour_vertices(fig=None):
         for xi in range(yi):
             ax = axes[yi, xi]
 
-            # simple index - we will use this as the label
-            indx1 = np.ravel_multi_index([yi,xi], (ndim, ndim))
+            # simple index - we will use this as the label. The +1 is
+            # there because subplot(2,2,1) counts from 1.
+            indx1 = np.ravel_multi_index([yi,xi], (ndim, ndim)) + 1
             scont = str(indx1).zfill(3)
 
             # Set up the contours dictionary and its identifying info,
