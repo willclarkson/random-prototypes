@@ -50,6 +50,11 @@ from arviz_plots import plot_trace_dist, style
 from matplotlib.collections import EllipseCollection, LineCollection
 from matplotlib import colors as mpl_colors
 
+# for multicorner-type plots
+import matplotlib.patches as patches
+from matplotlib.path import Path
+import matplotlib.ticker as ticker
+
 # For dumping samples to disk while developing
 import pickle
 
@@ -2222,13 +2227,15 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
             'rhat':drhat, 'paths':lpaths_ok}
     return dret
 
-def collect_contours(lpaths=[]):
+def collect_contours(lpaths=[], nkeep=-1):
 
     """Collects contours and histograms from sets of pickle files
 
     INPUTS
 
     lpaths = list of paths to *samples.pickle files
+
+    nkeep is number to keep
 
     RETURNS
 
@@ -2262,7 +2269,14 @@ def collect_contours(lpaths=[]):
 
     dcontours = {}
     dhists = {}
-    for path in lpaths:
+
+    nfound = len(lpaths)
+    if nkeep > 0:
+        nfound = min([nfound, nkeep])
+
+    for ipath in range(nfound):
+        path = lpaths[ipath]
+
         if not os.access(path, os.R_OK):
             continue
 
@@ -3487,7 +3501,145 @@ current axes. Currently every model component is assumed to be scalar (so two ke
                                zorder = zorder+1)
 
     ax.add_collection(med_ec)
+
+def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
+                      source_subplot='003', \
+                      ax_input = None, \
+                      cmap_contours='plasma', \
+                      lw=2, ls='-', \
+                      alpha_face=0.1, \
+                      alpha_edge=1.0):
+
+    """Shows multuple contour sets on the same axis. PROTOTYPE.
     
+    INPUTS
+
+    dconts = dictionary holding contour information
+
+    fignum = figure number for new figure
+
+    nsets = number of sets to show
+
+    ilevel = which level to show
+
+    source_subplot = which of the original subplots we are reproducing
+
+    ax_input = existing axis on which to draw the figure
+
+    cmap_contours = colormap for contours
+   
+    """
+
+    # For the moment, many of the input arguments just select out a
+    # single piece of each set.
+    if not source_subplot in dconts.keys():
+        print("show_multicontour WARN - countourset missing key: %s" \
+              % (source_subplot))
+        return
+
+    # do nothing if no countour sets here
+    nfound = len(dconts[source_subplot])
+    if nfound < 1:
+        print("show_multicontour WARN - no contour sets for key %s" \
+              % (source_subplot))
+        return
+
+    # generate new axis if none already exists
+    if ax_input is None:
+        fig = plt.figure(fignum)
+        fig.clf()
+        ax = fig.add_subplot(111)
+        xymin = np.array([np.inf, np.inf])
+        xymax = np.array([-np.inf, -np.inf])
+
+    else:
+        ax = ax_input
+
+        # Axis limit carpentry
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+
+        xymin = np.array([xlim[0], ylim[0]])
+        xymax = np.array([xlim[1], ylim[1]])
+
+    # The original plot limits (in case an existing axis was passed
+    # in, and the entire set of patches fit within it)
+    xymin_orig = np.copy(xymin)
+    xymax_orig = np.copy(xymax)
+        
+    # Number of sets to plot. We use this to set the colors
+    # programmatically
+    if nsets > 0:
+        nsho = min([nsets, nfound])
+    else:
+        nsho = np.copy(nfound)
+
+    # Colors - set deterministically
+    ccm = plt.get_cmap(cmap_contours)
+    colors_conts = ccm(np.linspace(0,1,nsho))
+
+    # zorders
+    zorders = np.arange(nsho)+10
+    
+    # Loop through the sets to plot
+    for iset in range(nsho):
+        dset = dconts[source_subplot][iset]
+
+        # must have codes and vertices to continue
+        if not 'codes' in dset.keys() or not 'vertices' in dset.keys():
+            continue
+
+        # Ensure we are asking for a level that actually exists
+        ilev = 0
+        if ilevel < len(dset['vertices']):
+            ilev = ilevel
+
+        these_vertices = dset['vertices'][ilev]
+        these_codes = dset['codes'][ilev].copy()
+
+        # re-create the patch to show. First the path...
+        this_path = Path(these_vertices, these_codes)
+
+        # ... then the patch...
+        facergb = mpl_colors.to_rgba(c=colors_conts[iset], \
+                                     alpha=alpha_face)
+        edgergb = mpl_colors.to_rgba(c=colors_conts[iset], \
+                                     alpha=alpha_edge)
+        this_patch = patches.PathPatch(this_path, \
+                                       facecolor=facergb, \
+                                       edgecolor=edgergb, \
+                                       ls=ls, lw=lw, \
+                                       zorder=zorders[iset])
+
+        ax.add_patch(this_patch)
+        
+        # ... and now the limits. Because matplotlib does not rescale
+        # the axes when a patch is added, we will need to adjust the
+        # limits.
+        this_xymin = these_vertices.min(axis=0)
+        this_xymax = these_vertices.max(axis=0)
+
+        blo = this_xymin < xymin
+        bhi = this_xymax > xymax
+
+        xymin[blo] = this_xymin[blo]
+        xymax[bhi] = this_xymax[bhi]
+
+    # If the entire set of adjustments still fit WITHIN the original
+    # axis extent, then we don't need to adjust anything. Do that test
+    # here.
+    blo_orig = xymin < xymin_orig
+    bhi_orig = xymax > xymax_orig
+
+    xymin_orig[blo_orig] = xymin[blo_orig]
+    xymax_orig[bhi_orig] = xymax[bhi_orig]
+        
+    # Adjust the plot limits to include the patches
+    ax.xaxis.set_major_locator(ticker.AutoLocator())
+    ax.yaxis.set_major_locator(ticker.AutoLocator())
+    ax.set_xlim(xymin_orig[0], xymax_orig[0])
+    ax.set_ylim(xymin_orig[1], xymax_orig[1])
+        
 ######## test routines follow
 
 def test2par(ndata=25, true_params=[1.0e-2, 30.]):
