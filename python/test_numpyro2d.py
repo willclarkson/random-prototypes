@@ -2173,7 +2173,7 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
 
     # it'll be useful to keep the paths that were acceptable
     lpaths_ok = []
-    
+
     for path in lpaths:
         if not os.access(path, os.R_OK):
             continue
@@ -2191,6 +2191,8 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
         # rhat
         rmax = float(df['r_hat'].max())
         if tell_paths:
+            if len(lpaths_ok) < 1:
+                print("")
             print(f"\033[Fcollect_truths INFO - path: %s, rmax %.2f "\
                   % (path, rmax))
         if rmax > rhat_max:
@@ -2222,7 +2224,7 @@ def collect_truths(dirsamples='./uncover_nch4_nsamples16000', \
 
 def collect_contours(lpaths=[]):
 
-    """Collects contours from sets of pickle files
+    """Collects contours and histograms from sets of pickle files
 
     INPUTS
 
@@ -2231,6 +2233,9 @@ def collect_contours(lpaths=[]):
     RETURNS
 
     dcontours = dictionary of sets. 
+
+    dhists = dictionary of sets of histograms (will be two histograms
+    for each contour plot)
 
     ====
 
@@ -2253,9 +2258,10 @@ def collect_contours(lpaths=[]):
 
     if len(lpaths) < 1:
         print("collect_contours WARN - contours collection paths empty")
-        return
+        return {}, {}
 
     dcontours = {}
+    dhists = {}
     for path in lpaths:
         if not os.access(path, os.R_OK):
             continue
@@ -2263,15 +2269,16 @@ def collect_contours(lpaths=[]):
         with open(path, 'rb') as robj:
             dthis = pickle.load(robj)
 
-        if not 'contours' in dthis.keys():
+        if not 'corner_contours' in dthis.keys():
             print("collect_contours WARN - contours not in file: %s" \
                   % (path) )
             continue
 
         # view of the contours for this pickle file
-        dcon = dthis['contours']
-
-        # one set per axis...
+        dcon = dthis['corner_contours']
+        dhist = dthis['corner_hists']
+        
+        # CONTOURS:
         for key_axis in dcon.keys():
 
             # initialise for this axis if not already set
@@ -2279,7 +2286,14 @@ def collect_contours(lpaths=[]):
                 dcontours[key_axis] = []
             dcontours[key_axis].append(dcon[key_axis])
 
-    return dcontours
+        # HISTOGRAMS - let's just repeat the process for now...
+        for key_ax in dhist.keys():
+            if not key_ax in dhists.keys():
+                dhists[key_ax] = []
+            dhists[key_ax].append(dhist[key_ax])
+
+            
+    return dcontours, dhists
 
                 
 def ellipsepars_from_covars(covars=None, exagfac=1.):
@@ -4615,9 +4629,10 @@ model
         file_stem='./%s/test_2par_xy_%s' % (sdir, snum)
         path_pickle = '%s_samples.pickle' % (file_stem)
         path_corner = '%s_cornerplot.png' % (file_stem)
-        
-        print("wrap_demo_undercover INFO - #### %i / %i" \
-              % (iset, nsets))
+
+        # not sure why this duplicate line was here
+        #print("wrap_demo_undercover INFO - #### %i / %i" \
+        #      % (iset, nsets))
 
         # fresh copy of the seed
         seed = np.copy(seed0)+int(iset)
