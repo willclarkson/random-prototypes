@@ -1639,12 +1639,25 @@ def lift_contour_vertices(fig=None):
             # get the levels and the vertices
             dcon[scont]['levels'] = coll.levels
 
-            # Let's just loop through the sets of vertices
+            # Let's just loop through the sets of vertices and
+            # codes. This is what we will need later to reconstruct
+            # Path objects and still account for multiple contours at
+            # the same level. Because adding patches to an axis does
+            # NOT update the plot limits automatically, it will be
+            # convenient to store the minmax vertex locations for each
+            # level.
             dcon[scont]['vertices'] = []
+            dcon[scont]['codes'] = []
+            dcon[scont]['xylims'] = {}
             pathset = coll.get_paths()
             for ipath in range(len(pathset)):
-                dcon[scont]['vertices'].append(pathset[ipath].vertices)
-
+                vertices = pathset[ipath].vertices.copy()
+                codes = pathset[ipath].codes.copy()
+                dcon[scont]['vertices'].append(vertices)
+                dcon[scont]['codes'].append(codes)
+                dcon[scont]['xylims']['min'] = vertices.min(axis=0)
+                dcon[scont]['xylims']['max'] = vertices.max(axis=0)
+                
         # ... and since we're here, let's get the diagonals as
         # well. These are the marginal histograms.
         ax_diag = axes[yi,yi]
