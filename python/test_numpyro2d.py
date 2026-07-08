@@ -1686,7 +1686,51 @@ def lift_contour_vertices(fig=None):
         dhist[shist]['vertices'] = ax_diag.patches[-1].xy
         
     return dcon, dhist
-            
+
+def pad_axlims(lims=None, padfrac=0.1, cen=None, symm=False):
+
+    """Given axis limits, return limits padded by padfrac.
+
+    INPUTS
+
+    lims = [min, max] = current axis limits
+
+    padfrac = fraction (in data units) by which to pad the limits
+
+    cen = distances are padded from this location. Defaults to
+    midpoint if not given.
+
+    symm = force symmetric limits
+
+    RETURN
+
+    newlims = array of padded limits
+
+    """
+
+    if lims is None:
+        return None
+
+    # midpoint to use
+    midpt = 0.5*(min(lims) + max(lims))
+    if cen is not None:
+        midpt = cen
+
+    # padded distances from midpoint
+    dlo = (1+padfrac) * (midpt - min(lims))
+    dhi = (1+padfrac) * (max(lims) - midpt)
+
+    # if forcing symmetric, use whichever is larger
+    print(dlo, dhi, symm, dlo > dhi)
+    if symm:
+        if dlo > dhi:
+            dhi = np.copy(dlo)
+        else:
+            dlo = np.copy(dhi)
+    
+    return [midpt-dlo, midpt+dhi]
+    
+
 def show_pairplot(dsamples={}, clevels=6, cmap='magma_r', \
                   sz_min=-2e-6, sz_max=1.0e-6, \
                   sz_zpt=0.01, sz_n=20, \
@@ -3508,7 +3552,11 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
                       cmap_contours='plasma', \
                       lw=2, ls='-', \
                       alpha_face=0.1, \
-                      alpha_edge=1.0):
+                      alpha_edge=1.0, \
+                      truthx=None, truthy=None, \
+                      ls_truth='-', color_truth='0.5', \
+                      alpha_truth=0.5, zorder_truth=55, \
+                      ls_outside='--'):
 
     """Shows multuple contour sets on the same axis. PROTOTYPE.
     
@@ -3528,6 +3576,12 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
 
     cmap_contours = colormap for contours
    
+    truthx = truth value for "x"
+
+    truthy = truth value for "y"
+
+    ls_outside = linestyle for contour not enclosing the truth
+
     """
 
     # For the moment, many of the input arguments just select out a
@@ -3580,6 +3634,12 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
 
     # zorders
     zorders = np.arange(nsho)+10
+
+    # For checking whether the contour encloses the truth value
+    ttruth = None
+    benclose_truth = []
+    if truthx is not None and truthy is not None:
+        ttruth = (truthx, truthy)
     
     # Loop through the sets to plot
     for iset in range(nsho):
@@ -3605,10 +3665,21 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
                                      alpha=alpha_face)
         edgergb = mpl_colors.to_rgba(c=colors_conts[iset], \
                                      alpha=alpha_edge)
+
+        # linestyle
+        lstyle = ls[:]
+        if ttruth is not None:
+            benclosed = this_path.contains_point(ttruth)
+            benclose_truth.append(benclosed)
+
+            if not benclosed:
+                lstyle = ls_outside
+        
         this_patch = patches.PathPatch(this_path, \
                                        facecolor=facergb, \
                                        edgecolor=edgergb, \
-                                       ls=ls, lw=lw, \
+                                       ls=lstyle, \
+                                       lw=lw, \
                                        zorder=zorders[iset])
 
         ax.add_patch(this_patch)
@@ -3625,6 +3696,12 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
         xymin[blo] = this_xymin[blo]
         xymax[bhi] = this_xymax[bhi]
 
+        # extract the plot label (if the input has uniform structure,
+        # it shouldn't matter which we extract)
+        xlabel = dset['xlabel']
+        ylabel = dset['ylabel']
+
+        
     # If the entire set of adjustments still fit WITHIN the original
     # axis extent, then we don't need to adjust anything. Do that test
     # here.
@@ -3639,7 +3716,34 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
     ax.yaxis.set_major_locator(ticker.AutoLocator())
     ax.set_xlim(xymin_orig[0], xymax_orig[0])
     ax.set_ylim(xymin_orig[1], xymax_orig[1])
-        
+
+    # pad the axis limits
+    ax.set_xlim(pad_axlims(ax.get_xlim(), cen=truthx, symm=True) )
+    ax.set_ylim(pad_axlims(ax.get_ylim(), cen=truthy, symm=True) )
+
+    # labels (WATCHOUT - ONLY NONBLANK IF WERE NONBLANK IN ORIGINAL
+    # CORNER PLOT)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+
+    # Show truth values?
+    #
+    # EXPERIMENTAL - only overplot if not already present
+    if len(ax.get_lines()) < 1:
+        if truthx is not None:
+            ax.axvline(truthx, ls=ls_truth, color=color_truth, \
+                       zorder=zorder_truth, alpha=alpha_truth)
+        if truthy is not None:
+            ax.axhline(truthy, ls=ls_truth, color=color_truth, \
+                       zorder=zorder_truth, alpha=alpha_truth)
+
+    # report out the count of truth inside contour
+    if ttruth is not None:
+        n_inside = np.sum(benclose_truth)
+        n_checked = np.size(benclose_truth)
+        print("show_multicontour INFO - inside contour %i: %i of %i = %.2f" % \
+              (ilev, n_inside, n_checked, n_inside/n_checked))
+    
 ######## test routines follow
 
 def test2par(ndata=25, true_params=[1.0e-2, 30.]):
