@@ -71,6 +71,9 @@ from sklearn.linear_model import LogisticRegression
 from scipy.interpolate import RegularGridInterpolator
 from scipy.optimize import minimize
 
+# for magnitude-dependent noise
+import noisemodel2d
+
 # For this, we adopt "x" as the "input" positions, and "u" as the
 # "output". This allows us to use (x,y) and (u,v) later on if that is
 # clearer.
@@ -1333,7 +1336,35 @@ def clumps_du(uv=None, fracs=None, cens_u=None, cens_v=None, \
         ilo = np.copy(ihi)
 
     return perts_clumps, which_clump
-        
+
+def genmags(ndata=25, maglo=16., maghi=19.5, magexpon=1.5, seed=None):
+
+    """Generates power-law apparent magnitudes.
+
+    INPUTS
+
+    ndata = number of points
+
+    maglo, maghi = low, hi magnitudes
+
+    magexpon = exponent
+    
+    seed = random number seed
+
+    RETURNS
+
+    mags = [ndata] array of apparent magnitudes
+
+    """
+
+    if ndata < 1:
+        return None
+
+    rng = np.random.default_rng(seed)
+    sraw = rng.power(magexpon, ndata)
+    
+    return sraw * (maghi - maglo) + maglo
+    
 def getcovs(sigx=0., sigy=0., ndata=10, corxy=0.):
 
     """Utility - returns covariances and samples from the covariances,
