@@ -2314,6 +2314,9 @@ def collect_contours(lpaths=[], nkeep=-1):
     dcontours = {}
     dhists = {}
 
+    # dictionary of corner plot info, one per plot
+    linfo = []
+    
     nfound = len(lpaths)
     if nkeep > 0:
         nfound = min([nfound, nkeep])
@@ -2335,6 +2338,12 @@ def collect_contours(lpaths=[], nkeep=-1):
         # view of the contours for this pickle file
         dcon = dthis['corner_contours']
         dhist = dthis['corner_hists']
+
+        # INFO (truths, levels, etc. common to all plots for a given
+        # path). We keep the entries for every input to help diagnose
+        # if incompletenesses creep in later (or subsamples get mixed
+        # in a directory, etc.)
+        linfo.append(dthis['corner_info'])
         
         # CONTOURS:
         for key_axis in dcon.keys():
@@ -2343,14 +2352,18 @@ def collect_contours(lpaths=[], nkeep=-1):
             if not key_axis in dcontours.keys():
                 dcontours[key_axis] = []
             dcontours[key_axis].append(dcon[key_axis])
-
+            
+            
         # HISTOGRAMS - let's just repeat the process for now...
         for key_ax in dhist.keys():
             if not key_ax in dhists.keys():
                 dhists[key_ax] = []
             dhists[key_ax].append(dhist[key_ax])
 
-            
+    # Attach the levels info to both dictionaries
+    dcontours['corner_info'] = linfo
+    dhists['corner_info'] = linfo
+                     
     return dcontours, dhists
 
                 
@@ -3554,9 +3567,11 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
                       alpha_face=0.1, \
                       alpha_edge=1.0, \
                       truthx=None, truthy=None, \
+                      xlabel='', ylabel='', \
                       ls_truth='-', color_truth='0.5', \
                       alpha_truth=0.5, zorder_truth=55, \
-                      ls_outside='--'):
+                      ls_outside='--', \
+                      tell_truths=True):
 
     """Shows multuple contour sets on the same axis. PROTOTYPE.
     
@@ -3576,11 +3591,15 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
 
     cmap_contours = colormap for contours
    
-    truthx = truth value for "x"
+    truthx = truth value for "x" 
 
     truthy = truth value for "y"
 
+    xlabel, ylabel = supplied labels for axes
+
     ls_outside = linestyle for contour not enclosing the truth
+
+    tell_truths = report comparison with truth values, if provided
 
     """
 
@@ -3597,6 +3616,25 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
         print("show_multicontour WARN - no contour sets for key %s" \
               % (source_subplot))
         return
+
+    # If contour_info is found, use it to extract additional useful
+    # information
+    clevels = np.copy(dconts[source_subplot][0]['levels'])
+    if 'corner_info' in dconts.keys():
+        dinfo = dconts['corner_info'][0]
+        clevels = dinfo['levels'][::-1] # sic: levels stored in
+        iy, ix = dconts[source_subplot][0]['id_2d'] # [iy,ix]
+
+        # Still take user input in preference (we might be testing
+        # some things)
+        if len(xlabel) < 1:
+            xlabel = dinfo['labels'][ix]
+        if len(ylabel) < 1:
+            ylabel = dinfo['labels'][iy]
+        if truthx is None:
+            truthx = dinfo['truths'][ix]
+        if truthy is None:
+            truthy = dinfo['truths'][iy]
 
     # generate new axis if none already exists
     if ax_input is None:
@@ -3696,12 +3734,12 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
         xymin[blo] = this_xymin[blo]
         xymax[bhi] = this_xymax[bhi]
 
-        # extract the plot label (if the input has uniform structure,
-        # it shouldn't matter which we extract)
+    # extract the plot labels if not already set above.
+    if len(xlabel) < 1:
         xlabel = dset['xlabel']
+    if len(ylabel) < 1:
         ylabel = dset['ylabel']
 
-        
     # If the entire set of adjustments still fit WITHIN the original
     # axis extent, then we don't need to adjust anything. Do that test
     # here.
@@ -3718,8 +3756,8 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
     ax.set_ylim(xymin_orig[1], xymax_orig[1])
 
     # pad the axis limits
-    ax.set_xlim(pad_axlims(ax.get_xlim(), cen=truthx, symm=True) )
-    ax.set_ylim(pad_axlims(ax.get_ylim(), cen=truthy, symm=True) )
+    ax.set_xlim(pad_axlims(ax.get_xlim(), cen=truthx, symm=False) )
+    ax.set_ylim(pad_axlims(ax.get_ylim(), cen=truthy, symm=False) )
 
     # labels (WATCHOUT - ONLY NONBLANK IF WERE NONBLANK IN ORIGINAL
     # CORNER PLOT)
@@ -3729,7 +3767,7 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
     # Show truth values?
     #
     # EXPERIMENTAL - only overplot if not already present
-    if len(ax.get_lines()) < 1:
+    if len(ax.get_lines()) < 1 and tell_truths:
         if truthx is not None:
             ax.axvline(truthx, ls=ls_truth, color=color_truth, \
                        zorder=zorder_truth, alpha=alpha_truth)
@@ -3738,12 +3776,20 @@ def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
                        zorder=zorder_truth, alpha=alpha_truth)
 
     # report out the count of truth inside contour
-    if ttruth is not None:
+    if ttruth is not None and tell_truths:
         n_inside = np.sum(benclose_truth)
         n_checked = np.size(benclose_truth)
-        print("show_multicontour INFO - inside contour %i: %i of %i = %.2f" % \
-              (ilev, n_inside, n_checked, n_inside/n_checked))
-    
+        print("show_multicontour INFO - inside contour %i (%.2f): %i of %i = %.2f" % \
+              (ilev, clevels[ilev], n_inside, n_checked, n_inside/n_checked))
+
+        # String for annotation
+        sAnno = r"%i / %i = %.2f within '%.2f'" % \
+            (n_inside, n_checked, n_inside/n_checked, clevels[ilev])
+        dum_anno = ax.annotate(sAnno, (0.98, 0.98), \
+                               xycoords='axes fraction', \
+                               ha='right', va='top', fontsize=9, \
+                               color='k', zorder=75)
+        
 ######## test routines follow
 
 def test2par(ndata=25, true_params=[1.0e-2, 30.]):
@@ -4695,8 +4741,14 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         fig3 = plt.figure(3, figsize=(6,6))
         
     fig3.clf()
+    # set the levels in corner.corner to be specific. These are the
+    # defaults, but the point is that we can pass them out so that we
+    # know what they are and we can change them if we want.
+    corner_levels = np.array([0.118, 0.393, 0.675, 0.864])
+    
     dum = corner.corner(chainz, labels=corner_labels, \
                         truths=corner_truths, \
+                        levels=corner_levels, \
                         fig=fig3, \
                         show_titles=True, \
                         #titles=corner_labels[:], \
@@ -4746,10 +4798,16 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     dret['az_summary'] = az.summary(inf_data) 
 
     # Lift the parameter-pair contours AND the marginal histograms
-    # from the corner plot
+    # from the corner plot. Also send some of the inputs to the corner
+    # plot which will be helpful later in reconstructing the plots
+    # (may also want to smuggle in the levels commanded as well, just
+    # to be explicit).
     dcons, dhists = lift_contour_vertices(fig3)
     dret['corner_contours'] = dcons
     dret['corner_hists'] = dhists
+    dret['corner_info'] = {'labels':corner_labels, \
+                           'truths':corner_truths, \
+                           'levels':corner_levels}
 
     # record the time elapsed
     dret['seconds_elapsed'] = time.time()-t0
