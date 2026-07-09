@@ -1721,7 +1721,6 @@ def pad_axlims(lims=None, padfrac=0.1, cen=None, symm=False):
     dhi = (1+padfrac) * (max(lims) - midpt)
 
     # if forcing symmetric, use whichever is larger
-    print(dlo, dhi, symm, dlo > dhi)
     if symm:
         if dlo > dhi:
             dhi = np.copy(dlo)
@@ -3559,13 +3558,15 @@ current axes. Currently every model component is assumed to be scalar (so two ke
 
     ax.add_collection(med_ec)
 
-def show_multicontour(dconts={}, fignum=10, nsets=3, ilevel=0, \
+def show_multicontour(dconts={}, fignum=10, \
+                      nsets=-1, \
+                      ilevel=0, \
                       source_subplot='003', \
                       ax_input = None, \
                       cmap_contours='plasma', \
                       lw=2, ls='-', \
-                      alpha_face=0.1, \
-                      alpha_edge=1.0, \
+                      alpha_face=0.03, \
+                      alpha_edge=0.25, \
                       truthx=None, truthy=None, \
                       xlabel='', ylabel='', \
                       ls_truth='-', color_truth='0.5', \
