@@ -1082,7 +1082,10 @@ def gendata(ndata=25, xsz=2., ysz=2., \
             u0=0., v0=0., \
             sigu=1e-4, sigv=1e-4, \
             sigx=0.01, sigy=0.01, \
+            magpars_xy = None, \
             perturb_xy=False, \
+            maglo=16., maghi=19.5, magexpon=1.5, \
+            seed=None, \
             showdata=True):
 
     """Generate the data.
@@ -1115,7 +1118,17 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
     sigy = uncertainty in x[:,1] as stddev
 
+    magpars_xy = vs-magnitude uncertainty parameters, xy uncertainties
+
     perturb_xy = perturb x as well as u
+
+    maglo = brightest apparent magnitude
+
+    maghi = faintest apparent magnitude
+
+    magexpon = exponent for apparent magnitude generation
+
+    seed = random number seed (for apparent magnitude generation)
 
     showdata = plot the data before returning
 
@@ -1129,6 +1142,8 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
     xcovs = None, or [N, 2, 2] array of uncertainty covariances in the
     x frame
+
+    mags = [N] array of apparent magnitudes
 
     ugen = transformed xy positions before addition of perturbations
     in the uv frame
@@ -1148,6 +1163,9 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
     ugen[:,0] += u0
     ugen[:,1] += v0
+
+    # Generate apparent magnitudes
+    mags = genmags(ndata, maglo, maghi, magexpon, seed)
     
     # now produce uncertainties and perturb with them. Refactored into
     # method getcovs() since we will likely use this more than
@@ -1163,21 +1181,34 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     # if perturbing in the xy plane, set up the perturbations and the
     # covariances (done differently from above. Oh well.
     if perturb_xy:
-        xcovs, xpertn = getcovs(sigx, sigy, ndata)
+
+        # Ensure noise model parameters are in the form expected by
+        # our vs-magnitude uncertainty generator
+        if magpars_xy is None:
+            log10a, syx = magpars_from_sigxy(sigx, sigy)
+            parsmag = [log10a]
+            parscov = [syx, 0.]
+
+        # For the moment, do both in parallel so we can check
+        Covs = noisemodel2d.mags2noise(parsmag, parscov, mags)
+        xcovs = Covs.covars
+        xpertn = Covs.getsamples()
+            
+        #xcovs, xpertn = getcovs(sigx, sigy, ndata)
         xobs = xgen + xpertn
 
-        # check that the perturbation is working...
-        xcovs_tran = Atrue @ xcovs @ Atrue.T
+        ## check that the perturbation is working...
+        #xcovs_tran = Atrue @ xcovs @ Atrue.T
 
-        print("DEBUG - TRANSF CHECK:")
-        print(xcovs_tran[0])
-        print(ucovs[0])
+        #print("DEBUG - TRANSF CHECK:")
+        #print(xcovs_tran[0])
+        #print(ucovs[0])
 
         # to check later: what happens when we draw samples from this
         # and overplot it? Does the result look sensibile?
         
     if not showdata:
-        return xobs, uobs, ucovs, xcovs, ugen
+        return xobs, uobs, ucovs, xcovs, mags, ugen
     
     # it helps to show the actual data at this point...
     with warnings.catch_warnings():
@@ -1231,7 +1262,40 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     ax1b.set_title('Output')
     ax1d.set_title('Out perturbed')
 
-    return xobs, uobs, ucovs, xcovs, ugen
+    return xobs, uobs, ucovs, xcovs, mags, ugen
+
+def magpars_from_sigxy(stdx=None, stdy=None):
+
+    """Utility - converts std(x), std(y) into magnitude parameters
+
+    INPUTS
+
+    stdx = stddev in x
+
+    stdy = stddev in y
+
+    RETURNS
+
+    log10(a) = noise floor in x
+    ( where "a" would be used in stdx = a + b.exp(c.(mag - mag0)) )
+
+    syx = stdy/stdx
+
+    """
+
+    # Must have *something* to work with
+    if stdx is None:
+        return None, None
+
+    # Don't be forgiving of badly-formed input
+    log10a = np.log10(stdx)
+
+    if stdy is None or stdy == 0.:
+        syx = 1.
+    else:
+        syx = stdy/stdx
+
+    return log10a, syx
 
 def clumps_du(uv=None, fracs=None, cens_u=None, cens_v=None, \
               sigs_u=None, sigs_v=None, corxy_uv=None):
@@ -3829,10 +3893,10 @@ def test2par(ndata=25, true_params=[1.0e-2, 30.]):
     """Test the 2D version of our fitter"""
 
     # Generate data, accepting the defaults for the moment
-    x, u, ucov, xcov, _ = gendata(ndata, \
-                                  s_true=true_params[0],
-                                  thetadeg_true=true_params[1], \
-                                  showdata=True)
+    x, u, ucov, xcov, mags, _ = gendata(ndata, \
+                                        s_true=true_params[0],
+                                        thetadeg_true=true_params[1], \
+                                        showdata=True)
 
     # set up the sampler
     sampler = infer.MCMC(
@@ -3872,12 +3936,12 @@ def test2term_bells(ndata=25, s=1.0e-2, theta=30., \
 
     """Test 2-parameter model with various bells and whistles"""
 
-    x, u, ucov, xcov, _ = gendata(ndata, \
-                                  s_true=s, thetadeg_true=theta, \
-                                  sigu=sigu, sigv=sigv, \
-                                  perturb_xy=perturb_xy, \
-                                  sigx=sigx, sigy=sigy, \
-                                  showdata=True)
+    x, u, ucov, xcov, mags, _ = gendata(ndata, \
+                                        s_true=s, thetadeg_true=theta, \
+                                        sigu=sigu, sigv=sigv, \
+                                        perturb_xy=perturb_xy, \
+                                        sigx=sigx, sigy=sigy, \
+                                        showdata=True)
 
     # set up the sampler...
     sampler = infer.MCMC(
@@ -3941,16 +4005,16 @@ def test6term(ndata=25, \
     """Tests the 6-term transformation sampler"""
 
     # generate the data
-    x, u, ucov, xcov, _ = gendata(ndata, \
-                                  s_true=s_true, \
-                                  thetadeg_true=rotdeg_true,\
-                                  r_true=r_true, \
-                                  betadeg_true=betadeg_true, \
-                                  u0=u0_true, \
-                                  v0=v0_true,\
-                                  perturb_xy=perturb_xy, \
-                                  sigx=sigx, sigy=sigy, \
-                                  showdata=True)   
+    x, u, ucov, xcov, mags, _ = gendata(ndata, \
+                                        s_true=s_true, \
+                                        thetadeg_true=rotdeg_true,\
+                                        r_true=r_true, \
+                                        betadeg_true=betadeg_true, \
+                                        u0=u0_true, \
+                                        v0=v0_true,\
+                                        perturb_xy=perturb_xy, \
+                                        sigx=sigx, sigy=sigy, \
+                                        showdata=True)   
 
     # set up the sampler
     sampler = infer.MCMC(
@@ -4211,16 +4275,18 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
               % (rtrue, betadeg))
         
     # Transformation plus measurement uncertainty...
-    x, utran, ucov, xcov, ugen = gendata(ndata, xsz, ysz, \
-                                         s_true=s, thetadeg_true=theta, \
-                                         r_true=rtrue, \
-                                         betadeg_true=betadeg, \
-                                         u0=u0, v0=v0, \
-                                         sigu=sigu, sigv=sigv, \
-                                         perturb_xy=perturb_xy, \
-                                         sigx=sigx, sigy=sigy,\
-                                         showdata=True)
+    x, utran, ucov, xcov, mags, ugen = \
+        gendata(ndata, xsz, ysz, \
+                s_true=s, thetadeg_true=theta, \
+                r_true=rtrue, \
+                betadeg_true=betadeg, \
+                u0=u0, v0=v0, \
+                sigu=sigu, sigv=sigv, \
+                perturb_xy=perturb_xy, \
+                sigx=sigx, sigy=sigy,\
+                showdata=True)
 
+    
     # Note: ucov, xcov are what the experimenter "thinks" the
     # measurement uncertainties are in the input and target frame,
     # respectively. "ugen" is the transformed xy positions BEFORE any
@@ -4803,6 +4869,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     dret['u_obs'] = u_obs
     dret['u_err'] = ucov
     dret['x'] = x
+    dret['mag'] = mags # apparent magnitude will now be useful
     dret['x_err'] = xcov # what the experimenter *thinks* the
                          # uncertainties are
     dret['extra_args'] = extra_args
