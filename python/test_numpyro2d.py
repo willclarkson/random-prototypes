@@ -1083,6 +1083,8 @@ def gendata(ndata=25, xsz=2., ysz=2., \
             sigu=1e-4, sigv=1e-4, \
             sigx=0.01, sigy=0.01, \
             magpars_xy = None, \
+            mag0_xy = 16., \
+            parscov_xy = None, \
             perturb_xy=False, \
             maglo=16., maghi=19.5, magexpon=1.5, \
             seed=None, \
@@ -1119,6 +1121,10 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     sigy = uncertainty in x[:,1] as stddev
 
     magpars_xy = vs-magnitude uncertainty parameters, xy uncertainties
+
+    mag0_xy = magnitude zeropoint for vs mag exponent
+
+    parscov_xy = [sy/sx, rxy] for xy uncertainties. Optional.
 
     perturb_xy = perturb x as well as u
 
@@ -1185,12 +1191,14 @@ def gendata(ndata=25, xsz=2., ysz=2., \
         # Ensure noise model parameters are in the form expected by
         # our vs-magnitude uncertainty generator
         if magpars_xy is None:
-            log10a, syx = magpars_from_sigxy(sigx, sigy)
-            parsmag = [log10a]
-            parscov = [syx, 0.]
+            magpars_xy = [np.log10(sigx)]
 
+        if parscov_xy is None:
+            parscov_xy = [sigy/sigx, 0.]
+            
         # For the moment, do both in parallel so we can check
-        Covs = noisemodel2d.mags2noise(parsmag, parscov, mags)
+        Covs = noisemodel2d.mags2noise(magpars_xy, parscov_xy, mags, \
+                                       mag0=mag0_xy)
         xcovs = Covs.covars
         xpertn = Covs.getsamples()
             
@@ -1262,6 +1270,61 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     ax1b.set_title('Output')
     ax1d.set_title('Out perturbed')
 
+    # lastly, show uncertainties as a function of apparent magnitude
+    if xcovs is not None:
+        fig2 = plt.figure(2, figsize=(4,4))
+        fig2.clf()
+        ax2 = fig2.add_subplot(111)
+        dum21 = ax2.scatter(mags, xcovs[:,0,0]**0.5, \
+                            c='b', zorder=25, marker='o', s=9, \
+                            label=r'$\sigma_{xx}$')
+        dum22 = ax2.scatter(mags, xcovs[:,1,1]**0.5, \
+                            c='g', zorder=24, marker='s', s=4, \
+                            label=r'$\sigma_{yy}$')
+        ax2.set_xlabel('mag')
+        ax2.set_ylabel(r'$\sqrt{V}$')
+        ax2.set_yscale('log')
+
+        # Get the axis limits
+        ylim = np.copy(ax2.get_ylim())
+        
+        # overplot model parameters if we have them.
+        alpha_trend=0.5
+        if np.size(magpars_xy) > 0:
+            dum2 = ax2.axhline(10.0**magpars_xy[0], \
+                               color='b', ls='--', alpha=alpha_trend)
+            dum2 = ax2.axhline(10.0**(magpars_xy[0])*parscov_xy[0], \
+                               color='g', ls='-.', alpha=alpha_trend)
+            
+        if np.size(magpars_xy) > 1:
+            xlim = np.copy(ax2.get_xlim())
+            mfine = np.linspace(xlim[0], xlim[-1], 100, endpoint=True)
+            sxfine = noisemodel2d.noisescale(magpars_xy[1::], \
+                                             mfine, mag0=mag0_xy)
+            syfine = sxfine*parscov_xy[0]            
+            ax2.plot(mfine, sxfine, 'b--', zorder=30, \
+                     alpha=alpha_trend)
+            ax2.plot(mfine, syfine, 'g-.', zorder=30, \
+                     alpha=alpha_trend)
+
+        # reset the limits
+        log10_ylo = np.floor(np.log10(ylim[0]))
+        log10_yhi = np.ceil(np.log10(ylim[-1]))
+        #ax2.set_ylim( [10.0**log10_ylo, 10.0**log10_yhi] )
+        ax2.set_ylim( [ylim[0]*0.5, 10.0**log10_yhi] )
+
+        #ax2.set_ylim(ylim[0]*0.5, ylim[-1]*2.)
+
+        # set the legend AFTER the resetting of limits so that the
+        # placement algorithm can work
+        leg = ax2.legend()
+
+            
+        fig2.subplots_adjust(left=0.2, bottom=0.15)
+
+        # save this to disk
+        fig2.savefig('simulated_unctysmag.png')
+        
     return xobs, uobs, ucovs, xcovs, mags, ugen
 
 def magpars_from_sigxy(stdx=None, stdy=None):
@@ -4091,6 +4154,8 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     perturb_xy=False,\
                     sigx=1e-4, sigy=1e-4, \
                     propag_errxy=True, \
+                    magpars_xy = None, \
+                    mag0_xy = 16., \
                     num_chains=2, \
                     num_samples=2000, \
                     num_warmup=2000, \
@@ -4161,6 +4226,10 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     sigx = stddev in x if perturbing
 
     sigy = stddev in y if perturbing
+
+    magpars_xy = vsmag parameters (x,y)
+
+    mag0_xy = zeropoint for vs-mag exponent (x,y uncties)
 
     num_chains = number of MCMC chains
 
@@ -4284,6 +4353,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                 sigu=sigu, sigv=sigv, \
                 perturb_xy=perturb_xy, \
                 sigx=sigx, sigy=sigy,\
+                magpars_xy = magpars_xy, \
+                mag0_xy = mag0_xy, \
                 showdata=True)
 
     
@@ -5006,13 +5077,16 @@ def wrap_demo_undercover(nsets=10, nstars=25, \
                          s_max=0.02, \
                          thetadeg_min = 20., \
                          thetadeg_max = 40., \
-                         sigx=0.01, sigy=0.01):
+                         sigx=0.01, sigy=0.01, \
+                         vsmag_xy=False):
 
     """Wrapper to run nsets of simulations at nstars and assess whether we
 demonstrate undercoverage by not propagating the uncertainties in the
 model
 
-    WARNING - THIS DOES NOT WORK THE WAY IT SHOULD - there seems to be some state information leaking through from loop to loop. The first run is fine, but all the others show high r_hat and no convergence. Try by-hand?
+    INPUTS (incompletely documented!)
+
+    xyvsmag - vary uncertainty with apparent magnitude
 
     """
 
@@ -5020,6 +5094,14 @@ model
     seed0 = 123456
 
     sdir = 'uncover'
+
+    
+    mag0_xy = 16.
+    magpars_xy = None
+    if vsmag_xy:
+        sdir = '%s_xyvsmag' % (sdir)
+        magpars_xy=[-2., -5., 3.]
+        
     sdir = '%s_nch%i_nsamples%i' % (sdir, nchains, nsamples)
     
     #sdir='undr_1ch_16000'
@@ -5075,6 +5157,8 @@ model
                                 sigx=sigx, sigy=sigy, \
                                 perturb_xy=True, \
                                 propag_errxy=propag_errxy, \
+                                magpars_xy=magpars_xy, \
+                                mag0_xy=mag0_xy, \
                                 sigu=1e-4, sigv=1e-4, \
                                 file_samples=path_pickle, \
                                 file_cornerplot=path_corner, \
