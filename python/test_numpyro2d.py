@@ -4192,7 +4192,9 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     thetadeg_max =  180., \
                     tell_perts=True, \
                     file_samples='test_samples.pickle', \
-                    file_cornerplot='simulated_cornerplot.png'):
+                    file_cornerplot='simulated_cornerplot.png', \
+                    show_dag=True, \
+                    render_distns=False):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
@@ -4319,6 +4321,10 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     tell_perts = report to screen which perturbations are being generated
 
     file_samples = filename for samples file when dumped to disk
+
+    show_dag = render DAG of model and save to disk, using graphviz
+
+    render_distns = render the distributions in the DAG
 
     RETURNS
     =======
@@ -4531,7 +4537,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # gendata() after transformation from nominal (x,y). This is what
     # we plot in the VPD below.
     perts_total = perts_u + utran - ugen
-    
+
     # since the generation has become more complicated now, do a plot
     # here.
     if show_gen:
@@ -4748,6 +4754,27 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
             extra_args['uniform_prior_u0_bg']=False
             extra_args['prior_u0_bg_std'] = 0.005
 
+    # 2026-07-20 numpyro has DAG visualization built in. What does
+    # this look like? (For the moment, show then exit so we can
+    # develop this)
+    if show_dag:
+        print("test2term_moves INFO - visualizing the model")
+
+        # ensure the visualizer is sent the right keywords:
+        model_kwargs_viz = {'uerr':ucov, \
+                            'u':u_obs, \
+                            'xerr':xcov, \
+                            'fitvar':fit_var}
+
+        for extra_key in extra_args.keys():
+            model_kwargs_viz[extra_key] = extra_args[extra_key]
+        
+        numpyro.render_model(methmodel, model_args=(x, ), \
+                             model_kwargs=model_kwargs_viz, \
+                             filename='simulated_dag.png', \
+                             render_distributions=render_distns)
+        return {}
+            
     # Promoted this since there are now >1 cases in which this will be
     # useful
     print("test2term_moves INFO - extra arguments to %s:" \
