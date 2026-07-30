@@ -886,6 +886,174 @@ INPUTS:
     with numpyro.plate("data", x.shape[0]):    
         numpyro.sample("u", pred_dist, obs=u)
 
+def model_pointing(x, uerr, u=None, xerr=None, fitvar=False, \
+                   xcen=0., ycen=0., \
+                   reproj_covar=False, \
+                   s_min=1.0e-5, s_max=0.1, \
+                   thetarad_min = -jnp.pi, \
+                   thetarad_max =  jnp.pi, \
+                   r_mean = 1.0, r_sig = 0.1, \
+                   prior_alpha0_cen = jnp.array([0., 0.]), \
+                   prior_alpha0_cov = jnp.array([[1.0e-1, 0.,], \
+                                                 [0., 1.0e-1]]) ):
+
+    """6term with transformation from the celestial sphere
+
+    INPUTS
+
+    x = [N,2] = input positions
+
+    uerr = [N,2,2] input uncertainties in target frame as covariances
+
+    u = target positions (alpha, delta, degrees)
+
+    xerr = uncertainties in the input xy frame
+
+    fitvar = add variance in the target frame as a model parameter
+
+    xcen = x location corresponding to alpha_0 on the sky. This is NOT
+    a variable model parameter.
+
+    ycen = y location corresponding to delta_0 on the sky. This is NOT
+    a variable model parameter.
+    
+    reproj_covar = reproject the catalog covariances (assumes they are
+    on the sphere and not the local tangent plane).
+
+    hyperparameters:
+
+    s_min = min scale factor
+
+    s_max = max scale factor
+
+    thetarad_min = min rotation angle, radians
+
+    thetarad_max = max rotation angle, radians
+
+    r_mean = mean axis scale ratio
+
+    r_sig = stddev axis scale ratio
+    
+    prior_alpha0_cen = [2] = prior on pointing (center, degrees)
+
+    prior_alpha_cov = [2,2] = prior on pointing (covariance, degrees)
+
+    OUTPUTS
+
+    none - this method is interpreted by numpyro
+
+    """
+
+    # WATCHOUT - inconsistent notation for the priors. This may come
+    # back to bite later.
+
+    # Model parameters defined by priors
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
+
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
+    r = numpyro.sample("r", dist.Normal(r_cen,r_sig))
+    beta = numpyro.sample("beta", dist.Uniform(-0.5*jnp.pi, 0.5*jnp.pi))
+
+    # sample the pointing from the joint prior, in degrees
+    alpha0vec = numpyro.sample("alpha0vec", \
+                               dist.MultivariateNormal(prior_alpha0_cen, \
+                                                       prior_alpha0_cov) )
+
+    # Produce the cdmatrix taking [x,y] into the intermediate
+    # coordinates [chi, eta]
+    sx = s 
+    sy = s * r
+
+    b = numpyro.deterministic("b",  sx  * jnp.cos(theta - 0.5*beta) )
+    c = numpyro.deterministic("c",  sy  * jnp.sin(theta + 0.5*beta) )
+    e = numpyro.deterministic("e", -sx  * jnp.sin(theta - 0.5*beta) )
+    f = numpyro.deterministic("f",  sy  * jnp.cos(theta + 0.5*beta) )
+
+    # cdmatrix from b,c,e,f
+    A = jnp.array([[b,c],[e,f]])
+
+    # Project the [x,y] positions on to the intermediate frame [chi,
+    # eta]. Here we apply [xcen, ycen] so that [xcen, ycen] correspond
+    # to [alpha_0, delta_0] on the sky.
+    xycen = np.array([xcen, ycen])
+    dx = x - xycen[None,:]
+    uproj = jnp.einsum('jk,ik -> ij', A, dx)
+
+    # STEP 1 - PROJECTION OF SKY COORDINATES ONTO [CHI, ETA]....
+    
+    # Project the sky-coordinates "u" (i.e. [alpha, delta]) to the
+    # intermediate coordinates [chi, eta]. I find this less
+    # error-prone written out in steps (jax and numpyro might not) -
+    # so here we go...
+    alpharad = jnp.radians(u) # [N,2] coordinates, radians
+    dec0rad = jnp.radians(alpha0vec[1])
+    dalpharad = jnp.radians(u - alpha0vec[None, :]) # [N,2] offsets
+
+    brack = 1.0 - jnp.cos(dalpharad[:,0])
+
+    # denominator common to both expressions
+    denom = jnp.cos(dalpharad[:,1]) \
+        - jnp.cos(dec0rad)*jnp.cos(alpharad[:,1])*brack
+
+    # Our actual projected intermediate coordinates
+    chi = jnp.cos(alpharad[:,1]) * jnp.sin(dalpharad[:,0]) / denom
+    eta_numer = jnp.sin(dalpharad[:,1]) \
+        + jnp.sin(dec0rad) * jnp.cos(alpharad[:,1]) * brack
+
+    eta = eta_numer / denom 
+
+    # Finally, wrap these into an [N,2] array...
+    chi_eta = jnp.column_stack((chi, eta))
+
+    # STEP 2 - project the covariances from the sky onto [chi, eta]..
+
+    # We can recycle some variables defined above. All four terms of
+    # the Jacobian, written out in full.
+    if reproj_covar:
+        jac00 = ( jnp.cos(dalpharad[:,1]) \
+                  - jnp.sin(dec0rad) * jnp.sin(alpharad[:,1]) * brack ) \
+                  * jnp.cos(alpharad[:,0]) / denom**2
+
+        jac01 = 0. - jnp.sin(dalpharad[:,0]) * jnp.sin(dec0rad) / denom**2
+    
+        jac10 = jnp.sin(dalpharad[:,0]) \
+            * jnp.sin(2.0*alpharad[:,1]) / (2. * denom**2)
+
+        jac11 = jnp.cos(dalpharad[:,0]) / denom**2
+
+        shjac = (jac00.size, 2, 2)
+        jac = jnp.reshape( jnp.column_stack((jac00, jac01, jac10, jac11)), \
+                           shjac)
+
+        covuv = jnp.matmul(jnp.matmul(jac, uerr), jac.T)
+    else:
+        covuv = uerr
+
+    # Propagate input xy uncertainties if we have them. We're still
+    # assuming a model that is linear in the coordinates, so no
+    # position-dependence in the covariance (i.e. we don't have to
+    # bring along that xcen, ycen):
+    xycov_tran = A * 0.
+    if xerr is not None:
+        xycov_tran = jnp.matmul(jnp.matmul(A, xerr), A.T)
+
+    # Any additional covariance in the [chi, eta] frame
+    cov_extra = jnp.zeros((2,2))
+    if fitvar:
+        v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
+        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
+
+    # Total covariance in the [chi, eta] frame
+    cov_total = covuv + xycov_tran + cov_extra[None,:,:]
+
+    # OK by this point we have assembled the input coordinates, their
+    # covariances, the target coordinates and their covariances, all
+    # projected onto the intermediate [chi, eta] frame (for which the
+    # metric is the same at all positions). Do the comparison:
+    with numpyro.plate("data", x.shape[0]):
+        pred_dist = dist.MultivariateNormal(uproj, cov_total)
+        numpyro.sample("chi_eta", pred_dist, obs=chi_eta)
+        
 def random_subset(x=None, frac=0., seed=None):
 
     """Selects a random subset of a given array.
@@ -1155,6 +1323,9 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     in the uv frame
 
     """
+
+    # 2026-07-30 - put a keyword in here to project the u* quantities
+    # onto the sky in preparation for testing our sky model
     
     # uniform-random positions over the domain
     xgen = np.random.uniform(size=(ndata,2))-0.5
