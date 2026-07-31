@@ -1243,6 +1243,57 @@ def cdmatrix_from_pars(sx=1., rotdeg=0., skewdeg=0., r=1., ):
     f =  sy * np.cos(thetarad + 0.5 * betarad)
 
     return np.array([[b,c], [e,f]] )
+
+def uv2sky(uv=np.array([]), \
+           alpha0=np.array([0., 0]), \
+           degrees=True):
+
+    """Projects intermediate coordinates [uv] onto [ra, dec] using pointing center [alpha_0].
+
+    INPUTS
+    ======
+
+    uv = [N,2] positions in intermediate coordinates ("chi, eta")
+
+    alpha0 = [2] = pointing center
+
+    degrees = positions are assumed in degrees (otherwise radians)
+
+    RETURNS
+
+    alpha = [N,2] coordinates 
+
+    """
+
+    if degrees:
+        alpha0rad = np.radians(alpha0)
+        uvrad = np.radians(uv)
+    else:
+        alpha0rad = alpha0
+        uvrad = uv
+
+    # Written out in steps to aid debugging later. Convention as per
+    # my informal writeup that may never see the light of day...
+    delta0 = alpha0rad[1]
+    gamma_alpha = np.cos(delta0) - uvrad[:,1]*np.sin(delta0)
+
+    # alpha - alpha_0
+    dalpha = np.arctan2(uvrad[:,0], gamma_alpha)
+
+    # deta in radians
+    delta_numer = np.sin(delta0) + uvrad[:,1]*np.cos(delta0)
+
+    delta = np.arctan2(delta_numer, np.sqrt(uvrad[:,0]**2 + gamma_alpha**2))
+
+    # what we return now depends on whether we are working in degrees
+    if degrees:
+        alpha_ret = alpha0[0] + np.degrees(dalpha)
+        delta_ret = np.degrees(delta)
+    else:
+        alpha_ret = alpha0rad[0] + dalpha
+        delta_ret = delta
+
+    return np.column_stack((alpha_ret, delta_ret))
     
 def gendata(ndata=25, xsz=2., ysz=2., \
             thetadeg_true = 30., s_true=1.0e-2, \
@@ -1256,7 +1307,8 @@ def gendata(ndata=25, xsz=2., ysz=2., \
             perturb_xy=False, \
             maglo=16., maghi=19.5, magexpon=1.5, \
             seed=None, \
-            showdata=True):
+            showdata=True, \
+            tosky=False):
 
     """Generate the data.
 
@@ -1306,6 +1358,9 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
     showdata = plot the data before returning
 
+    tosky = project the uv positions onto the sky. In that instance,
+    u0 and v0 become the pointing center [alpha_0, delta_0].
+
     RETURNS
 
     x = [N,2] array of 'input' datapoints
@@ -1338,8 +1393,10 @@ def gendata(ndata=25, xsz=2., ysz=2., \
 
     ugen = np.einsum('jk,ik -> ij', Atrue, xgen)
 
-    ugen[:,0] += u0
-    ugen[:,1] += v0
+    # If we are applying the pointing center in the [u,v] plane...
+    if not tosky:
+        ugen[:,0] += u0
+        ugen[:,1] += v0
 
     # Generate apparent magnitudes
     mags = genmags(ndata, maglo, maghi, magexpon, seed)
@@ -1355,6 +1412,12 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     xobs = np.copy(xgen)
     xcovs = None
 
+    # If we are projecting to the sky, apply the projection here.
+    if tosky:
+        radec = uv2sky(uobs, np.array([u0, v0]), degrees=True)
+        uobs = np.copy(radec)
+        print("gendata INFO - projecting positions onto the sky")
+                       
     # if perturbing in the xy plane, set up the perturbations and the
     # covariances (done differently from above. Oh well.
     if perturb_xy:
@@ -4365,7 +4428,8 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     file_samples='test_samples.pickle', \
                     file_cornerplot='simulated_cornerplot.png', \
                     show_dag=True, \
-                    render_distns=False):
+                    render_distns=False, \
+                    tosky=False):
 
     """Sets up 2-term mapping where the objects can move after the
 transformation. Main aim: see if we can track star-by-star movements
@@ -4496,6 +4560,10 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     show_dag = render DAG of model and save to disk, using graphviz
 
     render_distns = render the distributions in the DAG
+
+    tosky = project positions onto the sky when generating data. At
+    the moment, this only plots them so that we can see how the
+    projections look...
 
     RETURNS
     =======
@@ -4830,7 +4898,10 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
             
         # Stop here if we're tweaking our simulated datasets before
         # sampling
-        if only_show:
+        if tosky:
+            print("test2term_moves INFO - projected to sky. Check plots...")
+        
+        if only_show or tosky:
             return {}
     
     # For the moment, try our "working" method, just to make sure our
