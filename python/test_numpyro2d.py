@@ -1397,7 +1397,11 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     if not tosky:
         ugen[:,0] += u0
         ugen[:,1] += v0
-
+    else:
+        radec = uv2sky(ugen, np.array([u0, v0]), degrees=True)
+        ugen = np.copy(radec)
+        print("gendata INFO - projected generated positions onto the sky")
+        
     # Generate apparent magnitudes
     mags = genmags(ndata, maglo, maghi, magexpon, seed)
     
@@ -1412,12 +1416,6 @@ def gendata(ndata=25, xsz=2., ysz=2., \
     xobs = np.copy(xgen)
     xcovs = None
 
-    # If we are projecting to the sky, apply the projection here.
-    if tosky:
-        radec = uv2sky(uobs, np.array([u0, v0]), degrees=True)
-        uobs = np.copy(radec)
-        print("gendata INFO - projecting positions onto the sky")
-                       
     # if perturbing in the xy plane, set up the perturbations and the
     # covariances (done differently from above. Oh well.
     if perturb_xy:
@@ -4600,8 +4598,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                 sigx=sigx, sigy=sigy,\
                 magpars_xy = magpars_xy, \
                 mag0_xy = mag0_xy, \
-                showdata=True)
-
+                showdata=True, \
+                tosky=tosky)
     
     # Note: ucov, xcov are what the experimenter "thinks" the
     # measurement uncertainties are in the input and target frame,
@@ -4900,7 +4898,15 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         # sampling
         if tosky:
             print("test2term_moves INFO - projected to sky. Check plots...")
-        
+
+            # construct a "guess" for the pointing center
+            guess_xy = np.median(x, axis=0)
+            guess_sky = np.median(u_obs, axis=0)
+
+            print("test2term_moves INFO - 'guess' field centers:")
+            print("test2term_moves INFO - xc:", guess_xy)
+            print("test2term_moves INFO - alpha_c:", guess_sky)
+            
         if only_show or tosky:
             return {}
     
