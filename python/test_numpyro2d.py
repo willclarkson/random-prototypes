@@ -892,12 +892,21 @@ def model_pointing(x, uerr, u=None, xerr=None, fitvar=False, \
                    s_min=1.0e-5, s_max=0.1, \
                    thetarad_min = -jnp.pi, \
                    thetarad_max =  jnp.pi, \
-                   r_mean = 1.0, r_sig = 0.1, \
+                   # r_mean = 1.0, r_sig = 0.1, \
                    prior_alpha0_cen = jnp.array([0., 0.]), \
                    prior_alpha0_cov = jnp.array([[1.0e-1, 0.,], \
                                                  [0., 1.0e-1]]) ):
 
-    """6term with transformation from the celestial sphere
+    """2term with transformation from the celestial sphere. XY and SKY
+positions are projected onto the intermediate frame [chi, eta] for
+comparison. 
+
+Any additional covariance is added on the sky before projection down
+onto the [chi, eta] plane. This models a scenario in which the sky
+catalog under-estimates the covariances by some additive offset. We
+are implicitly assuming that offset is small compared to the celestial
+sphere (if not, then the whole propagation of uncertainty is probably
+not appropriate).
 
     INPUTS
 
@@ -930,9 +939,9 @@ def model_pointing(x, uerr, u=None, xerr=None, fitvar=False, \
 
     thetarad_max = max rotation angle, radians
 
-    r_mean = mean axis scale ratio
+    ## r_mean = mean axis scale ratio ## UNUSED 
 
-    r_sig = stddev axis scale ratio
+    ## r_sig = stddev axis scale ratio ## UNUSED
     
     prior_alpha0_cen = [2] = prior on pointing (center, degrees)
 
@@ -949,25 +958,35 @@ def model_pointing(x, uerr, u=None, xerr=None, fitvar=False, \
 
     # Model parameters defined by priors
     theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
-
     s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
-    r = numpyro.sample("r", dist.Normal(r_cen,r_sig))
-    beta = numpyro.sample("beta", dist.Uniform(-0.5*jnp.pi, 0.5*jnp.pi))
+
+    # 2026-08-03 update: r, beta frozen for code consistency
+    # downstream (the lifting of marginal histograms later).
+    #r = numpyro.sample("r", dist.Normal(r_mean,r_sig))
+    #beta = numpyro.sample("beta", dist.Uniform(-0.5*jnp.pi, 0.5*jnp.pi))
 
     # sample the pointing from the joint prior, in degrees
     alpha0vec = numpyro.sample("alpha0vec", \
                                dist.MultivariateNormal(prior_alpha0_cen, \
                                                        prior_alpha0_cov) )
 
+    b = numpyro.deterministic("b",  s * jnp.cos(theta))
+    c = numpyro.deterministic("c",  s * jnp.sin(theta))
+    e = numpyro.deterministic("e", -s * jnp.sin(theta))
+    f = numpyro.deterministic("f",  s * jnp.cos(theta))
+    
+    # 6-term kept for later if we can broaden. For the moment, keep
+    # the two-term version for "backward compatibility"
+    # 
     # Produce the cdmatrix taking [x,y] into the intermediate
     # coordinates [chi, eta]
-    sx = s 
-    sy = s * r
+    #sx = s 
+    #sy = s * r
 
-    b = numpyro.deterministic("b",  sx  * jnp.cos(theta - 0.5*beta) )
-    c = numpyro.deterministic("c",  sy  * jnp.sin(theta + 0.5*beta) )
-    e = numpyro.deterministic("e", -sx  * jnp.sin(theta - 0.5*beta) )
-    f = numpyro.deterministic("f",  sy  * jnp.cos(theta + 0.5*beta) )
+    #b = numpyro.deterministic("b",  sx  * jnp.cos(theta - 0.5*beta) )
+    #c = numpyro.deterministic("c",  sy  * jnp.sin(theta + 0.5*beta) )
+    #e = numpyro.deterministic("e", -sx  * jnp.sin(theta - 0.5*beta) )
+    #f = numpyro.deterministic("f",  sy  * jnp.cos(theta + 0.5*beta) )
 
     # cdmatrix from b,c,e,f
     A = jnp.array([[b,c],[e,f]])
@@ -979,6 +998,15 @@ def model_pointing(x, uerr, u=None, xerr=None, fitvar=False, \
     dx = x - xycen[None,:]
     uproj = jnp.einsum('jk,ik -> ij', A, dx)
 
+    # Any additional covariance to add in the SKY frame:
+    cov_extra = jnp.zeros((2,2))
+    if fitvar:
+        v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
+        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
+
+    # Total covariance in the sky frame
+    cov_sky = uerr + cov_extra[None, :, :]
+    
     # STEP 1 - PROJECTION OF SKY COORDINATES ONTO [CHI, ETA]....
     
     # Project the sky-coordinates "u" (i.e. [alpha, delta]) to the
@@ -1025,9 +1053,10 @@ def model_pointing(x, uerr, u=None, xerr=None, fitvar=False, \
         jac = jnp.reshape( jnp.column_stack((jac00, jac01, jac10, jac11)), \
                            shjac)
 
-        covuv = jnp.matmul(jnp.matmul(jac, uerr), jac.T)
+        covuv = jnp.matmul(jnp.matmul(jac, cov_sky), \
+                           jnp.transpose(jac, axes=(0,2,1)) )
     else:
-        covuv = uerr
+        covuv = cov_sky
 
     # Propagate input xy uncertainties if we have them. We're still
     # assuming a model that is linear in the coordinates, so no
@@ -1037,14 +1066,8 @@ def model_pointing(x, uerr, u=None, xerr=None, fitvar=False, \
     if xerr is not None:
         xycov_tran = jnp.matmul(jnp.matmul(A, xerr), A.T)
 
-    # Any additional covariance in the [chi, eta] frame
-    cov_extra = jnp.zeros((2,2))
-    if fitvar:
-        v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
-        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
-
     # Total covariance in the [chi, eta] frame
-    cov_total = covuv + xycov_tran + cov_extra[None,:,:]
+    cov_total = covuv + xycov_tran
 
     # OK by this point we have assembled the input coordinates, their
     # covariances, the target coordinates and their covariances, all
@@ -2046,12 +2069,26 @@ def lift_contour_vertices(fig=None):
             dcon[scont]['xylims'] = {}
             pathset = coll.get_paths()
             for ipath in range(len(pathset)):
-                vertices = pathset[ipath].vertices.copy()
-                codes = pathset[ipath].codes.copy()
-                dcon[scont]['vertices'].append(vertices)
+
+                # gracefully skip empty output
+                if pathset[ipath] is None:
+                    continue
+
+                # 2026-08-03: Replaced .copy() with reference in case
+                # None. If that leads to pickle problems later,
+                # reinstate and code defensively.
+                vertices = pathset[ipath].vertices
+                if vertices is not None:
+                    dcon[scont]['vertices'].append(vertices)
+                    try:
+                        dcon[scont]['xylims']['min'] = vertices.min(axis=0)
+                        dcon[scont]['xylims']['max'] = vertices.max(axis=0)
+                    except:
+                        badvertices = True
+                        
+                codes = pathset[ipath].codes
                 dcon[scont]['codes'].append(codes)
-                dcon[scont]['xylims']['min'] = vertices.min(axis=0)
-                dcon[scont]['xylims']['max'] = vertices.max(axis=0)
+
                 
         # ... and since we're here, let's get the diagonals as
         # well. These are the marginal histograms.
@@ -4894,20 +4931,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
         fig9.savefig('simulated_deltas.png')
             
-        # Stop here if we're tweaking our simulated datasets before
-        # sampling
-        if tosky:
-            print("test2term_moves INFO - projected to sky. Check plots...")
-
-            # construct a "guess" for the pointing center
-            guess_xy = np.median(x, axis=0)
-            guess_sky = np.median(u_obs, axis=0)
-
-            print("test2term_moves INFO - 'guess' field centers:")
-            print("test2term_moves INFO - xc:", guess_xy)
-            print("test2term_moves INFO - alpha_c:", guess_sky)
-            
-        if only_show or tosky:
+        if only_show:
             return {}
     
     # For the moment, try our "working" method, just to make sure our
@@ -4935,7 +4959,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         if Qmin < 0. or Qmax > 1.:
             print("test2term_moves WARN - bad Q limits. Re-check!")
             return
-            
+        
     # 2026-06-19 - try supplying additional arguments to the model
     # function in a general way... does this work with jax and
     # numpyro?
@@ -5002,6 +5026,24 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
             extra_args['uniform_prior_u0_bg']=False
             extra_args['prior_u0_bg_std'] = 0.005
 
+    # 2026-08-03 extra arguments for the sky model
+    if tosky:
+        print("TESTING POINTING MODEL")
+        methmodel = model_pointing
+
+        extra_args = {} # not sure why this needs to be reset here
+        
+        extra_args['reproj_covar'] = False # True doesn't yet work
+        
+        extra_args['xcen'] = 0.
+        extra_args['ycen'] = 0.
+
+        # Construct a wide prior for the pointing center. Use the
+        # median position of catalog objects as the centroid
+        prior_cov = jnp.array([[1.,0], [0., 1.]])
+        extra_args['prior_alpha0_cen'] = jnp.median(u_obs, axis=0)
+        extra_args['prior_alpha0_cov'] = prior_cov
+        
     # 2026-07-20 numpyro has DAG visualization built in. What does
     # this look like? (For the moment, show then exit so we can
     # develop this)
@@ -5021,14 +5063,14 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                              model_kwargs=model_kwargs_viz, \
                              filename='simulated_dag.png', \
                              render_distributions=render_distns)
-        return {}
             
     # Promoted this since there are now >1 cases in which this will be
     # useful
     print("test2term_moves INFO - extra arguments to %s:" \
           % (methmodel.__name__), extra_args)
     print(" ")
-            
+
+    
     ### Set up the sampler
     sampler = infer.MCMC(
         infer.NUTS(methmodel),
@@ -5167,6 +5209,21 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         corner_truths.append(log10_median_covar_added)
         var_names.append("v_add")
 
+
+    # 2026-08-03 if projecting onto the sky, bring the pointing center
+    # down by a heuristic here.
+    if 'alpha0vec' in samples.keys():
+        chainz = np.vstack(( chainz.T, \
+                             samples['alpha0vec'][:,0], \
+                             samples['alpha0vec'][:,1] )).T
+
+        corner_labels.append(r"$\alpha_0$")
+        corner_labels.append(r"$\delta_0$")
+        corner_truths.append(u0)
+        corner_truths.append(v0)
+
+        var_names.append("alpha0vec") # this DOES work
+        
     # postpone screen printing to here, since we've now done the work
     # of assembling the variable names to show. These are the original
     # names and not quite the ones to use in figure labels (and thus
@@ -5174,6 +5231,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     inf_data = az.from_numpyro(sampler)
     print(az.summary(inf_data, var_names=var_names))
 
+    # if we're trying a new model, print everything
+    if tosky:
+        print("########## All variables tracked: #########")
+        print(az.summary(inf_data))
+    
     # try printing the shape of the entire summary
     print("test2term_moves INFO - summary shape:", az.summary(inf_data).shape)
     t2 = time.time()
