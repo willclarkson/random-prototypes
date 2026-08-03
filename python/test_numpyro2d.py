@@ -994,7 +994,7 @@ not appropriate).
     # Project the [x,y] positions on to the intermediate frame [chi,
     # eta]. Here we apply [xcen, ycen] so that [xcen, ycen] correspond
     # to [alpha_0, delta_0] on the sky.
-    xycen = np.array([xcen, ycen])
+    xycen = jnp.array([xcen, ycen])
     dx = x - xycen[None,:]
     uproj = jnp.einsum('jk,ik -> ij', A, dx)
 
@@ -1006,57 +1006,78 @@ not appropriate).
 
     # Total covariance in the sky frame
     cov_sky = uerr + cov_extra[None, :, :]
-    
-    # STEP 1 - PROJECTION OF SKY COORDINATES ONTO [CHI, ETA]....
-    
-    # Project the sky-coordinates "u" (i.e. [alpha, delta]) to the
-    # intermediate coordinates [chi, eta]. I find this less
-    # error-prone written out in steps (jax and numpyro might not) -
-    # so here we go...
-    alpharad = jnp.radians(u) # [N,2] coordinates, radians
-    dec0rad = jnp.radians(alpha0vec[1])
-    dalpharad = jnp.radians(u - alpha0vec[None, :]) # [N,2] offsets
 
-    brack = 1.0 - jnp.cos(dalpharad[:,0])
+    # Deproject from the sky onto the [chi, eta] plane, only bothering
+    # to calculate the jacobian for covariances if we are going to use
+    # it (otherwise the identity matrix is returned: see sky2uv() ).
+    chi_eta, jac = sky2uv(u, alpha0vec, degrees=True, \
+                          get_jacobian=reproj_covar)
 
-    # denominator common to both expressions
-    denom = jnp.cos(dalpharad[:,1]) \
-        - jnp.cos(dec0rad)*jnp.cos(alpharad[:,1])*brack
-
-    # Our actual projected intermediate coordinates
-    chi = jnp.cos(alpharad[:,1]) * jnp.sin(dalpharad[:,0]) / denom
-    eta_numer = jnp.sin(dalpharad[:,1]) \
-        + jnp.sin(dec0rad) * jnp.cos(alpharad[:,1]) * brack
-
-    eta = eta_numer / denom 
-
-    # Finally, wrap these into an [N,2] array...
-    chi_eta = jnp.column_stack((chi, eta))
-
-    # STEP 2 - project the covariances from the sky onto [chi, eta]..
-
-    # We can recycle some variables defined above. All four terms of
-    # the Jacobian, written out in full.
-    if reproj_covar:
-        jac00 = ( jnp.cos(dalpharad[:,1]) \
-                  - jnp.sin(dec0rad) * jnp.sin(alpharad[:,1]) * brack ) \
-                  * jnp.cos(alpharad[:,0]) / denom**2
-
-        jac01 = 0. - jnp.sin(dalpharad[:,0]) * jnp.sin(dec0rad) / denom**2
-    
-        jac10 = jnp.sin(dalpharad[:,0]) \
-            * jnp.sin(2.0*alpharad[:,1]) / (2. * denom**2)
-
-        jac11 = jnp.cos(dalpharad[:,0]) / denom**2
-
-        shjac = (jac00.size, 2, 2)
-        jac = jnp.reshape( jnp.column_stack((jac00, jac01, jac10, jac11)), \
-                           shjac)
-
-        covuv = jnp.matmul(jnp.matmul(jac, cov_sky), \
+    # 2026-08-03 trying the 1./sec(delta) route to see if that fixes
+    # the undercoverage issue
+    covuv = jnp.matmul(jnp.matmul(jac, cov_sky), \
                            jnp.transpose(jac, axes=(0,2,1)) )
-    else:
-        covuv = cov_sky
+
+    #if reproj_covar:
+    #    covuv = jnp.matmul(jnp.matmul(jac, cov_sky), \
+    #                       jnp.transpose(jac, axes=(0,2,1)) )
+    #else:
+    #    covuv = cov_sky
+
+    # 2026-08-03 comment out the original transformation, which we
+    # have refactored...
+        
+    ## STEP 1 - PROJECTION OF SKY COORDINATES ONTO [CHI, ETA]....
+    
+    ## Project the sky-coordinates "u" (i.e. [alpha, delta]) to the
+    ## intermediate coordinates [chi, eta]. I find this less
+    ## error-prone written out in steps (jax and numpyro might not) -
+    ## so here we go...
+    #alpharad = jnp.radians(u) # [N,2] coordinates, radians
+    #dec0rad = jnp.radians(alpha0vec[1])
+    #dalpharad = jnp.radians(u - alpha0vec[None, :]) # [N,2] offsets
+
+    #brack = 1.0 - jnp.cos(dalpharad[:,0])
+
+    ## denominator common to both expressions
+    #denom = jnp.cos(dalpharad[:,1]) \
+    #    - jnp.cos(dec0rad)*jnp.cos(alpharad[:,1])*brack
+
+    ## Our actual projected intermediate coordinates
+    #chi = jnp.cos(alpharad[:,1]) * jnp.sin(dalpharad[:,0]) / denom
+    #eta_numer = jnp.sin(dalpharad[:,1]) \
+    #    + jnp.sin(dec0rad) * jnp.cos(alpharad[:,1]) * brack
+
+    #eta = eta_numer / denom 
+
+    ## Finally, wrap these into an [N,2] array and convert to
+    ## degrees...
+    #chi_eta = jnp.column_stack((chi, eta)) * 180./jnp.pi
+
+    ## STEP 2 - project the covariances from the sky onto [chi, eta]..
+
+    ## We can recycle some variables defined above. All four terms of
+    ## the Jacobian, written out in full.
+    #if reproj_covar:
+    #    jac00 = ( jnp.cos(dalpharad[:,1]) \
+    #              - jnp.sin(dec0rad) * jnp.sin(alpharad[:,1]) * brack ) \
+    #              * jnp.cos(alpharad[:,1]) / denom**2
+
+    #    jac01 = 0. - jnp.sin(dalpharad[:,0]) * jnp.sin(dec0rad) / denom**2
+    
+    #    jac10 = jnp.sin(dalpharad[:,0]) \
+    #        * jnp.sin(2.0*alpharad[:,1]) / (2. * denom**2)
+
+    #    jac11 = jnp.cos(dalpharad[:,0]) / denom**2
+
+    #    shjac = (jac00.size, 2, 2)
+    #    jac = jnp.reshape( jnp.column_stack((jac00, jac01, jac10, jac11)), \
+    #                       shjac)
+
+    #    covuv = jnp.matmul(jnp.matmul(jac, cov_sky), \
+    #                       jnp.transpose(jac, axes=(0,2,1)) )
+    #else:
+    #    covuv = cov_sky
 
     # Propagate input xy uncertainties if we have them. We're still
     # assuming a model that is linear in the coordinates, so no
@@ -1317,6 +1338,103 @@ def uv2sky(uv=np.array([]), \
         delta_ret = delta
 
     return np.column_stack((alpha_ret, delta_ret))
+
+def sky2uv(radec=jnp.array([]), alpha0=np.array([0., 0.]), \
+           degrees=True, get_jacobian=True):
+
+    """Deprojects sky coordinates onto [chi, eta], with everything as jax
+numpy arrays. Returns the jacobian for covariance as well as the
+transformed parameters
+
+    INPUTS
+    ======
+
+    radec = [N,2] = ra, dec coords
+
+    alpha0 = [2] = pointing center
+
+    degrees = input and output both in degrees
+
+    getjacobian = returns jacobian for covariance
+
+    RETURNS
+    =======
+
+    uv = [N,2] = u,v coordinates
+
+    jac = [2,2] or [N,2,2] = Jacobian for the covariance
+
+    """
+
+    if degrees:
+        alpharad = jnp.radians(radec)
+        alpha0rad = jnp.radians(alpha0)
+    else:
+        alpharad = radec
+        alpha0rad = alpha0
+
+    # write out the steps...
+    dalpharad = alpharad - alpha0rad
+    brack = 1.0 - jnp.cos(dalpharad[:,0])
+
+    # denominator common to both expressions
+    dec0rad = jnp.radians(alpha0rad[1])
+    denom = jnp.cos(dalpharad[:,1]) \
+        - jnp.cos(dec0rad)*jnp.cos(alpharad[:,1])*brack
+
+    # projected intermediate coordinates in radians
+    chi = jnp.cos(alpharad[:,1]) * jnp.sin(dalpharad[:,0]) / denom
+
+    eta_numer = jnp.sin(dalpharad[:,1]) \
+        + jnp.sin(dec0rad) * jnp.cos(alpharad[:,1]) * brack
+
+    eta = eta_numer / denom
+
+    # Because jax objects are immutable, we fall back on if/then
+    # rather than initialize/replace. So:
+    if degrees:
+        chi_eta = jnp.column_stack((chi, eta)) * 180. / jnp.pi
+    else:
+        chi_eta = jnp.column_stack((chi, eta))
+
+    if not get_jacobian:
+        # 2026-08-03 WARNING - HACK HERE. MAke more respectable if it
+        # works...
+        #jac00 = 1.0/jnp.cos(alpharad[:,1]) # I THINK THIS IS AN ERROR
+        jac00 = jnp.ones(chi.size)
+        jac01 = jnp.zeros(jac00.size)
+        jac10 = jnp.zeros(jac00.size)
+        jac11 = jnp.ones(jac00.size)
+
+        shjac = (jac00.size, 2, 2)
+        jac = jnp.reshape( jnp.column_stack((jac00, jac01, jac10, jac11)), \
+                           shjac)        
+        
+        return chi_eta, jac
+
+    # If we are here then we want to compute the jacobian for
+    # conversion of the covariance from the sphere back onto the [u,v]
+    # plane using quantities we've already computed. So:
+    denom2 = denom**2
+
+    jac00 = ( jnp.cos(dalpharad[:,1]) \
+              - jnp.sin(dec0rad) * jnp.sin(alpharad[:,1]) * brack) \
+        * jnp.cos(alpharad[:,1]) / denom2
+
+    jac01 = 0. - jnp.sin(dalpharad[:,0]) * jnp.sin(dec0rad) / denom2
+
+    jac10 = jnp.sin(dalpharad[:,0]) * jnp.sin(2.0 * alpharad[:,1]) \
+        / (2.0 * denom2)
+
+    jac11 = jnp.cos(dalpharad[:,0]) / denom2
+
+    # shape of the output array into which the jacobian pieces will be
+    # slotted
+    shjac = (jac00.size, 2, 2)        
+    jac = jnp.reshape( jnp.column_stack((jac00, jac01, jac10, jac11)), \
+                       shjac)
+    
+    return chi_eta, jac
     
 def gendata(ndata=25, xsz=2., ysz=2., \
             thetadeg_true = 30., s_true=1.0e-2, \
@@ -4827,6 +4945,25 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         ax5_2 = fig5.add_subplot(222)
         ax5_4 = fig5.add_subplot(224)
 
+        # If we are including a pointing model, it helps to show the
+        # intermediate space [chi, eta] on which we actually do the
+        # comparison (on which the distance measure is euclidean,
+        # nicely supported by numpyro, etc.) So:
+        ax5_3 = None
+        chieta_backproj = None
+        chieta_forward = None
+        if tosky:
+
+            # Generate the backward- and forward-projected points
+            chieta_backproj, jac = \
+                sky2uv(u_obs, np.array([u0,v0]), True, True)
+            
+            Atrue = cdmatrix_from_pars(sx=s, rotdeg=theta, \
+                               skewdeg=betadeg, r=rtrue)
+            chieta_forward = np.einsum('jk,ik -> ij', Atrue, x)
+            
+            ax5_3 = fig5.add_subplot(223)
+        
         # vs-coord plots
         # fig9=plt.figure(9, figsize=(6,4))
         # fig9.clf()
@@ -4906,6 +5043,30 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         ax5_4.set_xlabel(r'$\Delta u$')
         ax5_4.set_ylabel(r'$\Delta v$')
 
+        # slightly different if we're doing a pointing model
+        if tosky:
+            ax5_2.set_xlabel(r'$\alpha$')
+            ax5_2.set_ylabel(r'$\alpha$')
+
+            if ax5_3 is not None:
+                dum_backw = ax5_3.scatter(chieta_backproj[:,0], \
+                                          chieta_backproj[:,1], \
+                                          marker='+', color='k', \
+                                          s=16, zorder=5)
+
+                dum_forw = ax5_3.scatter(chieta_forward[:,0], \
+                                         chieta_forward[:,1], \
+                                         marker='x', color='b', \
+                                         s=16, zorder=4)
+
+                ax5_3.set_xlabel(r'$\chi$')
+                ax5_3.set_ylabel(r'$\eta$')
+                dumAnno = ax5_3.annotate('Intermediate coords', \
+                                         (0.97,0.97), \
+                                         xycoords='axes fraction',\
+                                         ha='right', va='top', zorder=25, \
+                                         fontsize=7)
+                
         leg = fig5.legend(loc=3)
         
         fig5.subplots_adjust(wspace=0.25, hspace=0.25)
@@ -5031,7 +5192,14 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         print("TESTING POINTING MODEL")
         methmodel = model_pointing
 
-        extra_args = {} # not sure why this needs to be reset here
+        # 2026-08-03 retry with this un-reset (now that the
+        # degrees-to-radians has been "fixed")
+        #
+        extra_args = {'s_min':1e-4, 's_max':0.1}
+        extra_args['thetarad_min'] = jnp.radians(25.)
+        extra_args['thetarad_max'] = jnp.radians(35.)
+        
+        # not sure why this needs to be reset here
         
         extra_args['reproj_covar'] = False # True doesn't yet work
         
