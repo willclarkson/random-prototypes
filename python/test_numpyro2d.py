@@ -1319,15 +1319,16 @@ def uv2sky(uv=np.array([]), \
     # Written out in steps to aid debugging later. Convention as per
     # my informal writeup that may never see the light of day...
     delta0 = alpha0rad[1]
-    gamma_alpha = np.cos(delta0) - uvrad[:,1]*np.sin(delta0)
+    gamma_alpha = np.cos(delta0) - uvrad[:,1] * np.sin(delta0)
 
     # alpha - alpha_0
     dalpha = np.arctan2(uvrad[:,0], gamma_alpha)
 
     # deta in radians
-    delta_numer = np.sin(delta0) + uvrad[:,1]*np.cos(delta0)
-
-    delta = np.arctan2(delta_numer, np.sqrt(uvrad[:,0]**2 + gamma_alpha**2))
+    delta_numer = np.sin(delta0) + uvrad[:,1] * np.cos(delta0)
+    delta_denom = np.sqrt(uvrad[:,0]**2 + gamma_alpha**2)
+    
+    delta = np.arctan2(delta_numer, delta_denom)
 
     # what we return now depends on whether we are working in degrees
     if degrees:
@@ -1378,7 +1379,7 @@ transformed parameters
     brack = 1.0 - jnp.cos(dalpharad[:,0])
 
     # denominator common to both expressions
-    dec0rad = jnp.radians(alpha0rad[1])
+    dec0rad = alpha0rad[1]
     denom = jnp.cos(dalpharad[:,1]) \
         - jnp.cos(dec0rad)*jnp.cos(alpharad[:,1])*brack
 
@@ -1400,8 +1401,8 @@ transformed parameters
     if not get_jacobian:
         # 2026-08-03 WARNING - HACK HERE. MAke more respectable if it
         # works...
-        #jac00 = 1.0/jnp.cos(alpharad[:,1]) # I THINK THIS IS AN ERROR
-        jac00 = jnp.ones(chi.size)
+        jac00 = jnp.cos(alpharad[:,1]) # I THINK THIS IS AN ERROR
+        # jac00 = jnp.ones(chi.size)
         jac01 = jnp.zeros(jac00.size)
         jac10 = jnp.zeros(jac00.size)
         jac11 = jnp.ones(jac00.size)
@@ -4957,10 +4958,30 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
             # Generate the backward- and forward-projected points
             chieta_backproj, jac = \
                 sky2uv(u_obs, np.array([u0,v0]), True, True)
+
+            chieta_backproj, jac_partial = \
+                sky2uv(u_obs, np.array([u0,v0]), True, False)
+
             
             Atrue = cdmatrix_from_pars(sx=s, rotdeg=theta, \
                                skewdeg=betadeg, r=rtrue)
             chieta_forward = np.einsum('jk,ik -> ij', Atrue, x)
+
+            # 2026-08-03: add a few debug lines here.
+            print("test2term_moves DEBUG - tosky:")
+            print(ucov[0])
+            print("Jacobian full:")
+            print(jac[0])
+            print("Jacobian partial:")
+            print(jac_partial[0])
+            covmult = np.matmul(np.matmul(jac[0], ucov[0]), jac[0].T)
+            print("cov mult full:")
+            print(covmult)
+            covmult_partial = \
+                np.matmul(np.matmul(jac_partial[0], ucov[0]), jac_partial[0].T)
+            print("cov mult partial:")
+            print(covmult_partial)
+            
             
             ax5_3 = fig5.add_subplot(223)
         
@@ -5001,11 +5022,23 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                                   c=col, zorder=zord, s=sz, marker=marker)
             dum52 = ax5_2.scatter(u_obs[bset,0], u_obs[bset,1], \
                                   c=col, zorder=zord, s=sz, marker=marker)
-            dum54 = ax5_4.scatter(perts_total[bset,0], perts_total[bset,1], \
-                                  c=col, zorder=zord, s=sz, marker=marker, \
-                                  label=label)
-        
 
+            # another hack depending on whether we are projecting onto
+            # the sky
+            if not tosky:
+                dum54 = ax5_4.scatter(perts_total[bset,0], \
+                                      perts_total[bset,1], \
+                                      c=col, zorder=zord, s=sz, marker=marker, \
+                                      label=label)
+            else:
+                dchi = chieta_backproj - chieta_forward
+                dum54 = ax5_4.scatter(dchi[bset,0], \
+                                      dchi[bset,1], \
+                                      c=col, zorder=zord, s=sz, marker=marker, \
+                                      label=label)
+
+                print("test2term_moves tosky INFO:", np.median(dchi[bset], axis=0))
+                
             # Now for the marginals. Make what we plot for the
             # coordinates a choice, we can promote this to an argument
             # (or refactor this all out into a method) later.
@@ -5048,6 +5081,10 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
             ax5_2.set_xlabel(r'$\alpha$')
             ax5_2.set_ylabel(r'$\alpha$')
 
+            ax5_4.set_xlabel(r'$\Delta \chi$')
+            ax5_4.set_ylabel(r'$\Delta \eta$')
+
+            
             if ax5_3 is not None:
                 dum_backw = ax5_3.scatter(chieta_backproj[:,0], \
                                           chieta_backproj[:,1], \
