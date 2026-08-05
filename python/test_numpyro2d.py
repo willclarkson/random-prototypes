@@ -1340,7 +1340,7 @@ def uv2sky(uv=np.array([]), \
 
     return np.column_stack((alpha_ret, delta_ret))
 
-def sky2uv(radec=jnp.array([]), alpha0=np.array([0., 0.]), \
+def sky2uv(radec=jnp.array([]), alpha0=jnp.array([0., 0.]), \
            degrees=True, get_jacobian=True):
 
     """Deprojects sky coordinates onto [chi, eta], with everything as jax
@@ -1399,14 +1399,21 @@ transformed parameters
         chi_eta = jnp.column_stack((chi, eta))
 
     if not get_jacobian:
-        # 2026-08-03 WARNING - HACK HERE. MAke more respectable if it
-        # works...
-        jac00 = jnp.cos(alpharad[:,1]) # I THINK THIS IS AN ERROR
-        # jac00 = jnp.ones(chi.size)
+        # 2026-08-03 WARNING - HACK HERE. This is the small-field
+        # approximation going from the sphere to the tangent plane.
+        jac00 = jnp.cos(alpharad[:,1])
+
+        # try the pointing center to test errors-in-variables
+        # jac00 = jnp.ones(chi.size)*jnp.cos(dec0rad)
+        
         jac01 = jnp.zeros(jac00.size)
         jac10 = jnp.zeros(jac00.size)
         jac11 = jnp.ones(jac00.size)
 
+        # notice that none of this clause requires any of the model
+        # parameters. It could be computed outside of this so that we
+        # don't need to keep computing this. Might be faster.
+        
         shjac = (jac00.size, 2, 2)
         jac = jnp.reshape( jnp.column_stack((jac00, jac01, jac10, jac11)), \
                            shjac)        
@@ -5232,9 +5239,9 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         # 2026-08-03 retry with this un-reset (now that the
         # degrees-to-radians has been "fixed")
         #
-        extra_args = {'s_min':1e-4, 's_max':0.1}
-        extra_args['thetarad_min'] = jnp.radians(25.)
-        extra_args['thetarad_max'] = jnp.radians(35.)
+        extra_args = {'s_min':s_min, 's_max':s_max}
+        extra_args['thetarad_min'] = jnp.radians(thetadeg_min)
+        extra_args['thetarad_max'] = jnp.radians(thetadeg_max)
         
         # not sure why this needs to be reset here
         
@@ -5472,7 +5479,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         fig3.savefig(file_cornerplot)
     #fig3.savefig('simulated_cornerplot.png')
     
-    # return the samples so that we can play with them. Smuggle the
+    # return the samples so that we can work with them. Smuggle the
     # transformed positions in the samples as well. In fact, ensure
     # enough information is included so that the likelihood can be
     # plotted for the model (which means generated uncertainties also
@@ -5614,13 +5621,17 @@ def wrap_demo_undercover(nsets=10, nstars=25, \
                          nchains=1, nsamples=16000, \
                          nwarmup=2000, \
                          propag_errxy=False, \
+                         perturb_xy=True, \
                          fit_var=False, \
                          s_min=0.002, \
                          s_max=0.02, \
                          thetadeg_min = 20., \
                          thetadeg_max = 40., \
                          sigx=0.01, sigy=0.01, \
-                         vsmag_xy=False):
+                         vsmag_xy=False, \
+                         tosky=False, \
+                         u0=0., v0=0., \
+                         add_covar=False):
 
     """Wrapper to run nsets of simulations at nstars and assess whether we
 demonstrate undercoverage by not propagating the uncertainties in the
@@ -5630,6 +5641,12 @@ model
 
     xyvsmag - vary uncertainty with apparent magnitude
 
+    tosky = use pointing model
+
+    u0, v0 = pointing center
+
+    add_covar = add covariance in the TARGET frame
+
     """
 
     # set the initial seed for reproducibility
@@ -5637,10 +5654,20 @@ model
 
     sdir = 'uncover'
 
+    # record choices in the directory names
     
+    if tosky:
+        sdir = '%s_tosky' % (sdir)
+
+    if add_covar:
+        sdir = '%s_addcov' % (sdir)
+
+    if perturb_xy:
+        sdir = '%s_perturbxy' % (sdir)
+        
     mag0_xy = 16.
     magpars_xy = None
-    if vsmag_xy:
+    if vsmag_xy and perturb_xy:
         sdir = '%s_xyvsmag' % (sdir)
         magpars_xy=[-2., -5., 3.]
         
@@ -5689,15 +5716,16 @@ model
                                 num_warmup=nwarmup, \
                                 xsz=400., ysz=400., \
                                 frac_outly=0.0, frac_shift=0.0, \
-                                sigm_outly=4e-3, add_covar=False, \
+                                sigm_outly=4e-3, \
+                                add_covar=add_covar, \
                                 du_lo=1.0e-4, du_hi=1.0e-3, \
                                 frac_contam=0.35, add_contam=False, \
                                 only_show=False, test_shift=False, \
                                 test_popmix=False, test_mix=False, \
                                 add_clumps=False, \
-                                u0=0., v0=0., \
+                                u0=u0, v0=v0, \
                                 sigx=sigx, sigy=sigy, \
-                                perturb_xy=True, \
+                                perturb_xy=perturb_xy, \
                                 propag_errxy=propag_errxy, \
                                 magpars_xy=magpars_xy, \
                                 mag0_xy=mag0_xy, \
@@ -5707,5 +5735,6 @@ model
                                 s_min=s_min, \
                                 s_max=s_max, \
                                 thetadeg_min = thetadeg_min, \
-                                thetadeg_max = thetadeg_max )
+                                thetadeg_max = thetadeg_max, \
+                                tosky=tosky)
     
