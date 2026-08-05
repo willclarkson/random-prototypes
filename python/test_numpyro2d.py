@@ -4111,6 +4111,40 @@ current axes. Currently every model component is assumed to be scalar (so two ke
 
     ax.add_collection(med_ec)
 
+def tell_multicontour(dconts={}):
+
+    """Utility - report the axes in multicontour set"""
+
+    # First ensure the dinfo dictionary is present
+    if not 'corner_info' in dconts.keys():
+        return
+
+    if len(dconts['corner_info']) < 1:
+        return
+    
+    # information dictionary
+    dinfo = dconts['corner_info'][0]
+
+    if not 'labels' in dinfo.keys():
+        return
+
+    told = 0
+    
+    for skey in dconts.keys():
+        if skey.find('corner_info') > -1:
+            continue
+        
+        iy, ix = dconts[skey][0]['id_2d']
+
+        xlabel = dinfo['labels'][ix]
+        ylabel = dinfo['labels'][iy]
+
+        if told < 1:
+            print("key : xlabel, ylabel")
+            print("====================")
+        print("'%s' : %s , %s" % (skey, xlabel, ylabel))
+        told = told + 1
+        
 def show_multicontour(dconts={}, fignum=10, \
                       nsets=-1, \
                       ilevel=0, \
