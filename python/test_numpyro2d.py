@@ -1001,7 +1001,15 @@ not appropriate).
     # Any additional covariance to add in the SKY frame:
     cov_extra = jnp.zeros((2,2))
     if fitvar:
-        v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
+        # allow v_add to be very small indeed. In practice this works
+        # fine, but leads to long runtimes. So probably OK to tighten
+        # back up to 1e-12. Going down to 1e-14 still makes this quite
+        # slow (my guess is that numpyro is making some kind of
+        # judgement for domains)
+
+        # v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
+        v_add = numpyro.sample("v_add", dist.LogUniform(1e-13,1e-3))
+
         cov_extra = jnp.array([[v_add,0.],[0., v_add]])
 
     # Total covariance in the sky frame
@@ -1013,8 +1021,8 @@ not appropriate).
     chi_eta, jac = sky2uv(u, alpha0vec, degrees=True, \
                           get_jacobian=reproj_covar)
 
-    # 2026-08-03 trying the 1./sec(delta) route to see if that fixes
-    # the undercoverage issue
+    # Propagate the uncertainties from the "sky" to the [chi, eta]
+    # frame
     covuv = jnp.matmul(jnp.matmul(jac, cov_sky), \
                            jnp.transpose(jac, axes=(0,2,1)) )
 
@@ -1085,8 +1093,9 @@ not appropriate).
     # bring along that xcen, ycen):
     xycov_tran = A * 0.
     if xerr is not None:
-        xycov_tran = jnp.matmul(jnp.matmul(A, xerr), A.T)
-
+        # xycov_tran = jnp.matmul(jnp.matmul(A, xerr), A.T)
+        xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+        
     # Total covariance in the [chi, eta] frame
     cov_total = covuv + xycov_tran
 
@@ -1097,7 +1106,73 @@ not appropriate).
     with numpyro.plate("data", x.shape[0]):
         pred_dist = dist.MultivariateNormal(uproj, cov_total)
         numpyro.sample("chi_eta", pred_dist, obs=chi_eta)
-        
+
+def model_pointing_propag(x, uerr, u=None, xerr=None,\
+                          fitvar=False, \
+                          xcen=0., ycen=0., \
+                          reproj_covar=False, \
+                          s_min=1.0e-5, s_max=0.1, \
+                          thetarad_min = -jnp.pi, \
+                          thetarad_max =  jnp.pi, \
+                          # r_mean = 1.0, r_sig = 0.1, \
+                          prior_alpha0_cen = jnp.array([0., 0.]), \
+                          prior_alpha0_cov = jnp.array([[1.0e-1, 0.,], \
+                                                        [0., 1.0e-1]]) ):
+
+    """Like model_pointing but xerr is always reprojected. This method is
+written to test whether it is the conditional in model_pointing that
+was causing strange behavior (worked fine if fitvar=True but not
+otherwise). For this method, fitvar is always False (it is accepted as
+an argument for use in the calling method, but is never acted upon).
+
+    """
+
+    # Model parameters defined by priors
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
+
+    # sample the pointing from the joint prior, in degrees
+    alpha0vec = numpyro.sample("alpha0vec", \
+                               dist.MultivariateNormal(prior_alpha0_cen, \
+                                                       prior_alpha0_cov) )
+
+    # Create the cdmatrix as usual
+    b = numpyro.deterministic("b",  s * jnp.cos(theta))
+    c = numpyro.deterministic("c",  s * jnp.sin(theta))
+    e = numpyro.deterministic("e", -s * jnp.sin(theta))
+    f = numpyro.deterministic("f",  s * jnp.cos(theta))
+
+    A = jnp.array([[b,c],[e,f]])
+
+    # Project the [x,y] positions on to the intermediate frame [chi,
+    # eta]. Here we apply [xcen, ycen] so that [xcen, ycen] correspond
+    # to [alpha_0, delta_0] on the sky.
+    xycen = jnp.array([xcen, ycen])
+    dx = x - xycen[None,:]
+    uproj = jnp.einsum('jk,ik -> ij', A, dx)
+
+    # Deproject the catalog coordinates onto the intermediate
+    # coordinates, determining the jacobian in the process
+    chi_eta, jac = sky2uv(u, alpha0vec, degrees=True, \
+                          get_jacobian=reproj_covar)
+
+    # propagate the uncertainties from the sky onto the intermediate
+    # frame. Note that we are not allowing fitvar at all in this
+    # function
+    covuv = jnp.matmul(jnp.matmul(jac, uerr), \
+                           jnp.transpose(jac, axes=(0,2,1)) )
+
+    # propagate the xy uncertainties onto the intermediate frame
+    xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+
+     # Total covariance in the [chi, eta] frame
+    cov_total = covuv + xycov_tran
+
+    # Now do the usual comparison in the intermediate frame
+    with numpyro.plate("data", x.shape[0]):
+        pred_dist = dist.MultivariateNormal(uproj, cov_total)
+        numpyro.sample("chi_eta", pred_dist, obs=chi_eta)
+    
 def random_subset(x=None, frac=0., seed=None):
 
     """Selects a random subset of a given array.
@@ -5270,6 +5345,15 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         print("TESTING POINTING MODEL")
         methmodel = model_pointing
 
+        # 2026-08-06 if fitvar is false and propagating, use the
+        # dedicated function without conditionals inside. This tests
+        # whether it was the conditional within model_pointing that
+        # caused the weird behavior about requiring fitvar=True for
+        # convergence...
+        if not fit_var and propag_errxy and xcov is not None:
+            methmodel = model_pointing_propag
+            print("test2term_moves INFO - using method %s" % (methmodel.__name__))
+        
         # 2026-08-03 retry with this un-reset (now that the
         # degrees-to-radians has been "fixed")
         #
@@ -5343,15 +5427,20 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # since it's only the xerr that we need this for, let's just put
     # in a whole conditional for just whether or not we are using the
     # x error. Like so:
+
+    # 2026-08-05 - try forcing ucov to be a jnp.array
+    
     if propag_errxy and xcov is not None:
         print("test2term_moves INFO - propagating xy uncertainties, e.g.")
         print(xcov[0])
-        sampler.run(jax.random.key(seed), x, ucov, u=u_obs, xerr=xcov, \
+        sampler.run(jax.random.key(seed), x, jnp.array(ucov), \
+                    u=u_obs, xerr=jnp.array(xcov), \
                     fitvar=fit_var, **extra_args)
     else:
         # Run the sampler, explicitly ignoring xy uncertainties (this
         # was the default behavior)
-        sampler.run(jax.random.key(seed), x, ucov, u=u_obs, xerr=None, \
+        sampler.run(jax.random.key(seed), x, jnp.array(ucov), \
+                    u=u_obs, xerr=None, \
                     fitvar=fit_var, **extra_args)
 
     # for screen printing
