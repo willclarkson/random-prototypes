@@ -892,6 +892,7 @@ def model_pointing(x, uerr, u=None, xerr=None, fitvar=False, \
                    s_min=1.0e-5, s_max=0.1, \
                    thetarad_min = -jnp.pi, \
                    thetarad_max =  jnp.pi, \
+                   v_add_min = 1e-13, \
                    # r_mean = 1.0, r_sig = 0.1, \
                    prior_alpha0_cen = jnp.array([0., 0.]), \
                    prior_alpha0_cov = jnp.array([[1.0e-1, 0.,], \
@@ -1008,7 +1009,7 @@ not appropriate).
         # judgement for domains)
 
         # v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
-        v_add = numpyro.sample("v_add", dist.LogUniform(1e-13,1e-3))
+        v_add = numpyro.sample("v_add", dist.LogUniform(v_add_min,1e-3))
 
         cov_extra = jnp.array([[v_add,0.],[0., v_add]])
 
@@ -1107,6 +1108,158 @@ not appropriate).
         pred_dist = dist.MultivariateNormal(uproj, cov_total)
         numpyro.sample("chi_eta", pred_dist, obs=chi_eta)
 
+def model_pointing_moves(x, uerr, u=None, xerr=None, fitvar=False, \
+                         xcen=0., ycen=0., \
+                         reproj_covar=False, \
+                         s_min=1.0e-5, s_max=0.1, \
+                         thetarad_min = -jnp.pi, \
+                         thetarad_max =  jnp.pi, \
+                         v_add_min = 1e-13, \
+                         prior_alpha0_cen = jnp.array([0., 0.]), \
+                         prior_alpha0_cov = jnp.array([[1.0e-1, 0.,], \
+                                                       [0., 1.0e-1]]), \
+                         prior_du_var = 1.0e-4):
+
+    """2-term transformation with pointing on the celestial sphere,
+allowing star-by-star displacements.
+
+
+    INPUTS
+
+    x = [N,2] = input positions
+
+    uerr = [N,2,2] input uncertainties in target frame as covariances
+
+    u = target positions (alpha, delta, degrees)
+
+    xerr = uncertainties in the input xy frame
+
+    fitvar = add variance in the target frame as a model parameter
+
+    xcen = x location corresponding to alpha_0 on the sky. This is NOT
+    a variable model parameter.
+
+    ycen = y location corresponding to delta_0 on the sky. This is NOT
+    a variable model parameter.
+    
+    reproj_covar = reproject the catalog covariances (assumes they are
+    on the sphere and not the local tangent plane).
+
+    hyperparameters:
+
+    s_min = min scale factor
+
+    s_max = max scale factor
+
+    thetarad_min = min rotation angle, radians
+
+    thetarad_max = max rotation angle, radians
+
+    ## r_mean = mean axis scale ratio ## UNUSED 
+
+    ## r_sig = stddev axis scale ratio ## UNUSED
+    
+    prior_alpha0_cen = [2] = prior on pointing (center, degrees)
+
+    prior_alpha_cov = [2,2] = prior on pointing (covariance, degrees)
+
+    prior_du_var = prior as VARIANCE on the star-by-star moves,
+    [chi,eta] frame
+
+    OUTPUTS
+
+    none - this method is interpreted by numpyro
+
+    """
+
+    # Mostly duplicated from model_pointing because I am a little
+    # suspicious that jax plus numpyro might not handle putting the
+    # prior inside a conditional (although I suppose it handles fitvar
+    # as a conditional without difficulty...)
+
+    # Model parameters defined by priors
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
+
+    # sample the pointing from the joint prior, in degrees
+    alpha0vec = numpyro.sample("alpha0vec", \
+                               dist.MultivariateNormal(prior_alpha0_cen, \
+                                                       prior_alpha0_cov) )
+
+    # cdmatrix as usual, needed to produce the jacobian for the
+    # covariances under the full model if selected
+    b = numpyro.deterministic("b",  s * jnp.cos(theta))
+    c = numpyro.deterministic("c",  s * jnp.sin(theta))
+    e = numpyro.deterministic("e", -s * jnp.sin(theta))
+    f = numpyro.deterministic("f",  s * jnp.cos(theta))
+
+    A = jnp.array([[b,c],[e,f]])
+
+    # xy positions projected onto [chi, eta]
+    xycen = jnp.array([xcen, ycen])
+
+    # QQQ CHECK THIS
+    # dx = x - xycen[None,:]
+    # uproj = jnp.einsum('jk,ik -> ij', A, dx)
+
+    cov_extra = jnp.zeros((2,2))
+    if fitvar:
+        v_add = numpyro.sample("v_add", dist.LogUniform(v_add_min,1e-3))
+        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
+        
+    cov_sky = uerr + cov_extra[None, :, :]
+
+    # Hyper-parameters for the star-by-star shifts
+    shift_centers = x * 0
+    shift_covars = jnp.array([[prior_du_var,0.], \
+                              [0., prior_du_var] ])
+
+
+    # implementation note: I think that in most casees we don't care
+    # whether the moves are applied to the input or the catalog
+    # positions. The former is probably significantly easier. If we
+    # apply the moves in the [chi,eta] frame then I this this defers
+    # it to implementation later. So let's do things that way. So we
+    # can transform the catalog positions and get the jacobian from
+    # sky to [chi, eta] without alteration:
+    chi_eta, jac = sky2uv(u, alpha0vec, degrees=True, \
+                          get_jacobian=reproj_covar)
+
+    covuv = jnp.matmul(jnp.matmul(jac, cov_sky), \
+                           jnp.transpose(jac, axes=(0,2,1)) )
+
+    # we also propagate the xy covariances forward to [chi, eta] as
+    # before...
+    xycov_tran = A * 0.
+    if xerr is not None:
+        xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+
+    cov_total = covuv + xycov_tran
+
+    # OK we have now assembled all the pieces for our comparison in
+    # the [chi, eta] frame:
+    with numpyro.plate("data", x.shape[0]):
+
+        # star-by-star shifts in [chi, eta]:
+        du = numpyro.sample("du", \
+                            dist.MultivariateNormal(shift_centers, \
+                                                    shift_covars) )
+
+        # try putting the moves in the xy frame. Does this make them
+        # independent of the model parameters?  QQQ ALSO UPDATED THE
+        # PRIOR ON THE SHIFTS. WATCHOUT SINCE DU IS STILL CALLED DU.
+        dx = x - xycen[None,:] + du
+        utot = jnp.einsum('jk,ik -> ij', A, dx)
+        
+        #utot = uproj + du
+
+        pred_dist = dist.MultivariateNormal(utot, cov_total)
+        numpyro.sample("chi_eta", pred_dist, obs=chi_eta)
+
+    
+    ### QQQ = 3
+    
+    
 def model_pointing_propag(x, uerr, u=None, xerr=None,\
                           fitvar=False, \
                           xcen=0., ycen=0., \
@@ -1117,7 +1270,7 @@ def model_pointing_propag(x, uerr, u=None, xerr=None,\
                           # r_mean = 1.0, r_sig = 0.1, \
                           prior_alpha0_cen = jnp.array([0., 0.]), \
                           prior_alpha0_cov = jnp.array([[1.0e-1, 0.,], \
-                                                        [0., 1.0e-1]]) ):
+                                                        [0., 1.0e-1]])):
 
     """Like model_pointing but xerr is always reprojected. This method is
 written to test whether it is the conditional in model_pointing that
@@ -5353,7 +5506,12 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         if not fit_var and propag_errxy and xcov is not None:
             methmodel = model_pointing_propag
             print("test2term_moves INFO - using method %s" % (methmodel.__name__))
-        
+
+        # if pointing model AND shift...
+        if test_shift:
+            print("TESTING POINTING MODEL WITH MOVES")
+            methmodel = model_pointing_moves
+            
         # 2026-08-03 retry with this un-reset (now that the
         # degrees-to-radians has been "fixed")
         #
