@@ -5912,7 +5912,10 @@ def wrap_demo_undercover(nsets=10, nstars=25, \
                          vsmag_xy=False, \
                          tosky=False, \
                          u0=0., v0=0., \
-                         add_covar=False):
+                         add_covar=False, \
+                         add_clumps=False, \
+                         frac_outly = 0., \
+                         test_shift=False):
 
     """Wrapper to run nsets of simulations at nstars and assess whether we
 demonstrate undercoverage by not propagating the uncertainties in the
@@ -5945,6 +5948,15 @@ model
 
     if perturb_xy:
         sdir = '%s_perturbxy' % (sdir)
+
+    if add_clumps:
+        sdir = '%s_addclumps' % (sdir)
+
+    if frac_outly > 0:
+        sdir = '%s_fout%.2f' % (sdir, frac_outly)
+
+    if test_shift:
+        sdir = '%s_moves' % (sdir)
         
     mag0_xy = 16.
     magpars_xy = None
@@ -5996,14 +6008,17 @@ model
                                 num_chains=nchains, \
                                 num_warmup=nwarmup, \
                                 xsz=400., ysz=400., \
-                                frac_outly=0.0, frac_shift=0.0, \
+                                frac_outly=frac_outly, \
+                                frac_shift=0.0, \
                                 sigm_outly=4e-3, \
                                 add_covar=add_covar, \
                                 du_lo=1.0e-4, du_hi=1.0e-3, \
-                                frac_contam=0.35, add_contam=False, \
-                                only_show=False, test_shift=False, \
+                                frac_contam=0.35, \
+                                add_contam=False, \
+                                only_show=False, \
+                                test_shift=test_shift, \
                                 test_popmix=False, test_mix=False, \
-                                add_clumps=False, \
+                                add_clumps=add_clumps, \
                                 u0=u0, v0=v0, \
                                 sigx=sigx, sigy=sigy, \
                                 perturb_xy=perturb_xy, \
