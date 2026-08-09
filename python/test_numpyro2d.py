@@ -5915,7 +5915,8 @@ def wrap_demo_undercover(nsets=10, nstars=25, \
                          add_covar=False, \
                          add_clumps=False, \
                          frac_outly = 0., \
-                         test_shift=False):
+                         test_shift=False, \
+                         istart=0):
 
     """Wrapper to run nsets of simulations at nstars and assess whether we
 demonstrate undercoverage by not propagating the uncertainties in the
@@ -5979,7 +5980,7 @@ model
               % (sdir) )
         return
         
-    for iset in range(nsets):
+    for iset in range(istart, nsets):
 
         # Construct filenames and set up the run
         snum = str(iset).zfill(3)
