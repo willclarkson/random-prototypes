@@ -1118,8 +1118,10 @@ def model_pointing_moves(x, uerr, u=None, xerr=None, fitvar=False, \
                          prior_alpha0_cen = jnp.array([0., 0.]), \
                          prior_alpha0_cov = jnp.array([[1.0e-1, 0.,], \
                                                        [0., 1.0e-1]]), \
-                         prior_du_var = 1.0e-4):
+                         prior_du_var = 1.0e-2):
+    #prior_du_var = 1.0e-4):
 
+    
     """2-term transformation with pointing on the celestial sphere,
 allowing star-by-star displacements.
 
@@ -5931,6 +5933,9 @@ model
     u0, v0 = pointing center
 
     add_covar = add covariance in the TARGET frame
+
+    istart = index to start at (useful if we don't want to redo a test
+    set of runs we already did)
 
     """
 
