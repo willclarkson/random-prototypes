@@ -1260,8 +1260,245 @@ allowing star-by-star displacements.
 
     
     ### QQQ = 3
+
+def model_pointing_mixmod(x, uerr, u=None, xerr=None, \
+                          fitvar=False, \
+                          xcen=0., ycen=0., \
+                          reproj_covar=False, \
+                          s_min=1.0e-5, s_max=0.1, \
+                          thetarad_min = -jnp.pi, \
+                          thetarad_max =  jnp.pi, \
+                          # r_mean = 1.0, r_sig = 0.1, \
+                          prior_alpha0_cen = jnp.array([0., 0.]), \
+                          prior_alpha0_cov = jnp.array([[1.0e-1, 0.,], \
+                                                        [0., 1.0e-1]]), \
+                          Qmin=0., Qmax=1., \
+                          prior_alpha0_cen_bg = jnp.array([0., 0.]), \
+                          prior_alpha0_cov_bg =
+                          jnp.array( [[0.1, 0.,],[0., 0.1]]), \
+                          v_fg_min = 1.0e-13, v_fg_max = 1.0e-3, \
+                          ruv_fg_min = 0.3, ruv_fg_max = 3., \
+                          coruv_fg_min = -1., coruv_fg_max = 1., \
+                          v_bg_min = 1.0e-13, v_bg_max = 1.0e-3, \
+                          ruv_bg_min = 0.3, ruv_bg_max = 3., \
+                          coruv_bg_min = -1., coruv_bg_max = 1.):
+
+    """2term with transformation from the celestial sphere and mixture
+model. Covariance and centroids of the mixture model compoenents are
+modeled on the sky. (This is improper because of the distance metric,
+an alternative would be to implement that in the [chi, eta] frame).
+
+    INPUTS
+
+    x = [N,2] = input positions
+
+    uerr = [N,2,2] input uncertainties in target frame as covariances
+
+    u = target positions (alpha, delta, degrees)
+
+    xerr = uncertainties in the input xy frame
+
+    fitvar = add variance in the target frame as a model parameter
+
+    xcen = x location corresponding to alpha_0 on the sky. This is NOT
+    a variable model parameter.
+
+    ycen = y location corresponding to delta_0 on the sky. This is NOT
+    a variable model parameter.
     
+    reproj_covar = reproject the catalog covariances (assumes they are
+    on the sphere and not the local tangent plane).
+
+    hyperparameters:
+
+    s_min = min scale factor
+
+    s_max = max scale factor
+
+    thetarad_min = min rotation angle, radians
+
+    thetarad_max = max rotation angle, radians
+
+    ## r_mean = mean axis scale ratio ## UNUSED 
+
+    ## r_sig = stddev axis scale ratio ## UNUSED
     
+    prior_alpha0_cen = [2] = prior on pointing (center, degrees)
+
+    prior_alpha_cov = [2,2] = prior on pointing (covariance, degrees)
+
+    Qmin, Qmax = min max foreground mixture components
+
+    prior_alpha0_cen_bg = [2] = prior on OFFSET pointing background
+
+    prior_alpha0_cov_bg = [2,2] = prior on OFFSET pointing background
+
+    v_fg_min, v_fg_max = minmax variances for foreground mixture component
+
+    ryx_fg_min, ryx_fg_max = minmax yx variance ratio for foreground
+    mixture component
+
+    corxy_fg_min, corxy_fg_max = minmax xy correlation for foreground
+    mixture co ponent
+
+    OUTPUTS
+
+    none - this method is interpreted by numpyro
+
+    """
+
+    # we will sample the mixture model component by constructing a
+    # scale factor (x variance), a yx variance ratio, and a corrxy
+    # component. This needs to enforce the constraints, so -1 < corxy
+    # < +1, and thus we need to be just a little careful about how we
+    # actually construct the covariance itself from this (rescale by
+    # marginal variances, etc).
+
+    # The actual transformation
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
+
+    # Build the projection as usual
+    b = numpyro.deterministic("b",  s * jnp.cos(theta))
+    c = numpyro.deterministic("c",  s * jnp.sin(theta))
+    e = numpyro.deterministic("e", -s * jnp.sin(theta))
+    f = numpyro.deterministic("f",  s * jnp.cos(theta))
+    
+    A = jnp.array([[b,c],[e,f]])
+    
+    # The FOREGROUND pointing center
+    alpha0vec = numpyro.sample("alpha0vec", \
+                               dist.MultivariateNormal(prior_alpha0_cen, \
+                                                       prior_alpha0_cov) )
+
+    # mixture component for the background. This is differential from
+    # the foreground, in chi_eta space
+    chi0_bg = numpyro.sample("chi0bg",
+                             dist.MultivariateNormal(
+                                 prior_alpha0_cen_bg,
+                                 prior_alpha0_cov_bg) )
+
+    #alpha0vec_bg = numpyro.sample("alpha0vec_bg",
+    #                              dist.MultivariateNormal(
+    #                                  prior_alpha0_cen,
+    #                                  prior_alpha0_cov_bg) )
+
+    # for tracking
+    u0_bg = numpyro.deterministic("u0_bg", chi0_bg[0])
+    v0_bg = numpyro.deterministic("v0_bg", chi0_bg[1])
+    
+    # Construct the foreground and background covariance from their
+    # components (naming: vu, vv = variance in u, v respectively)
+    vu_fg =  numpyro.sample("var_fg", dist.LogUniform(v_fg_min, v_fg_max))
+    ruv_fg = numpyro.sample("ruv_fg", dist.LogUniform(ruv_fg_min, \
+                                                      ruv_fg_max))
+    coruv_fg = numpyro.sample("coruv_fg", dist.Uniform(coruv_fg_min, \
+                                                       coruv_fg_max))
+
+    # labeling updated to be consistent with previous tracking
+    
+    vu_bg =  numpyro.sample("var_bg", dist.LogUniform(v_bg_min, v_bg_max))
+    ruv_bg = numpyro.sample("ruv_bg", dist.LogUniform(ruv_bg_min, \
+                                                      ruv_bg_max))
+    coruv_bg = numpyro.sample("coruv_bg", dist.Uniform(coruv_bg_min, \
+                                                       coruv_bg_max))
+
+    # Now build the actual covariances from the sampled programs above
+    
+    # track the covariance components...
+    vv_fg = numpyro.deterministic("vv_fg", vu_fg * ruv_fg)
+    cuv_fg = numpyro.deterministic("cuv_fg", coruv_fg * \
+                                   jnp.sqrt(vu_fg) * \
+                                   jnp.sqrt(vv_fg))
+
+    vv_bg = numpyro.deterministic("vv_bg", vu_bg * ruv_bg)
+    cuv_bg = numpyro.deterministic("cuv_bg", coruv_bg * \
+                                   jnp.sqrt(vu_bg) * \
+                                   jnp.sqrt(vv_bg))
+
+    
+    # ... and build the covariance for the mixture component
+    V_fg = jnp.array([ [vu_fg, cuv_fg], [cuv_fg, vv_fg] ])
+    V_bg = jnp.array([ [vu_bg, cuv_bg], [cuv_bg, vv_bg] ])
+
+    # The mixture itself
+    Q = numpyro.sample("Q", dist.Uniform(Qmin, Qmax))
+    mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
+
+    # OK that's all the model components constructed. Now do the
+    # projection and evaluate the mixture.
+
+    # Uncertainty propagation if given
+    xycov_tran = A * 0.
+    if xerr is not None:
+        xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+
+    # xy positions projected onto the [chi, eta] intermediate frame
+    xycen = jnp.array([xcen, ycen])
+    dx = x - xycen[None,:]
+    uproj = jnp.einsum('jk,ik -> ij', A, dx)
+
+    # We choose the foreground component field center to act as our
+    # [chi, eta] field center for the projection. Foreground and
+    # background components still have different covariance. So we use
+    # the same chi, eta and jacobian, but the covariances are
+    # different. We also need to deproject the background component
+    # field center
+    chi_eta, jac = sky2uv(u, alpha0vec, \
+                          degrees=True, get_jacobian=reproj_covar)
+    
+    covuv_fg = jnp.matmul(jnp.matmul(jac, uerr + V_fg), \
+                          jnp.transpose(jac, axes=(0,2,1)) ) \
+                          + xycov_tran
+
+    # ... BACKGROUND COMPONENT... Identification is still a problem,
+    # so try forcing the background component to be always LARGER than
+    # the foreground component. This is a slightly tough nut to
+    # crack...
+    #covuv_bg = jnp.matmul(jnp.matmul(jac, uerr + V_bg), \
+    #                      jnp.transpose(jac, axes=(0,2,1)) ) \
+     #                     + xycov_tran 
+
+    covuv_bg = jnp.matmul(jnp.matmul(jac, uerr + V_bg), \
+                          jnp.transpose(jac, axes=(0,2,1)) ) \
+                          + xycov_tran 
+
+    
+    ## background component field center, projected back to [chi, eta]
+    #uv0_bg, _ = sky2uv(alpha0vec_bg[None,:], alpha0vec, \
+    #                   degrees=True, get_jacobian=False)
+    #chi0_bg = uv0_bg[0] # footwork to get [2]
+    
+    # Predicted locations in [chi, eta] for the multivariate normal
+    # later on. NOte that currently the foreground model is DEFINED to
+    # lie at [chi, eta] = [0., 0.]
+    #upred_fg = uproj
+    #upred_bg = uproj + chi0_bg[None,:] # deprojected bg center    
+    
+    # OK by *this* point we have the foreground and background
+    # covariances, coordinates, transformed inputs, and mixtures, all
+    # in the [chi, eta] frame. Use them.
+    with numpyro.plate("data", x.shape[0]):
+
+        # foreground and background distances from the nominal
+        # component center in [chi, eta]:
+        dist_fg = dist.MultivariateNormal(uproj, covuv_fg)
+        dist_bg = dist.MultivariateNormal(uproj - chi0_bg[None,:], \
+                                          covuv_bg)
+
+        # Create the mixture
+        mixture = dist.MixtureGeneral(mix, [dist_fg, dist_bg])
+
+        # Actually do the sample, in the [chi, eta] plane
+        y_ = numpyro.sample("obs", mixture, obs=chi_eta)
+
+        # track the membership probabilities
+        log_probs = mixture.component_log_probs(y_)
+        p = numpyro.deterministic(
+            "p", log_probs - \
+            jax.nn.logsumexp(log_probs, axis=-1, keepdims=True) \
+        )
+        
 def model_pointing_propag(x, uerr, u=None, xerr=None,\
                           fitvar=False, \
                           xcen=0., ycen=0., \
@@ -1327,7 +1564,7 @@ an argument for use in the calling method, but is never acted upon).
     with numpyro.plate("data", x.shape[0]):
         pred_dist = dist.MultivariateNormal(uproj, cov_total)
         numpyro.sample("chi_eta", pred_dist, obs=chi_eta)
-    
+
 def random_subset(x=None, frac=0., seed=None):
 
     """Selects a random subset of a given array.
@@ -4838,6 +5075,7 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     rot_in=1., rot_ou=0.05, rot_pow=-3., \
                     rtrue=1., betadeg=0., \
                     add_clumps=False, \
+                    nclumps=1, \
                     minsize_component = 10, \
                     Qmin=None, Qmax=None, \
                     tight_prior_mix=False, \
@@ -5041,13 +5279,26 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     if add_clumps:
 
         # For the moment, let's come up with some parameters
-        fclumps = [0.15, 0.1]#, 0.15]
+        fclumps = [0.19, 0.1]#, 0.15]
         du_clumps = [0.009, 0.004]#, -0.003]
         dv_clumps = [-0.006, 0.004]#, 0.003]
 
-        sigu_clumps = [2e-4, 1e-4]#, 5e-4]
-        sigv_clumps = [2e-4, 1e-5]#, 8e-4]
+        #sigu_clumps = [2e-4, 1e-4]#, 5e-4]
+        #sigv_clumps = [2e-4, 1e-5]#, 8e-4]
+
+        # 2026-08-11 make the clumps fluffy
+        sigu_clumps = [5e-4, 1e-4]#, 5e-4]
+        sigv_clumps = [3e-4, 1e-5]#, 8e-4]
+
         corrxy_clumps = [0.0, 0.2]#, -0.2]
+
+        # how many clumps do we want to add? REFACTOR THIS IN LATER.
+        fclumps = fclumps[0:nclumps]
+        du_clumps = du_clumps[0:nclumps]
+        dv_clumps = dv_clumps[0:nclumps]
+        sigu_clumps = sigu_clumps[0:nclumps]
+        sigv_clumps = sigv_clumps[0:nclumps]
+        corrxy_clumps = corrxy_clumps[0:nclumps]
         
         perts_clumps, which_clump \
             = clumps_du(utran, fclumps, \
@@ -5187,8 +5438,14 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
             
     # report the fraction assigned outlier or shift or contam
     bbg = boutly + bshif + bcontam + bclumps
+
+    # compute the simulated Q because we will need it later (this is
+    # promoted out of a debug statement).
+    oneminusQ = 1.0*np.sum(bbg)/np.size(bbg)
+    simulated_Q = 1.0 - oneminusQ 
+    
     if tell_perts:
-        oneminusQ = 1.0*np.sum(bbg)/np.size(bbg)
+        #oneminusQ = 1.0*np.sum(bbg)/np.size(bbg)
         print("test2term_moves INFO - assigned perturbed: %i of %i = %.2e --> simulated Q=%.2f" \
               % (np.sum(bbg), np.size(bbg), \
                  oneminusQ, 1.0-oneminusQ) )
@@ -5513,6 +5770,10 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         if test_shift:
             print("TESTING POINTING MODEL WITH MOVES")
             methmodel = model_pointing_moves
+
+        if test_popmix:
+            print("TESTING POINTING MODEL WITH POPMIX")
+            methmodel = model_pointing_mixmod
             
         # 2026-08-03 retry with this un-reset (now that the
         # degrees-to-radians has been "fixed")
@@ -5533,6 +5794,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         prior_cov = jnp.array([[1.,0], [0., 1.]])
         extra_args['prior_alpha0_cen'] = jnp.median(u_obs, axis=0)
         extra_args['prior_alpha0_cov'] = prior_cov
+
+        # ugh - repeating some arguments here
+        if test_popmix:
+            extra_args['Qmin'] = Qmin
+            extra_args['Qmax'] = Qmax
         
     # 2026-07-20 numpyro has DAG visualization built in. What does
     # this look like? (For the moment, show then exit so we can
@@ -5629,6 +5895,21 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     corner_labels = ["s", r"$\theta$"]
     corner_truths = [s, theta]  # keep as degrees
 
+    # 2026-08-03 if projecting onto the sky, bring the pointing center
+    # down by a heuristic here.
+    if 'alpha0vec' in samples.keys():
+        chainz = np.vstack(( chainz.T, \
+                             samples['alpha0vec'][:,0], \
+                             samples['alpha0vec'][:,1] )).T
+
+        corner_labels.append(r"$\alpha_0$")
+        corner_labels.append(r"$\delta_0$")
+        corner_truths.append(u0)
+        corner_truths.append(v0)
+
+        var_names.append("alpha0vec") # this DOES work
+
+    
     # Was a shift part of the model?
     if "u0" in samples.keys():
         chainz = np.vstack(( chainz.T, \
@@ -5643,34 +5924,87 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         var_names.append("u0")
         var_names.append("v0")
 
-    # variable names for mixture model
+    # variable names for mixture model. This is a little bit ugly
+    # since what variables are passed does depend on whether we used a
+    # pointing model or not. Can refactor this up when going through
+    # this again properly.
     if "Q" in samples.keys():
-        chainz = np.vstack(( chainz.T, \
-                             samples["var_fg"], \
-                             samples["u0_bg"], \
-                             samples["v0_bg"], \
-                             samples["var_bg"], \
-                             samples["Q"] )).T
 
-        corner_labels.append(r'var(fg)')
-        corner_labels.append(r'$u_0(bg)$')
-        corner_labels.append(r'$v_0(bg)$')
-        corner_labels.append('var(bg)')
-        corner_labels.append(r'$Q$')
+        # multi-component sigma?
+        if not "vv_bg" in samples.keys():
+            chainz = np.vstack(( chainz.T, \
+                                 samples["var_fg"], \
+                                 samples["u0_bg"], \
+                                 samples["v0_bg"], \
+                                 samples["var_bg"], \
+                                 samples["Q"] )).T
+
+            # construct list of labels to append, since we're doing a
+            # conditional now
+            ll_corners = [r'var(fg)', r'$u_0(bg)$', r'$v_0(bg)$', \
+                          'var(bg)', r'$Q$']
+
+            ll_truths = [du_hi**2, shift_u, shift_v, sigm_outly**2, \
+                         simulated_Q]
+
+            ll_varnames = ["var_fg", "u0_bg", "v0_bg", "var_bg", "Q"]
+
+        else:
+            # multi-component sigma
+            chainz = np.vstack(( chainz.T, \
+                                 samples["var_fg"], \
+                                 samples["vv_fg"], \
+                                 samples["cuv_fg"], \
+                                 samples["u0_bg"], \
+                                 samples["v0_bg"], \
+                                 samples["var_bg"], \
+                                 samples["vv_bg"], \
+                                 samples["cuv_bg"], \
+                                 samples["Q"] )).T
+
+            ll_corners = [r'var$_u$(fg)', r'var$_v$(fg)', \
+                          r'$\rho_{uv}$(fg)', \
+                          r'$u_0(bg)$', r'$v_0(bg)$', \
+                          r'var$_u$(bg)', r'var$_v$(bg)', \
+                          r'$\rho_{uv}(bg)$', \
+                          r'$Q$']
+
+            ll_truths = [du_hi**2, du_hi**2, \
+                         0., \
+                         shift_u, shift_v, \
+                         sigm_outly**2, sigm_outly**2, \
+                         0., \
+                         simulated_Q]
+
+            ll_varnames = ["var_fg", "vv_fg", "cuv_fg", \
+                           "u0_bg", "v0_bg", \
+                           "var_bg", "vv_bg", "cuv_bg", \
+                           "Q"]
+            
+        for iappend in range(len(ll_corners)):
+            corner_labels.append(ll_corners[iappend])
+            corner_truths.append(ll_truths[iappend])
+            var_names.append(ll_varnames[iappend])
+            
+        #corner_labels.append(r'var(fg)')
+        #corner_labels.append(r'$u_0(bg)$')
+        #corner_labels.append(r'$v_0(bg)$')
+        #corner_labels.append('var(bg)')
+        #corner_labels.append(r'$Q$')
         
-        corner_truths.append(du_hi**2) # won't always be right
-        corner_truths.append(shift_u)
-        corner_truths.append(shift_v)
-        corner_truths.append(sigm_outly**2)
-        corner_truths.append(1.0-frac_outly) # Q
+        #corner_truths.append(du_hi**2) # won't always be right
+        #corner_truths.append(shift_u)
+        #corner_truths.append(shift_v)
+        #corner_truths.append(sigm_outly**2)
+        #corner_truths.append(1.0-frac_outly) # Q
 
         # For summary statistics and screen printing. Same order as
         # corner plot for now
-        var_names.append("var_fg")
-        var_names.append("u0_bg")
-        var_names.append("v0_bg")
-        var_names.append("var_bg")
-        var_names.append("Q")
+        #var_names.append("var_fg")
+        #var_names.append("u0_bg")
+        #var_names.append("v0_bg")
+        #var_names.append("var_bg")
+        #var_names.append("Q")
         
     # additional deltas? (This is a bit awkward, since will be ignored
     # if we fit extra variance. For the moment that's OK, but watchout
@@ -5705,20 +6039,6 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         var_names.append("v_add")
 
 
-    # 2026-08-03 if projecting onto the sky, bring the pointing center
-    # down by a heuristic here.
-    if 'alpha0vec' in samples.keys():
-        chainz = np.vstack(( chainz.T, \
-                             samples['alpha0vec'][:,0], \
-                             samples['alpha0vec'][:,1] )).T
-
-        corner_labels.append(r"$\alpha_0$")
-        corner_labels.append(r"$\delta_0$")
-        corner_truths.append(u0)
-        corner_truths.append(v0)
-
-        var_names.append("alpha0vec") # this DOES work
-        
     # postpone screen printing to here, since we've now done the work
     # of assembling the variable names to show. These are the original
     # names and not quite the ones to use in figure labels (and thus
