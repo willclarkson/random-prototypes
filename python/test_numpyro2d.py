@@ -1270,16 +1270,18 @@ def model_pointing_mixmod(x, uerr, u=None, xerr=None, \
                           thetarad_max =  jnp.pi, \
                           # r_mean = 1.0, r_sig = 0.1, \
                           prior_alpha0_cen = jnp.array([0., 0.]), \
-                          prior_alpha0_cov = jnp.array([[1.0e-1, 0.,], \
-                                                        [0., 1.0e-1]]), \
+                          prior_alpha0_cov = jnp.array([[1.0e-3, 0.,], \
+                                                        [0., 1.0e-3]]), \
                           Qmin=0., Qmax=1., \
                           prior_alpha0_cen_bg = jnp.array([0., 0.]), \
                           prior_alpha0_cov_bg =
-                          jnp.array( [[0.1, 0.,],[0., 0.1]]), \
-                          v_fg_min = 1.0e-13, v_fg_max = 1.0e-3, \
-                          ruv_fg_min = 0.3, ruv_fg_max = 3., \
+                          jnp.array( [[0.01, 0.,],[0., 0.01]]), \
+                          #v_fg_min = 1.0e-13, v_fg_max = 1.0e-3, \
+                          v_fg_min = 1.0e-9, v_fg_max = 1.0e-5, \
+                          ruv_fg_min = 0.1, ruv_fg_max = 10., \
                           coruv_fg_min = -1., coruv_fg_max = 1., \
-                          v_bg_min = 1.0e-13, v_bg_max = 1.0e-3, \
+                          #v_bg_min = 1.0e-13, v_bg_max = 1.0e-3, \
+                          v_bg_min = 1.0e-7, v_bg_max = 1.0e-3, \
                           ruv_bg_min = 0.3, ruv_bg_max = 3., \
                           coruv_bg_min = -1., coruv_bg_max = 1.):
 
@@ -1371,55 +1373,80 @@ an alternative would be to implement that in the [chi, eta] frame).
                                dist.MultivariateNormal(prior_alpha0_cen, \
                                                        prior_alpha0_cov) )
 
-    # mixture component for the background. This is differential from
-    # the foreground, in chi_eta space
-    chi0_bg = numpyro.sample("chi0bg",
-                             dist.MultivariateNormal(
-                                 prior_alpha0_cen_bg,
-                                 prior_alpha0_cov_bg) )
+    ## Try a separate set of transformation parameters for the
+    ## background component. This makes the primary transformation
+    ## independent of the background component. So:
+    #theta_bg = numpyro.sample("theta_bg", \
+    #                          dist.Uniform(thetarad_min, thetarad_max))
+    #s_bg = numpyro.sample("s_bg", \
+    #                      dist.LogUniform(s_min, s_max))
 
-    #alpha0vec_bg = numpyro.sample("alpha0vec_bg",
-    #                              dist.MultivariateNormal(
-    #                                  prior_alpha0_cen,
-    #                                  prior_alpha0_cov_bg) )
+    #b_bg = numpyro.deterministic("b_bg",  s_bg * jnp.cos(theta_bg))
+    #c_bg = numpyro.deterministic("c_bg",  s_bg * jnp.sin(theta_bg))
+    #e_bg = numpyro.deterministic("e_bg", -s_bg * jnp.sin(theta_bg))
+    #f_bg = numpyro.deterministic("f_bg",  s_bg * jnp.cos(theta_bg))
 
-    # for tracking
-    u0_bg = numpyro.deterministic("u0_bg", chi0_bg[0])
-    v0_bg = numpyro.deterministic("v0_bg", chi0_bg[1])
+    #A_bg = jnp.array([[b_bg,c_bg],[e_bg,f_bg]])
+
+    # 2026-08-14 now that the mixmod is behaving itself roughly OK,
+    # restore the second component as a component in target
+    # parameters.
     
+    ## mixture component for the background. This is differential from
+    ## the foreground, in chi_eta space
+    #chi0_bg = numpyro.sample("chi0bg",
+    #                         dist.MultivariateNormal(
+    #                             prior_alpha0_cen_bg,
+    #                             prior_alpha0_cov_bg) )
+
+    alpha0vec_bg = numpyro.sample("alpha0vec_bg",
+                                  dist.MultivariateNormal(
+                                      prior_alpha0_cen,
+                                      prior_alpha0_cov_bg) )
+
     # Construct the foreground and background covariance from their
     # components (naming: vu, vv = variance in u, v respectively)
-    vu_fg =  numpyro.sample("var_fg", dist.LogUniform(v_fg_min, v_fg_max))
-    ruv_fg = numpyro.sample("ruv_fg", dist.LogUniform(ruv_fg_min, \
-                                                      ruv_fg_max))
-    coruv_fg = numpyro.sample("coruv_fg", dist.Uniform(coruv_fg_min, \
-                                                       coruv_fg_max))
+    var_fg =  numpyro.sample("var_fg", dist.LogUniform(v_fg_min, v_fg_max))
+    vv_fg =  numpyro.sample("vv_fg", dist.LogUniform(v_fg_min, v_fg_max))
+
+    #ruv_fg = numpyro.sample("ruv_fg", dist.LogUniform(ruv_fg_min, \
+    #                                                  ruv_fg_max))
+    #coruv_fg = numpyro.sample("coruv_fg", dist.Uniform(coruv_fg_min, \
+    #                                                   coruv_fg_max))
 
     # labeling updated to be consistent with previous tracking
     
-    vu_bg =  numpyro.sample("var_bg", dist.LogUniform(v_bg_min, v_bg_max))
-    ruv_bg = numpyro.sample("ruv_bg", dist.LogUniform(ruv_bg_min, \
-                                                      ruv_bg_max))
-    coruv_bg = numpyro.sample("coruv_bg", dist.Uniform(coruv_bg_min, \
-                                                       coruv_bg_max))
+    var_bg =  numpyro.sample("var_bg", dist.LogUniform(v_bg_min, v_bg_max))
+
+    # try a separate lognormal and trust the warmup
+    vv_bg =  numpyro.sample("vv_bg", dist.LogUniform(v_bg_min, v_bg_max))
+
+    #ruv_bg = numpyro.sample("ruv_bg", dist.LogUniform(ruv_bg_min, \
+    #                                                  ruv_bg_max))
+    #coruv_bg = numpyro.sample("coruv_bg", dist.Uniform(coruv_bg_min, \
+    #                                                   coruv_bg_max))
 
     # Now build the actual covariances from the sampled programs above
     
     # track the covariance components...
-    vv_fg = numpyro.deterministic("vv_fg", vu_fg * ruv_fg)
-    cuv_fg = numpyro.deterministic("cuv_fg", coruv_fg * \
-                                   jnp.sqrt(vu_fg) * \
-                                   jnp.sqrt(vv_fg))
+    # vv_fg = numpyro.deterministic("vv_fg", var_fg * ruv_fg)
+    #vv_fg = jnp.copy(var_fg)
+    cuv_fg = 0.
+    #cuv_fg = numpyro.deterministic("cuv_fg", coruv_fg * \
+    #                               jnp.sqrt(var_fg) * \
+    #                               jnp.sqrt(vv_fg))
 
-    vv_bg = numpyro.deterministic("vv_bg", vu_bg * ruv_bg)
-    cuv_bg = numpyro.deterministic("cuv_bg", coruv_bg * \
-                                   jnp.sqrt(vu_bg) * \
-                                   jnp.sqrt(vv_bg))
+    #vv_bg = numpyro.deterministic("vv_bg", var_bg * ruv_bg)
+    # vv_bg = jnp.copy(var_bg)
+    cuv_bg = 0.
+    #cuv_bg = numpyro.deterministic("cuv_bg", coruv_bg * \
+    #                               jnp.sqrt(var_bg) * \
+    #                               jnp.sqrt(vv_bg))
 
     
     # ... and build the covariance for the mixture component
-    V_fg = jnp.array([ [vu_fg, cuv_fg], [cuv_fg, vv_fg] ])
-    V_bg = jnp.array([ [vu_bg, cuv_bg], [cuv_bg, vv_bg] ])
+    V_fg = jnp.array([ [var_fg, cuv_fg], [cuv_fg, vv_fg] ])
+    V_bg = jnp.array([ [var_bg, cuv_bg], [cuv_bg, vv_bg] ])
 
     # The mixture itself
     Q = numpyro.sample("Q", dist.Uniform(Qmin, Qmax))
@@ -1446,6 +1473,7 @@ an alternative would be to implement that in the [chi, eta] frame).
     # field center
     chi_eta, jac = sky2uv(u, alpha0vec, \
                           degrees=True, get_jacobian=reproj_covar)
+
     
     covuv_fg = jnp.matmul(jnp.matmul(jac, uerr + V_fg), \
                           jnp.transpose(jac, axes=(0,2,1)) ) \
@@ -1459,22 +1487,33 @@ an alternative would be to implement that in the [chi, eta] frame).
     #                      jnp.transpose(jac, axes=(0,2,1)) ) \
      #                     + xycov_tran 
 
+    # Background as a dependent component
+    # updateed AGAIN to independent, now with more meaningful priors
     covuv_bg = jnp.matmul(jnp.matmul(jac, uerr + V_bg), \
                           jnp.transpose(jac, axes=(0,2,1)) ) \
                           + xycov_tran 
 
     
     ## background component field center, projected back to [chi, eta]
-    #uv0_bg, _ = sky2uv(alpha0vec_bg[None,:], alpha0vec, \
-    #                   degrees=True, get_jacobian=False)
-    #chi0_bg = uv0_bg[0] # footwork to get [2]
+    uv0_bg, _ = sky2uv(alpha0vec_bg[None,:], alpha0vec, \
+                       degrees=True, get_jacobian=False)
+    chi0_bg = uv0_bg[0] # footwork to get [2]
+
+    # for tracking
+    u0_bg = numpyro.deterministic("u0_bg", chi0_bg[0])
+    v0_bg = numpyro.deterministic("v0_bg", chi0_bg[1])
     
     # Predicted locations in [chi, eta] for the multivariate normal
     # later on. NOte that currently the foreground model is DEFINED to
     # lie at [chi, eta] = [0., 0.]
     #upred_fg = uproj
     #upred_bg = uproj + chi0_bg[None,:] # deprojected bg center    
-    
+
+    ## OK now we are trying different parameters for foreground and
+    ## background. So we are following tradition and projecting both
+    ## sets too. So:
+    #uproj_bg = jnp.einsum('jk,ik -> ij', A_bg, dx)
+
     # OK by *this* point we have the foreground and background
     # covariances, coordinates, transformed inputs, and mixtures, all
     # in the [chi, eta] frame. Use them.
@@ -1483,9 +1522,14 @@ an alternative would be to implement that in the [chi, eta] frame).
         # foreground and background distances from the nominal
         # component center in [chi, eta]:
         dist_fg = dist.MultivariateNormal(uproj, covuv_fg)
-        dist_bg = dist.MultivariateNormal(uproj - chi0_bg[None,:], \
+        dist_bg = dist.MultivariateNormal(uproj + chi0_bg[None,:], \
                                           covuv_bg)
 
+        # yes I've confused myself about which way the background
+        # uproj is supposed to go... If the target coordinates are the
+        # ones where the outliers are shifted, then I think it should
+        # indeed be PLUS chi0_bg. 
+        
         # Create the mixture
         mixture = dist.MixtureGeneral(mix, [dist_fg, dist_bg])
 
@@ -5287,8 +5331,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         #sigv_clumps = [2e-4, 1e-5]#, 8e-4]
 
         # 2026-08-11 make the clumps fluffy
-        sigu_clumps = [5e-4, 1e-4]#, 5e-4]
-        sigv_clumps = [3e-4, 1e-5]#, 8e-4]
+        du_clumps = [0.002, 0.004]#, -0.003]
+        dv_clumps = [-0.003, 0.004]#, 0.003]
+
+        sigu_clumps = [5e-3, 1e-4]#, 5e-4]
+        sigv_clumps = [3e-3, 1e-5]#, 8e-4]
 
         corrxy_clumps = [0.0, 0.2]#, -0.2]
 
@@ -5443,13 +5490,22 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     # promoted out of a debug statement).
     oneminusQ = 1.0*np.sum(bbg)/np.size(bbg)
     simulated_Q = 1.0 - oneminusQ 
+
+    # useful to know the reported median offset for all non-foreground
+    u0_bg = np.zeros(2)
+    if np.sum(bbg) > 1:
+        delta_u0_bg = np.median(perts_u[bbg], axis=0)
+        u0_bg = np.array([u0, v0]) + delta_u0_bg
     
     if tell_perts:
         #oneminusQ = 1.0*np.sum(bbg)/np.size(bbg)
         print("test2term_moves INFO - assigned perturbed: %i of %i = %.2e --> simulated Q=%.2f" \
               % (np.sum(bbg), np.size(bbg), \
                  oneminusQ, 1.0-oneminusQ) )
-            
+
+        print("test2term_moves INFO - median pointing, delta for background: %.6f, %.6f , %.2e, %.2e" \
+              % (u0_bg[0], u0_bg[1], delta_u0_bg[0], delta_u0_bg[1]) )
+        
     # ok now THIS is our observed sample
     u_obs = utran + perts_u
 
@@ -5909,6 +5965,18 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
         var_names.append("alpha0vec") # this DOES work
 
+    # is there a *background* pointing component?
+    if 'alpha0vec_bg' in samples.keys():
+        chainz = np.vstack(( chainz.T, \
+                             samples['alpha0vec_bg'][:,0], \
+                             samples['alpha0vec_bg'][:,1] )).T
+
+        corner_labels.append(r"$\alpha_0$(bg)")
+        corner_labels.append(r"$\delta_0$(bg)")
+        corner_truths.append(u0_bg[0]) # computed a long way upstream now
+        corner_truths.append(u0_bg[1])
+
+        var_names.append("alpha0vec") # this DOES work
     
     # Was a shift part of the model?
     if "u0" in samples.keys():
@@ -5931,57 +5999,79 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     if "Q" in samples.keys():
 
         # multi-component sigma?
-        if not "vv_bg" in samples.keys():
-            chainz = np.vstack(( chainz.T, \
-                                 samples["var_fg"], \
-                                 samples["u0_bg"], \
-                                 samples["v0_bg"], \
-                                 samples["var_bg"], \
-                                 samples["Q"] )).T
+        if not "vv_fg" in samples.keys():
+            # chainz is now built farther down.
+            #
+            #chainz = np.vstack(( chainz.T, \
+            #                     samples["var_fg"], \
+            #                     samples["u0_bg"], \
+            #                     samples["v0_bg"], \
+            #                     samples["var_bg"], \
+            #                     samples["Q"] )).T
 
             # construct list of labels to append, since we're doing a
             # conditional now
-            ll_corners = [r'var(fg)', r'$u_0(bg)$', r'$v_0(bg)$', \
+            
+            ll_corners = [r'var(fg)', \
+                          #r'$u_0(bg)$', r'$v_0(bg)$', \
                           'var(bg)', r'$Q$']
 
-            ll_truths = [du_hi**2, shift_u, shift_v, sigm_outly**2, \
+            ll_truths = [du_hi**2, \
+                         #shift_u, shift_v, \
+                         sigm_outly**2, \
                          simulated_Q]
 
-            ll_varnames = ["var_fg", "u0_bg", "v0_bg", "var_bg", "Q"]
+            ll_varnames = ["var_fg", \
+                           #"u0_bg", "v0_bg", \
+                           "var_bg", "Q"]
 
         else:
-            # multi-component sigma
-            chainz = np.vstack(( chainz.T, \
-                                 samples["var_fg"], \
-                                 samples["vv_fg"], \
-                                 samples["cuv_fg"], \
-                                 samples["u0_bg"], \
-                                 samples["v0_bg"], \
-                                 samples["var_bg"], \
-                                 samples["vv_bg"], \
-                                 samples["cuv_bg"], \
-                                 samples["Q"] )).T
+            # multi-component sigma    
+            #chainz = np.vstack(( chainz.T, \
+            #                     samples["var_fg"], \
+            #                     samples["ruv_fg"], \
+            #                     samples["coruv_fg"], \
+            #                     samples["u0_bg"], \
+            #                     samples["v0_bg"], \
+            #                     samples["var_bg"], \
+            #                     samples["ruv_bg"], \
+            #                     samples["coruv_bg"], \
+            #                     samples["Q"] )).T
 
-            ll_corners = [r'var$_u$(fg)', r'var$_v$(fg)', \
+            ll_corners = [r'var$_u$(fg)', r'var$_v$(fg)', r'r$_{uv}$(fg)', \
                           r'$\rho_{uv}$(fg)', \
-                          r'$u_0(bg)$', r'$v_0(bg)$', \
-                          r'var$_u$(bg)', r'var$_v$(bg)', \
+                          #r'$u_0(bg)$', r'$v_0(bg)$', \
+                          r'var$_u$(bg)', r'var$_v$(fg)', r'r$_{uv}$(bg)', \
                           r'$\rho_{uv}(bg)$', \
                           r'$Q$']
 
-            ll_truths = [du_hi**2, du_hi**2, \
+            ll_truths = [du_hi**2, du_hi**2, du_hi**2, \
                          0., \
-                         shift_u, shift_v, \
-                         sigm_outly**2, sigm_outly**2, \
+                         #shift_u, shift_v, \
+                         sigm_outly**2, sigm_outly**2, sigm_outly**2, \
                          0., \
                          simulated_Q]
 
-            ll_varnames = ["var_fg", "vv_fg", "cuv_fg", \
-                           "u0_bg", "v0_bg", \
-                           "var_bg", "vv_bg", "cuv_bg", \
+            ll_varnames = ["var_fg", "vv_fg", \
+                           "ruv_fg", "coruv_fg", \
+                           #"u0_bg", "v0_bg", \
+                           "var_bg", "vv_bg", "ruv_bg", "coruv_bg", \
                            "Q"]
             
         for iappend in range(len(ll_corners)):
+
+            # stack the chain element-by-element. Not performant, but
+            # has the flexibility to allow me to mess with the
+            # variables list while getting the mixmod to work.
+            thisvar = ll_varnames[iappend]
+            if not thisvar in samples.keys():
+                continue
+
+            # Probably a smarter way to do even this... we'll live
+            # with it for now.
+            chainz = np.vstack(( chainz.T, \
+                             samples[thisvar] )).T
+            
             corner_labels.append(ll_corners[iappend])
             corner_truths.append(ll_truths[iappend])
             var_names.append(ll_varnames[iappend])
@@ -6238,7 +6328,8 @@ def wrap_demo_undercover(nsets=10, nstars=25, \
                          add_clumps=False, \
                          frac_outly = 0., \
                          test_shift=False, \
-                         istart=0):
+                         test_mixmod=False, \
+                         istart=0, Qmin=None, Qmax=None):
 
     """Wrapper to run nsets of simulations at nstars and assess whether we
 demonstrate undercoverage by not propagating the uncertainties in the
@@ -6253,6 +6344,8 @@ model
     u0, v0 = pointing center
 
     add_covar = add covariance in the TARGET frame
+
+    test_mixmod = test mixture model
 
     istart = index to start at (useful if we don't want to redo a test
     set of runs we already did)
@@ -6283,6 +6376,9 @@ model
 
     if test_shift:
         sdir = '%s_moves' % (sdir)
+
+    if test_mixmod:
+        sdir = '%s_mixmod' % (sdir)
         
     mag0_xy = 16.
     magpars_xy = None
@@ -6343,7 +6439,8 @@ model
                                 add_contam=False, \
                                 only_show=False, \
                                 test_shift=test_shift, \
-                                test_popmix=False, test_mix=False, \
+                                test_popmix=test_mixmod, \
+                                test_mix=False, \
                                 add_clumps=add_clumps, \
                                 u0=u0, v0=v0, \
                                 sigx=sigx, sigy=sigy, \
@@ -6358,5 +6455,6 @@ model
                                 s_max=s_max, \
                                 thetadeg_min = thetadeg_min, \
                                 thetadeg_max = thetadeg_max, \
-                                tosky=tosky)
+                                tosky=tosky, \
+                                Qmin=Qmin, Qmax=Qmax)
     
