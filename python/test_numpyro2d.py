@@ -893,10 +893,14 @@ def model_pointing(x, uerr, u=None, xerr=None, fitvar=False, \
                    thetarad_min = -jnp.pi, \
                    thetarad_max =  jnp.pi, \
                    v_add_min = 1e-13, \
+                   v_add_max = 1e-3, \
+                   ruv_add_min=0.1, ruv_add_max=10., \
+                   coruv_add_min=-1., coruv_add_max=1., \
                    # r_mean = 1.0, r_sig = 0.1, \
                    prior_alpha0_cen = jnp.array([0., 0.]), \
                    prior_alpha0_cov = jnp.array([[1.0e-1, 0.,], \
-                                                 [0., 1.0e-1]]) ):
+                                                 [0., 1.0e-1]]), \
+                   fullvar=True):
 
     """2term with transformation from the celestial sphere. XY and SKY
 positions are projected onto the intermediate frame [chi, eta] for
@@ -939,6 +943,22 @@ not appropriate).
     thetarad_min = min rotation angle, radians
 
     thetarad_max = max rotation angle, radians
+
+    v_add_min = min additional covariance
+
+    v_add_max = max additional covariance
+
+    ruv_add_min = min vv/vu additional covariance ratio
+
+    ruv_add_max = max vv/vu additional covariance ratio
+
+    coruv_add_min = min vu/vu correlation coefficient
+
+    coruv_add_max = max vu/vv correlation coefficient
+
+    fullvar = nonspherical additional covariance (otherwise ruv_add
+    and coruv_add are unused)
+    
 
     ## r_mean = mean axis scale ratio ## UNUSED 
 
@@ -1009,9 +1029,26 @@ not appropriate).
         # judgement for domains)
 
         # v_add = numpyro.sample("v_add", dist.LogUniform(1e-12,1e-3))
-        v_add = numpyro.sample("v_add", dist.LogUniform(v_add_min,1e-3))
+        v_add = numpyro.sample("v_add", dist.LogUniform(v_add_min, v_add_max))
 
-        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
+        if fullvar:
+            #r_uv = numpyro.sample("r_uv", dist.LogUniform(ruv_add_min, \
+            #                                              ruv_add_max))
+
+            # 2026-08-18: testing v_v as separate variable
+            v_v = numpyro.sample("v_v", dist.LogUniform(v_add_min, v_add_max))
+            
+            c_uv = numpyro.sample("coruv", dist.Uniform(coruv_add_min, \
+                                                        coruv_add_max))
+
+            #v_v = v_add * r_uv
+            v_uv = c_uv * jnp.sqrt(v_add) * jnp.sqrt(v_v)
+        else:
+            v_v = v_add
+            v_uv = 0.
+
+        cov_extra = jnp.array([[v_add,v_uv],[v_uv, v_v]])
+        #cov_extra = jnp.array([[v_add,0.],[0., v_add]])
 
     # Total covariance in the sky frame
     cov_sky = uerr + cov_extra[None, :, :]
@@ -1115,10 +1152,15 @@ def model_pointing_moves(x, uerr, u=None, xerr=None, fitvar=False, \
                          thetarad_min = -jnp.pi, \
                          thetarad_max =  jnp.pi, \
                          v_add_min = 1e-13, \
+                         v_add_max = 1e-3, \
+                         ruv_add_min=0.1, ruv_add_max=10., \
+                         coruv_add_min=-1., coruv_add_max=1., \
                          prior_alpha0_cen = jnp.array([0., 0.]), \
                          prior_alpha0_cov = jnp.array([[1.0e-1, 0.,], \
                                                        [0., 1.0e-1]]), \
-                         prior_du_var = 1.0e-2):
+                         prior_du_var = 1.0e-2, \
+                         fullvar=False):
+    
     #prior_du_var = 1.0e-4):
 
     
@@ -1207,7 +1249,26 @@ allowing star-by-star displacements.
     cov_extra = jnp.zeros((2,2))
     if fitvar:
         v_add = numpyro.sample("v_add", dist.LogUniform(v_add_min,1e-3))
-        cov_extra = jnp.array([[v_add,0.],[0., v_add]])
+
+        if fullvar:
+            #r_uv = numpyro.sample("r_uv", dist.LogUniform(ruv_add_min, \
+            #                                              ruv_add_max))
+
+            # 2026-08-18: I think this works better with v_v as a
+            # separate variable.
+            v_v = numpyro.sample("v_v", dist.LogUniform(v_add_min, v_add_max))
+            
+            c_uv = numpyro.sample("coruv", dist.Uniform(coruv_add_min, \
+                                                        coruv_add_max))
+
+            #v_v = v_add * r_uv
+            v_uv = c_uv * jnp.sqrt(v_add) * jnp.sqrt(v_v)
+        else:
+            v_v = v_add
+            v_uv = 0.
+
+        cov_extra = jnp.array([[v_add,v_uv],[v_uv, v_v]])
+        #cov_extra = jnp.array([[v_add,0.],[0., v_add]])
         
     cov_sky = uerr + cov_extra[None, :, :]
 
@@ -1263,6 +1324,7 @@ allowing star-by-star displacements.
 
 def model_pointing_mixmod(x, uerr, u=None, xerr=None, \
                           fitvar=False, \
+                          fullvar=True, \
                           xcen=0., ycen=0., \
                           reproj_covar=False, \
                           s_min=1.0e-5, s_max=0.1, \
@@ -1281,7 +1343,7 @@ def model_pointing_mixmod(x, uerr, u=None, xerr=None, \
                           ruv_fg_min = 0.1, ruv_fg_max = 10., \
                           coruv_fg_min = -1., coruv_fg_max = 1., \
                           #v_bg_min = 1.0e-13, v_bg_max = 1.0e-3, \
-                          v_bg_min = 1.0e-7, v_bg_max = 1.0e-3, \
+                          v_bg_min = 1.0e-6, v_bg_max = 1.0e-2, \
                           ruv_bg_min = 0.3, ruv_bg_max = 3., \
                           coruv_bg_min = -1., coruv_bg_max = 1.):
 
@@ -1301,6 +1363,8 @@ an alternative would be to implement that in the [chi, eta] frame).
     xerr = uncertainties in the input xy frame
 
     fitvar = add variance in the target frame as a model parameter
+
+    fullvar = covariance nonsymmetric (does nothing atm, included for compatibility)
 
     xcen = x location corresponding to alpha_0 on the sky. This is NOT
     a variable model parameter.
@@ -1411,8 +1475,8 @@ an alternative would be to implement that in the [chi, eta] frame).
 
     #ruv_fg = numpyro.sample("ruv_fg", dist.LogUniform(ruv_fg_min, \
     #                                                  ruv_fg_max))
-    #coruv_fg = numpyro.sample("coruv_fg", dist.Uniform(coruv_fg_min, \
-    #                                                   coruv_fg_max))
+    coruv_fg = numpyro.sample("coruv_fg", dist.Uniform(coruv_fg_min, \
+                                                       coruv_fg_max))
 
     # labeling updated to be consistent with previous tracking
     
@@ -1423,25 +1487,25 @@ an alternative would be to implement that in the [chi, eta] frame).
 
     #ruv_bg = numpyro.sample("ruv_bg", dist.LogUniform(ruv_bg_min, \
     #                                                  ruv_bg_max))
-    #coruv_bg = numpyro.sample("coruv_bg", dist.Uniform(coruv_bg_min, \
-    #                                                   coruv_bg_max))
+    coruv_bg = numpyro.sample("coruv_bg", dist.Uniform(coruv_bg_min, \
+                                                       coruv_bg_max))
 
     # Now build the actual covariances from the sampled programs above
     
     # track the covariance components...
     # vv_fg = numpyro.deterministic("vv_fg", var_fg * ruv_fg)
     #vv_fg = jnp.copy(var_fg)
-    cuv_fg = 0.
-    #cuv_fg = numpyro.deterministic("cuv_fg", coruv_fg * \
-    #                               jnp.sqrt(var_fg) * \
-    #                               jnp.sqrt(vv_fg))
+    #cuv_fg = 0.
+    cuv_fg = numpyro.deterministic("cuv_fg", coruv_fg * \
+                                   jnp.sqrt(var_fg) * \
+                                   jnp.sqrt(vv_fg))
 
     #vv_bg = numpyro.deterministic("vv_bg", var_bg * ruv_bg)
     # vv_bg = jnp.copy(var_bg)
-    cuv_bg = 0.
-    #cuv_bg = numpyro.deterministic("cuv_bg", coruv_bg * \
-    #                               jnp.sqrt(var_bg) * \
-    #                               jnp.sqrt(vv_bg))
+    #cuv_bg = 0.
+    cuv_bg = numpyro.deterministic("cuv_bg", coruv_bg * \
+                                   jnp.sqrt(var_bg) * \
+                                   jnp.sqrt(vv_bg))
 
     
     # ... and build the covariance for the mixture component
@@ -1487,8 +1551,7 @@ an alternative would be to implement that in the [chi, eta] frame).
     #                      jnp.transpose(jac, axes=(0,2,1)) ) \
      #                     + xycov_tran 
 
-    # Background as a dependent component
-    # updateed AGAIN to independent, now with more meaningful priors
+    # Background as an independent component
     covuv_bg = jnp.matmul(jnp.matmul(jac, uerr + V_bg), \
                           jnp.transpose(jac, axes=(0,2,1)) ) \
                           + xycov_tran 
@@ -5100,6 +5163,7 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     num_samples=2000, \
                     num_warmup=2000, \
                     fit_var=True, \
+                    fullvar=True, \
                     test_moves=False, \
                     seed=123, \
                     shift_u=0., shift_v=0., \
@@ -5182,6 +5246,9 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
     num_warmup = number of warmup samples
 
     fit_var = fit additional variance as a model parameter
+
+    fullvar = allow additional covariance to be asymmetric (NOT
+    IMPLEMENTED FOR ALL MODELS YET)
 
     seed = random number seed
 
@@ -5493,6 +5560,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
     # useful to know the reported median offset for all non-foreground
     u0_bg = np.zeros(2)
+    delta_u0_bg = None
     if np.sum(bbg) > 1:
         delta_u0_bg = np.median(perts_u[bbg], axis=0)
         u0_bg = np.array([u0, v0]) + delta_u0_bg
@@ -5503,8 +5571,9 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
               % (np.sum(bbg), np.size(bbg), \
                  oneminusQ, 1.0-oneminusQ) )
 
-        print("test2term_moves INFO - median pointing, delta for background: %.6f, %.6f , %.2e, %.2e" \
-              % (u0_bg[0], u0_bg[1], delta_u0_bg[0], delta_u0_bg[1]) )
+        if np.sum(bbg) > 0:
+            print("test2term_moves INFO - median pointing, delta for background: %.6f, %.6f , %.2e, %.2e" \
+                  % (u0_bg[0], u0_bg[1], delta_u0_bg[0], delta_u0_bg[1]) )
         
     # ok now THIS is our observed sample
     u_obs = utran + perts_u
@@ -5837,6 +5906,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         extra_args = {'s_min':s_min, 's_max':s_max}
         extra_args['thetarad_min'] = jnp.radians(thetadeg_min)
         extra_args['thetarad_max'] = jnp.radians(thetadeg_max)
+
+        # now supported by model_pointing and model_pointing_moves
+        extra_args['fullvar'] = fullvar
+
+        print("test2term_moves INFO - using FULLVAR:", fullvar)
         
         # not sure why this needs to be reset here
         
@@ -6016,6 +6090,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                           #r'$u_0(bg)$', r'$v_0(bg)$', \
                           'var(bg)', r'$Q$']
 
+            ll_islog10 = [True, True, False]
+            
             ll_truths = [du_hi**2, \
                          #shift_u, shift_v, \
                          sigm_outly**2, \
@@ -6038,20 +6114,27 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
             #                     samples["coruv_bg"], \
             #                     samples["Q"] )).T
 
-            ll_corners = [r'var$_u$(fg)', r'var$_v$(fg)', r'r$_{uv}$(fg)', \
+            ll_corners = [r'V$_u$(fg)', r'V$_v$(fg)', r'r$_{uv}$(fg)', \
                           r'$\rho_{uv}$(fg)', \
                           #r'$u_0(bg)$', r'$v_0(bg)$', \
-                          r'var$_u$(bg)', r'var$_v$(fg)', r'r$_{uv}$(bg)', \
+                          r'V$_u$(bg)', r'V$_v$(bg)', r'r$_{uv}$(bg)', \
                           r'$\rho_{uv}(bg)$', \
                           r'$Q$']
 
+            # probably better to put the log10 into the stack decision below.
             ll_truths = [du_hi**2, du_hi**2, du_hi**2, \
                          0., \
                          #shift_u, shift_v, \
-                         sigm_outly**2, sigm_outly**2, sigm_outly**2, \
+                         sigm_outly**2, sigm_outly**2, \
+                         sigm_outly**2, \
                          0., \
                          simulated_Q]
 
+            # some of the terns sgould be log
+            ll_islog10 = [True, True, True, False, \
+                          True, True, True, False, \
+                          False]
+            
             ll_varnames = ["var_fg", "vv_fg", \
                            "ruv_fg", "coruv_fg", \
                            #"u0_bg", "v0_bg", \
@@ -6069,11 +6152,22 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
             # Probably a smarter way to do even this... we'll live
             # with it for now.
-            chainz = np.vstack(( chainz.T, \
-                             samples[thisvar] )).T
+            if ll_islog10[iappend]:
+                thisquant = np.log10(samples[thisvar])
+                thistruth = np.log10(ll_truths[iappend])
+                thislabel = r'lg$_{10}$%s' % (ll_corners[iappend])
+            else:
+                thisquant = samples[thisvar]
+                thistruth = ll_truths[iappend]
+                thislabel = ll_corners[iappend]
+                
+            chainz = np.vstack(( chainz.T, thisquant )).T
             
-            corner_labels.append(ll_corners[iappend])
-            corner_truths.append(ll_truths[iappend])
+            # corner_labels.append(ll_corners[iappend])
+            # corner_truths.append(ll_truths[iappend])
+            
+            corner_labels.append(thislabel)
+            corner_truths.append(thistruth)
             var_names.append(ll_varnames[iappend])
             
         #corner_labels.append(r'var(fg)')
@@ -6120,13 +6214,55 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         #lines...
         #var_names.append("du[0,0]")
         #var_names.append("du[0,1]")
+
+    # CONDITION: did we choose to fit variance? To avoid possible
+    #collision with options above, we turn to the heuristic (i.e. in
+    #samples but not already taken across to the variable names). So:
+
+    # if fit_var:
+
+    if "v_add" in samples.keys() and not "v_add" in var_names: 
         
-    if fit_var:
-        chainz = np.vstack(( chainz.T, \
-                             np.log10(samples["v_add"]) )).T
-        corner_labels.append(r"$log_{10}(v_{add})$")
-        corner_truths.append(log10_median_covar_added)
-        var_names.append("v_add")
+        # again, we want robustness over speed here. So let's wheel
+        # out the heuristic again. A future "production" version of
+        # this will do things properly, for now we just live with the
+        # duplication...
+        
+        ll_varnames = ["v_add", "r_uv", "v_v", "coruv"]
+        ll_islog10 = [True, True, True, False]
+
+        ll_corners = [r'V$_u$(add)', r'$V_v/V_u$(add)', r'$V_v$(add)', \
+                      r'$\rho_{uv}$']
+
+        # ugh
+        ll_truths = [np.median(stdds_u**2), np.median(stdds_v**2 / stdds_u**2), \
+                     np.median(stdds_v**2), 0.]
+
+        for iappend in range(len(ll_corners)):
+            thisvar = ll_varnames[iappend]
+            if not thisvar in samples.keys():
+                continue
+
+            if ll_islog10[iappend]:
+                thisquant = np.log10(samples[thisvar])
+                thistruth = np.log10(ll_truths[iappend])
+                thislabel = r'lg$_{10}$%s' % (ll_corners[iappend])
+            else:
+                thisquant = samples[thisvar]
+                thistruth = ll_truths[iappend]
+                thislabel = ll_corners[iappend]
+
+            chainz = np.vstack(( chainz.T, thisquant )).T
+            corner_labels.append(thislabel)
+            corner_truths.append(thistruth)
+            var_names.append(ll_varnames[iappend])
+
+        # old hardcode
+        #chainz = np.vstack(( chainz.T, \
+        #                     np.log10(samples["v_add"]) )).T
+        #corner_labels.append(r"$log_{10}(v_{add})$")
+        #corner_truths.append(log10_median_covar_added)
+        #var_names.append("v_add")
 
 
     # postpone screen printing to here, since we've now done the work
@@ -6149,7 +6285,7 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
-        fig3 = plt.figure(3, figsize=(6,6))
+        fig3 = plt.figure(3, figsize=(9,9))
         
     fig3.clf()
     # set the levels in corner.corner to be specific. These are the
@@ -6164,8 +6300,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
                         show_titles=True, \
                         #titles=corner_labels[:], \
                         title_fmt=None, \
-                        title_kwargs={"fontsize":9}, \
-                        label_kwargs={"fontsize":9} )
+                        title_kwargs={"fontsize":7}, \
+                        label_kwargs={"fontsize":7} )
 
     fig3.subplots_adjust(left=0.15, bottom=0.15, top=0.95, right=0.95)
     if len(file_cornerplot) > 3:
@@ -6316,6 +6452,7 @@ def wrap_demo_undercover(nsets=10, nstars=25, \
                          propag_errxy=False, \
                          perturb_xy=True, \
                          fit_var=False, \
+                         fullvar=True, \
                          s_min=0.002, \
                          s_max=0.02, \
                          thetadeg_min = 20., \
@@ -6379,6 +6516,9 @@ model
 
     if test_mixmod:
         sdir = '%s_mixmod' % (sdir)
+
+    if fullvar:
+        sdir = '%s_fullvar' % (sdir)
         
     mag0_xy = 16.
     magpars_xy = None
@@ -6456,5 +6596,6 @@ model
                                 thetadeg_min = thetadeg_min, \
                                 thetadeg_max = thetadeg_max, \
                                 tosky=tosky, \
-                                Qmin=Qmin, Qmax=Qmax)
+                                Qmin=Qmin, Qmax=Qmax, \
+                                fullvar=fullvar)
     
