@@ -5198,6 +5198,7 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     tell_perts=True, \
                     file_samples='test_samples.pickle', \
                     file_cornerplot='simulated_cornerplot.png', \
+                    file_scatterplot='simulated_scatterplot.png', \
                     show_dag=True, \
                     render_distns=False, \
                     tosky=False):
@@ -5401,8 +5402,8 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         du_clumps = [0.002, 0.004]#, -0.003]
         dv_clumps = [-0.003, 0.004]#, 0.003]
 
-        sigu_clumps = [5e-3, 1e-4]#, 5e-4]
-        sigv_clumps = [3e-3, 1e-5]#, 8e-4]
+        sigu_clumps = [5e-3, 1e-3]#, 5e-4]
+        sigv_clumps = [3e-3, 1e-3]#, 8e-4]
 
         corrxy_clumps = [0.0, 0.2]#, -0.2]
 
@@ -5761,9 +5762,13 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         
         fig5.subplots_adjust(wspace=0.25, hspace=0.25)
 
-        # save the figure so we can conveniently view it...
+        # save the figure so we can conveniently view it... I like
+        # saving to BOTH the old and the new name, so here we go:
         fig5.savefig('simulated_scatterplot.png')
+        if len(file_scatterplot) > 3:
+            fig5.savefig(file_scatterplot)
 
+        
         # NOw for the marginals
         for ax in [ax9_1, ax9_2]:
             ax.set_xlabel(labx)
@@ -6463,6 +6468,7 @@ def wrap_demo_undercover(nsets=10, nstars=25, \
                          u0=0., v0=0., \
                          add_covar=False, \
                          add_clumps=False, \
+                         nclumps=1, \
                          frac_outly = 0., \
                          test_shift=False, \
                          test_mixmod=False, \
@@ -6506,7 +6512,7 @@ model
         sdir = '%s_perturbxy' % (sdir)
 
     if add_clumps:
-        sdir = '%s_addclumps' % (sdir)
+        sdir = '%s_addclumps%i' % (sdir, nclumps)
 
     if frac_outly > 0:
         sdir = '%s_fout%.2f' % (sdir, frac_outly)
@@ -6548,7 +6554,8 @@ model
         file_stem='./%s/test_2par_xy_%s' % (sdir, snum)
         path_pickle = '%s_samples.pickle' % (file_stem)
         path_corner = '%s_cornerplot.png' % (file_stem)
-
+        path_scatter = '%s_scatterplot.png' % (file_stem)
+        
         # not sure why this duplicate line was here
         #print("wrap_demo_undercover INFO - #### %i / %i" \
         #      % (iset, nsets))
@@ -6582,6 +6589,7 @@ model
                                 test_popmix=test_mixmod, \
                                 test_mix=False, \
                                 add_clumps=add_clumps, \
+                                nclumps=nclumps, \
                                 u0=u0, v0=v0, \
                                 sigx=sigx, sigy=sigy, \
                                 perturb_xy=perturb_xy, \
@@ -6591,6 +6599,7 @@ model
                                 sigu=1e-4, sigv=1e-4, \
                                 file_samples=path_pickle, \
                                 file_cornerplot=path_corner, \
+                                file_scatterplot=path_scatter, \
                                 s_min=s_min, \
                                 s_max=s_max, \
                                 thetadeg_min = thetadeg_min, \
