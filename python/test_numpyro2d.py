@@ -1401,11 +1401,15 @@ an alternative would be to implement that in the [chi, eta] frame).
 
     v_fg_min, v_fg_max = minmax variances for foreground mixture component
 
-    ryx_fg_min, ryx_fg_max = minmax yx variance ratio for foreground
+    ruv_fg_min, ruv_fg_max = minmax uv variance ratio for foreground
     mixture component
 
-    corxy_fg_min, corxy_fg_max = minmax xy correlation for foreground
-    mixture co ponent
+    coruv_fg_min, coruv_fg_max = minmax uv correlation for foreground
+    mixture component (range -1, 1)
+
+    v_bg_min, v_bg_max, ruv_bg_min, ruv_bg_max, coruv_bg_min,
+    coruv_bg_max = same arguments but for the background
+    component. All scalars.
 
     OUTPUTS
 
@@ -1600,6 +1604,222 @@ an alternative would be to implement that in the [chi, eta] frame).
         y_ = numpyro.sample("obs", mixture, obs=chi_eta)
 
         # track the membership probabilities
+        log_probs = mixture.component_log_probs(y_)
+        p = numpyro.deterministic(
+            "p", log_probs - \
+            jax.nn.logsumexp(log_probs, axis=-1, keepdims=True) \
+        )
+
+        
+def model_pointing_mixmoves(x, uerr, u=None, xerr=None, \
+                            fitvar=False, \
+                            fullvar=True, \
+                            xcen=0., ycen=0., \
+                            reproj_covar=False, \
+                            s_min=1.0e-5, s_max=0.1, \
+                            thetarad_min = -jnp.pi, \
+                            thetarad_max =  jnp.pi, \
+                            prior_alpha0_cen = jnp.array([0., 0.]), \
+                            prior_alpha0_cov = jnp.array([[1.0e-3, 0.,], \
+                                                          [0., 1.0e-3]]), \
+                            Qmin=0., Qmax=1., \
+                            prior_alpha0_cen_bg = jnp.array([0., 0.]), \
+                            prior_alpha0_cov_bg =
+                            jnp.array( [[0.01, 0.,],[0., 0.01]]), \
+                            v_fg_min = 1.0e-9, v_fg_max = 1.0e-5, \
+                            ruv_fg_min = 0.1, ruv_fg_max = 10., \
+                            coruv_fg_min = -1., coruv_fg_max = 1., \
+                            v_bg_min = 1.0e-6, v_bg_max = 1.0e-2, \
+                            ruv_bg_min = 0.3, ruv_bg_max = 3., \
+                            coruv_bg_min = -1., coruv_bg_max = 1., \
+                            prior_du_var = 1.0e-2):
+
+    """2 term spherical, with mixture model and star-by-star moves.
+
+    INPUTS - GENERAL
+
+    x = [N,2] = input positions
+
+    uerr = [N,2,2] input uncertainties in target frame as covariances
+
+    u = target positions (alpha, delta, degrees)
+
+    xerr = uncertainties in the input xy frame
+
+    fitvar = add variance in the target frame as a model parameter
+
+    fullvar = covariance nonsymmetric (does nothing atm, included for
+    compatibility)
+
+    xcen = x location corresponding to alpha_0 on the sky. This is NOT
+    a variable model parameter.
+
+    ycen = y location corresponding to delta_0 on the sky. This is NOT
+    a variable model parameter.
+    
+    reproj_covar = reproject the catalog covariances (assumes they are
+    on the sphere and not the local tangent plane).
+
+    INPUTS - HYPERPARAMETERS
+
+    s_min = min scale factor
+
+    s_max = max scale factor
+
+    thetarad_min = min rotation angle, radians
+
+    thetarad_max = max rotation angle, radians
+
+    prior_alpha0_cen = [2] = prior on pointing (center, degrees)
+
+    prior_alpha_cov = [2,2] = prior on pointing (covariance, degrees)
+
+    Qmin, Qmax = min max foreground mixture components
+
+    prior_alpha0_cen_bg = [2] = prior on OFFSET pointing background
+
+    prior_alpha0_cov_bg = [2,2] = prior on OFFSET pointing background
+
+    v_fg_min, v_fg_max = minmax variances for foreground mixture component
+
+    ruv_fg_min, ruv_fg_max = minmax uv variance ratio for foreground
+    mixture component
+
+    coruv_fg_min, coruv_fg_max = minmax uv correlation for foreground
+    mixture component (range -1, 1)
+
+    v_bg_min, v_bg_max, ruv_bg_min, ruv_bg_max, coruv_bg_min,
+    coruv_bg_max = same arguments but for the background
+    component. All scalars.
+
+    prior_du_var = scalar variance for prior on star-by-star moves in
+    the [u,v] or [ra, dec] plane (same scale)
+
+    """
+
+    # Comment: this is getting so bloated in its arguments that OO is
+    # likely to be much less error-prone to actually use.
+
+    # The actual transformation
+    theta = numpyro.sample("theta", dist.Uniform(thetarad_min, thetarad_max))
+    s = numpyro.sample("s", dist.LogUniform(s_min, s_max))
+
+    # Build the projection as usual
+    b = numpyro.deterministic("b",  s * jnp.cos(theta))
+    c = numpyro.deterministic("c",  s * jnp.sin(theta))
+    e = numpyro.deterministic("e", -s * jnp.sin(theta))
+    f = numpyro.deterministic("f",  s * jnp.cos(theta))
+    
+    A = jnp.array([[b,c],[e,f]])
+
+    # "Foreground" and "background" model pointing and
+    # covariance. Allow symmetric
+    alpha0vec = numpyro.sample("alpha0vec", \
+                               dist.MultivariateNormal(prior_alpha0_cen, \
+                                                       prior_alpha0_cov) )
+
+    alpha0vec_bg = numpyro.sample("alpha0vec_bg",
+                                  dist.MultivariateNormal(
+                                      prior_alpha0_cen,
+                                      prior_alpha0_cov_bg) )
+    
+    var_fg =  numpyro.sample("var_fg", dist.LogUniform(v_fg_min, v_fg_max))
+    var_bg =  numpyro.sample("var_bg", dist.LogUniform(v_bg_min, v_bg_max))
+
+    if fullvar:
+        vv_fg =  numpyro.sample("vv_fg", dist.LogUniform(v_fg_min, v_fg_max))
+        coruv_fg = numpyro.sample("coruv_fg", dist.Uniform(coruv_fg_min, \
+                                                           coruv_fg_max))
+        
+        vv_bg =  numpyro.sample("vv_bg", dist.LogUniform(v_bg_min, v_bg_max))
+        coruv_bg = numpyro.sample("coruv_bg", dist.Uniform(coruv_bg_min, \
+                                                           coruv_bg_max))
+
+        cuv_fg = numpyro.deterministic("cuv_fg", coruv_fg * \
+                                       jnp.sqrt(var_fg) * \
+                                       jnp.sqrt(vv_fg))
+
+        cuv_bg = numpyro.deterministic("cuv_bg", coruv_bg * \
+                                       jnp.sqrt(var_bg) * \
+                                       jnp.sqrt(vv_bg))
+        
+    else:
+        vv_fg = jnp.copy(var_fg)
+        vv_bg = jnp.copy(var_bg)
+        cuv_fg = 0.
+        cuv_bg = 0.
+
+    # Construct the 2x2 covariances for fg, bg we actually use
+    V_fg = jnp.array([ [var_fg, cuv_fg], [cuv_fg, vv_fg] ])
+    V_bg = jnp.array([ [var_bg, cuv_bg], [cuv_bg, vv_bg] ])
+
+    # Now construct the mixture of the two components
+    Q = numpyro.sample("Q", dist.Uniform(Qmin, Qmax))
+    mix = dist.Categorical(probs=jnp.array([Q, 1.0 - Q]))
+
+    # Assemble the hyperparameters for the star-by-star shifts
+    shift_centers = x * 0
+    shift_covars = jnp.array([[prior_du_var,0.], \
+                              [0., prior_du_var] ])
+    
+    # Optionally propagate the xy uncertainty into the uv frame
+    xycov_tran = A * 0.
+    if xerr is not None:
+        xycov_tran = jnp.matmul(A, jnp.matmul(xerr, A.T))
+
+    # Project the xy positions into the uv frame for comparison
+    xycen = jnp.array([xcen, ycen])
+    dx = x - xycen[None,:]
+    uproj = jnp.einsum('jk,ik -> ij', A, dx)
+
+    # Project the sky positions, the sky measurement uncertainties,
+    # and the model covariance components to uv, using the
+    # transformation traced by the foreground component for BOTH
+    # components.
+    chi_eta, jac = sky2uv(u, alpha0vec, \
+                          degrees=True, get_jacobian=reproj_covar)
+
+    covuv_fg = jnp.matmul(jnp.matmul(jac, uerr + V_fg), \
+                          jnp.transpose(jac, axes=(0,2,1)) ) \
+                          + xycov_tran
+
+    covuv_bg = jnp.matmul(jnp.matmul(jac, uerr + V_bg), \
+                          jnp.transpose(jac, axes=(0,2,1)) ) \
+                          + xycov_tran
+
+    # Project the background component field center onto the [uv] frame.
+    uv0_bg, _ = sky2uv(alpha0vec_bg[None,:], alpha0vec, \
+                       degrees=True, get_jacobian=False)
+    chi0_bg = uv0_bg[0] # Want [2] array rather than [1,2]
+
+    # It's convenient to view the two components of the bg component
+    # for tracking later.
+    u0_bg = numpyro.deterministic("u0_bg", chi0_bg[0])
+    v0_bg = numpyro.deterministic("v0_bg", chi0_bg[1])
+
+    with numpyro.plate("data", x.shape[0]):
+
+        # star-by-star shifts. For the moment, try these in the uv
+        # plane:
+        du = numpyro.sample("du", \
+                            dist.MultivariateNormal(shift_centers, \
+                                                    shift_covars) )
+
+        # Evaluate the distance metric under both the foreground and
+        # background models, AND with star-by-star offsets in the
+        # model:
+        dist_fg = dist.MultivariateNormal(uproj + du, \
+                                          covuv_fg)
+        dist_bg = dist.MultivariateNormal(uproj + du + chi0_bg[None,:], \
+                                          covuv_bg)
+
+        # Apply this as mixture...
+        mixture = dist.MixtureGeneral(mix, [dist_fg, dist_bg])
+
+        # Actually compare the sample to the [chi, eta] observations
+        y_ = numpyro.sample("obs", mixture, obs=chi_eta)
+
+        # track membership probabilities
         log_probs = mixture.component_log_probs(y_)
         p = numpyro.deterministic(
             "p", log_probs - \
@@ -5786,9 +6006,11 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         fig9.subplots_adjust(wspace=0., hspace=0., left=0.2)
 
         fig9.savefig('simulated_deltas.png')
-            
-        if only_show:
-            return {}
+
+        # Deferred to later so we can inspect the arguments that will
+        # be passed to the sampler as well.
+        #if only_show:
+        #    return {}
     
     # For the moment, try our "working" method, just to make sure our
     # syntax is sensible.
@@ -5898,12 +6120,20 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
 
         # if pointing model AND shift...
         if test_shift:
-            print("TESTING POINTING MODEL WITH MOVES")
+            #print("TESTING POINTING MODEL WITH MOVES")
             methmodel = model_pointing_moves
 
         if test_popmix:
-            print("TESTING POINTING MODEL WITH POPMIX")
+            #print("TESTING POINTING MODEL WITH POPMIX")
             methmodel = model_pointing_mixmod
+
+        if test_mix:
+            #print("TESTING POINTING MODEL WITH MOVES AND MIXMOD")
+            methmodel = model_pointing_mixmoves
+
+        # Report the method chosen. This is where a switch statement
+        # would come in handy...
+        print("TESTING POINTING MODEL:", methmodel.__name__)
             
         # 2026-08-03 retry with this un-reset (now that the
         # degrees-to-radians has been "fixed")
@@ -5930,11 +6160,13 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         extra_args['prior_alpha0_cen'] = jnp.median(u_obs, axis=0)
         extra_args['prior_alpha0_cov'] = prior_cov
 
-        # ugh - repeating some arguments here
-        if test_popmix:
+        # ugh - heuristics again
+        if test_popmix or test_mix:
             extra_args['Qmin'] = Qmin
             extra_args['Qmax'] = Qmax
-        
+
+            extra_args['prior_du_var'] = prior_du_var
+            
     # 2026-07-20 numpyro has DAG visualization built in. What does
     # this look like? (For the moment, show then exit so we can
     # develop this)
@@ -5961,6 +6193,10 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
           % (methmodel.__name__), extra_args)
     print(" ")
 
+
+    # Opportunity to exit before running and inspect the setup
+    if only_show:
+        return {}
     
     ### Set up the sampler
     sampler = infer.MCMC(
@@ -6472,6 +6708,7 @@ def wrap_demo_undercover(nsets=10, nstars=25, \
                          frac_outly = 0., \
                          test_shift=False, \
                          test_mixmod=False, \
+                         test_mix=False, \
                          istart=0, Qmin=None, Qmax=None):
 
     """Wrapper to run nsets of simulations at nstars and assess whether we
@@ -6523,6 +6760,9 @@ model
     if test_mixmod:
         sdir = '%s_mixmod' % (sdir)
 
+    if test_mix:
+        sdir = '%s_mix' % (sdir)
+        
     if fullvar:
         sdir = '%s_fullvar' % (sdir)
         
