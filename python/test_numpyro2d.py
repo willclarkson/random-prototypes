@@ -5410,6 +5410,9 @@ def test2term_moves(ndata=25, s=1.0e-2, theta=30., \
                     tight_prior_bg=False, \
                     prior_u0_cen=jnp.array([0.250, 0.250]), \
                     prior_var_bg_min=1.0e-12, \
+                    prior_var_bg_max=None, \
+                    prior_var_fg_min=None, \
+                    prior_var_fg_max=None, \
                     prior_du_var=1.0e-6, \
                     s_min=1e-5, \
                     s_max=0.1, \
@@ -5622,10 +5625,16 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         du_clumps = [0.002, 0.004]#, -0.003]
         dv_clumps = [-0.003, 0.004]#, 0.003]
 
-        sigu_clumps = [5e-3, 1e-3]#, 5e-4]
-        sigv_clumps = [3e-3, 1e-3]#, 8e-4]
+        # 2026-08-30 10:00am tweak (and have 3)
+        fclumps = [0.19, 0.15, 0.01]#, 0.15]
+        du_clumps = [0.003, 0.004, 0.005]#, -0.003]
+        dv_clumps = [-0.004, 0.004, 0.00]#, 0.003]
+        
+        
+        sigu_clumps = [5e-3, 1e-3, 5e-4]
+        sigv_clumps = [3e-3, 1e-3, 8e-4]
 
-        corrxy_clumps = [0.0, 0.2]#, -0.2]
+        corrxy_clumps = [0.0, 0.2, -0.2]#, -0.2]
 
         # how many clumps do we want to add? REFACTOR THIS IN LATER.
         fclumps = fclumps[0:nclumps]
@@ -6160,13 +6169,26 @@ as part of the transformation fitting. Lots of optional tweaks to the input to t
         extra_args['prior_alpha0_cen'] = jnp.median(u_obs, axis=0)
         extra_args['prior_alpha0_cov'] = prior_cov
 
+        if test_shift or test_mix:
+            extra_args['prior_du_var'] = prior_du_var
+        
         # ugh - heuristics again
         if test_popmix or test_mix:
             extra_args['Qmin'] = Qmin
             extra_args['Qmax'] = Qmax
 
-            extra_args['prior_du_var'] = prior_du_var
-            
+            # Allow optional arguments on the bg variance prior
+            if prior_var_bg_min is not None and \
+               prior_var_bg_max is not None:
+                extra_args['v_bg_min'] = prior_var_bg_min
+                extra_args['v_bg_max'] = prior_var_bg_max
+
+            # ditto on the foreground variance prior
+            if prior_var_fg_min is not None and \
+               prior_var_fg_max is not None:
+                extra_args['v_fg_min'] = prior_var_fg_min
+                extra_args['v_fg_max'] = prior_var_fg_max
+                
     # 2026-07-20 numpyro has DAG visualization built in. What does
     # this look like? (For the moment, show then exit so we can
     # develop this)
@@ -6709,7 +6731,12 @@ def wrap_demo_undercover(nsets=10, nstars=25, \
                          test_shift=False, \
                          test_mixmod=False, \
                          test_mix=False, \
-                         istart=0, Qmin=None, Qmax=None):
+                         istart=0, Qmin=None, Qmax=None, \
+                         prior_var_bg_min=1.0e-12, \
+                         prior_var_bg_max=None, \
+                         prior_var_fg_min=None, \
+                         prior_var_fg_max=None, \
+                         prior_du_var=1.0e-6):
 
     """Wrapper to run nsets of simulations at nstars and assess whether we
 demonstrate undercoverage by not propagating the uncertainties in the
@@ -6827,7 +6854,7 @@ model
                                 only_show=False, \
                                 test_shift=test_shift, \
                                 test_popmix=test_mixmod, \
-                                test_mix=False, \
+                                test_mix=test_mix, \
                                 add_clumps=add_clumps, \
                                 nclumps=nclumps, \
                                 u0=u0, v0=v0, \
@@ -6846,5 +6873,10 @@ model
                                 thetadeg_max = thetadeg_max, \
                                 tosky=tosky, \
                                 Qmin=Qmin, Qmax=Qmax, \
-                                fullvar=fullvar)
+                                fullvar=fullvar, \
+                                prior_var_bg_min=prior_var_bg_min, \
+                                prior_var_bg_max=prior_var_bg_max, \
+                                prior_var_fg_min=prior_var_fg_min, \
+                                prior_var_fg_max=prior_var_fg_max, \
+                                prior_du_var=prior_du_var)
     
